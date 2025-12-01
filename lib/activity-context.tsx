@@ -2,10 +2,6 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
 import { format, subDays } from 'date-fns'
-import {
-  getClientCachedActivity,
-  setClientCachedActivity
-} from './client-activity-cache'
 
 interface ActivityData {
   date: string // YYYY-MM-DD format
@@ -16,6 +12,7 @@ interface ActivityData {
     time: string
     avatar?: string
   }>
+  fromCache?: boolean
 }
 
 interface ActivityPatterns {
@@ -146,7 +143,7 @@ export function ActivityProvider({
     }
   }, [])
 
-  // Fetch activities with smart caching
+  // Fetch activities with database caching (no localStorage)
   const fetchActivities = useCallback(async (forceRefresh = false) => {
     if (!room || !username) {
       return
@@ -170,45 +167,10 @@ export function ActivityProvider({
       neededDates.push(format(date, 'yyyy-MM-dd'))
     }
     
-    // ALWAYS load from localStorage first (even on forceRefresh)
-    // This ensures we resume from where we left off if we aborted mid-fetch
-    const cachedActivities: ActivityData[] = []
-    const cachedDatesSet = new Set<string>()
-    
-    neededDates.forEach(date => {
-      const cached = getClientCachedActivity(room, date, username)
-      if (cached) {
-        cachedActivities.push({
-          date: cached.date,
-          count: cached.count,
-          messages: cached.messages
-        })
-        cachedDatesSet.add(date)
-      }
-    })
-    
-    // Show cached data immediately (no flicker!)
-    if (cachedActivities.length > 0) {
-      console.log(`📦 Loaded ${cachedActivities.length} dates from localStorage cache`)
-      setActivities(cachedActivities)
-      const patterns = calculatePatterns(cachedActivities)
-      setActivityPatterns(patterns)
-    }
-    
-    // Determine which dates need to be fetched
-    // On forceRefresh, we refetch all dates, but we still use cache as a base
-    const datesToFetch = forceRefresh ? neededDates : neededDates.filter(date => !cachedDatesSet.has(date))
-    
-    if (datesToFetch.length === 0) {
-      console.log('✅ All data available in localStorage - no fetch needed')
-      setLastSyncTime(new Date())
-      return
-    }
-    
-    console.log(`🌐 Fetching ${datesToFetch.length}/${neededDates.length} dates from API (forceRefresh: ${forceRefresh}, resuming from ${cachedActivities.length} cached)`)
+    console.log(`🌐 Fetching ${neededDates.length} dates from API (database-backed, forceRefresh: ${forceRefresh})`)
     
     setIsLoading(true)
-    setProgress({ current: 0, total: datesToFetch.length })
+    setProgress({ current: 0, total: neededDates.length })
 
     try {
       const response = await fetch('/api/chat-activity', {
@@ -217,8 +179,8 @@ export function ActivityProvider({
         body: JSON.stringify({
           room,
           username,
-          dates: datesToFetch, // Send specific dates to fetch, not day count
-          stream: true
+          dates: neededDates,
+          forceRefresh
         }),
         signal: abortController.signal
       })
@@ -227,87 +189,15 @@ export function ActivityProvider({
         throw new Error(`Failed to fetch: ${response.statusText}`)
       }
 
-      const contentType = response.headers.get('content-type')
+      const data = await response.json()
       
-      if (contentType?.includes('application/json')) {
-        // Non-streaming response
-        const data = await response.json()
-        
-        // Cache all activities
-        data.activities.forEach((activity: ActivityData) => {
-          setClientCachedActivity(room, activity.date, username, activity.count, activity.messages || [])
-        })
-        
+      if (data.activities) {
         setActivities(data.activities)
         const patterns = calculatePatterns(data.activities)
         setActivityPatterns(patterns)
         setLastSyncTime(new Date())
-      } else {
-        // Streaming response
-        const reader = response.body?.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        const streamedActivities: ActivityData[] = []
-        const streamedDatesSet = new Set<string>()
-
-        if (reader) {
-          while (true) {
-            if (abortController.signal.aborted) {
-              reader.cancel()
-              break
-            }
-
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() || ''
-
-            for (const line of lines) {
-              if (line.trim() === '') continue
-              
-              try {
-                const chunk = JSON.parse(line)
-                
-                if (chunk.type === 'progress') {
-                  setProgress({ 
-                    current: chunk.current || 0, 
-                    total: datesToFetch.length 
-                  })
-                } else if (chunk.type === 'activity') {
-                  const activity = chunk.activity
-                  
-                  // Cache immediately
-                  setClientCachedActivity(room, activity.date, username, activity.count, activity.messages || [])
-                  
-                  // Track streamed dates to avoid duplicates
-                  if (!streamedDatesSet.has(activity.date)) {
-                    streamedActivities.push(activity)
-                    streamedDatesSet.add(activity.date)
-                  }
-                  
-                  // Merge: Keep cached data for dates we haven't streamed yet
-                  // Replace with streamed data for dates we have received
-                  const mergedActivities = [
-                    ...cachedActivities.filter(a => !streamedDatesSet.has(a.date)),
-                    ...streamedActivities
-                  ]
-                  
-                  setActivities(mergedActivities)
-                  
-                  // Update patterns with merged data
-                  const patterns = calculatePatterns(mergedActivities)
-                  setActivityPatterns(patterns)
-                } else if (chunk.type === 'complete') {
-                  setLastSyncTime(new Date())
-                }
-              } catch (err) {
-                console.warn('Failed to parse chunk:', err)
-              }
-            }
-          }
-        }
+        
+        console.log(`✅ Loaded ${data.activities.length} days (${data.cachedCount || 0} from cache, ${data.fetchedCount || 0} fetched fresh)`)
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
@@ -384,4 +274,3 @@ export function ActivityProvider({
     </ActivityContext.Provider>
   )
 }
-

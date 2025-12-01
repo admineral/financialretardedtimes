@@ -9,7 +9,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { UserHoverCard } from './UserHoverCard'
 import { useChat } from '../hooks/use-chat-improved'
 import { UserIcon, ExternalLinkIcon } from 'lucide-react'
-import { getAvailableCachedDates, setClientCachedActivity, clearClientActivityCache } from '@/lib/client-activity-cache'
 import { format, subDays } from 'date-fns'
 
 interface ChatterInfo {
@@ -23,7 +22,8 @@ interface ChatterInfo {
 interface ChatterFetchStatus {
   username: string
   status: 'idle' | 'fetching' | 'complete' | 'error'
-  fromCache?: boolean // Track if data came from cache
+  cachedCount?: number // How many days came from cache
+  fetchedCount?: number // How many days were fetched fresh
 }
 
 interface ChattersListProps {
@@ -175,14 +175,13 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
   // Track users currently being fetched to prevent duplicates
   const fetchingUsersRef = useRef<Set<string>>(new Set())
 
-  // Function to fetch activity data for a user (30 days for hover card)
+  // Function to fetch activity data for a user (30 days via Supabase-backed API)
   const fetchUserActivity = useCallback(async (username: string, forceRefresh: boolean = false) => {
     if (!roomId || !username) return
 
     // CRITICAL: Check if already fetching this user
     if (fetchingUsersRef.current.has(username)) {
       console.warn(`[ChattersList] ❌ ${username}: DUPLICATE REQUEST BLOCKED - Already in queue!`)
-      console.warn(`[ChattersList] Current queue:`, Array.from(fetchingUsersRef.current))
       return
     }
 
@@ -190,7 +189,7 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
     fetchingUsersRef.current.add(username)
     console.log(`[ChattersList] ${username}: 🔒 Added to fetch queue. Queue size:`, fetchingUsersRef.current.size)
 
-    // Cancel any existing fetch for this user (shouldn't happen now)
+    // Cancel any existing fetch for this user
     const existingController = abortControllersRef.current.get(username)
     if (existingController) {
       console.log(`[ChattersList] ${username}: ⚠️ Aborting previous fetch`)
@@ -206,46 +205,19 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
     setFetchStatuses(prev => {
       const newMap = new Map(prev)
       newMap.set(username, { username, status: 'fetching' })
-      console.log(`[ChattersList] ${username}: 🔵 Status set to 'fetching'`)
       return newMap
     })
 
     try {
-      // Generate dates for last 30 days (for activity bar chart in hover)
+      // Generate dates for last 30 days
       const today = new Date()
       const dates: string[] = []
       for (let i = 0; i < 30; i++) {
         dates.push(format(subDays(today, i), 'yyyy-MM-dd'))
       }
 
-      // Check which dates are already cached in localStorage
-      const cachedDates = getAvailableCachedDates(roomId, dates, username)
-      const datesToFetch = forceRefresh ? dates : dates.filter(date => !cachedDates.includes(date))
-
-      console.log(`[ChattersList] ${username}: ${cachedDates.length}/30 days cached, fetching ${datesToFetch.length} days ${forceRefresh ? '(FORCE REFRESH)' : ''}`)
-
-      // If all data is cached and not forcing refresh, mark as complete immediately
-      if (datesToFetch.length === 0 && !forceRefresh) {
-        console.log(`[ChattersList] ${username}: ✅ All data cached, skipping fetch`)
-        // Use a small delay to ensure UI updates properly
-        await new Promise(resolve => setTimeout(resolve, 50))
-        
-        // Check if aborted before updating status
-        if (abortController.signal.aborted) {
-          console.log(`[ChattersList] ${username}: ⚠️ Aborted after cache check`)
-          fetchingUsersRef.current.delete(username)
-          return
-        }
-        
-        setFetchStatuses(prev => new Map(prev).set(username, { username, status: 'complete', fromCache: true }))
-        abortControllersRef.current.delete(username)
-        fetchingUsersRef.current.delete(username)
-        console.log(`[ChattersList] ${username}: 🔓 Removed from fetch queue (cached)`)
-        return
-      }
-
-      // Fetch dates from API (either missing dates or all dates if force refresh)
-      console.log(`[ChattersList] ${username}: 🌐 Fetching ${datesToFetch.length} days from API`)
+      console.log(`[ChattersList] ${username}: 🌐 Fetching activity via API ${forceRefresh ? '(FORCE REFRESH)' : ''}`)
+      
       const response = await fetch('/api/chat-activity', {
         method: 'POST',
         headers: {
@@ -254,10 +226,10 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
         body: JSON.stringify({
           room: roomId,
           username,
-          dates: datesToFetch,
-          stream: false // Use non-streaming for background fetch
+          dates,
+          forceRefresh
         }),
-        signal: abortController.signal // Add abort signal
+        signal: abortController.signal
       })
 
       // Check if aborted
@@ -278,33 +250,23 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
         return
       }
 
-      // Cache the fetched data to localStorage
-      if (data.activities && Array.isArray(data.activities)) {
-        data.activities.forEach((activity: { date: string; count: number; messages: Array<{ id: string; text: string; time: string; avatar?: string }> }) => {
-          setClientCachedActivity(
-            roomId,
-            activity.date,
-            username,
-            activity.count,
-            activity.messages || []
-          )
-        })
-        console.log(`[ChattersList] ${username}: 💾 Cached ${data.activities.length} days to localStorage`)
-      }
-
-      // Update status to complete (from API, not cache)
+      // Update status to complete with cache info
       setFetchStatuses(prev => {
         const newMap = new Map(prev)
-        newMap.set(username, { username, status: 'complete', fromCache: false })
-        console.log(`[ChattersList] ${username}: ✅ Fetch complete - updating status map. New size:`, newMap.size)
+        newMap.set(username, { 
+          username, 
+          status: 'complete',
+          cachedCount: data.cachedCount || 0,
+          fetchedCount: data.fetchedCount || 0
+        })
         return newMap
       })
-      console.log(`[ChattersList] ${username}: ✅ Fetch complete`)
       
-      // Clean up abort controller and remove from fetching set
+      console.log(`[ChattersList] ${username}: ✅ Fetch complete (${data.cachedCount || 0} cached, ${data.fetchedCount || 0} fetched)`)
+      
+      // Clean up
       abortControllersRef.current.delete(username)
       fetchingUsersRef.current.delete(username)
-      console.log(`[ChattersList] ${username}: 🔓 Removed from fetch queue`)
     } catch (error) {
       // Don't log abort errors as real errors
       if (error instanceof Error && error.name === 'AbortError') {
@@ -312,7 +274,6 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
         setFetchStatuses(prev => new Map(prev).set(username, { username, status: 'idle' }))
         abortControllersRef.current.delete(username)
         fetchingUsersRef.current.delete(username)
-        console.log(`[ChattersList] ${username}: 🔓 Removed from fetch queue (aborted)`)
         return
       }
       
@@ -320,7 +281,6 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
       setFetchStatuses(prev => new Map(prev).set(username, { username, status: 'error' }))
       abortControllersRef.current.delete(username)
       fetchingUsersRef.current.delete(username)
-      console.log(`[ChattersList] ${username}: 🔓 Removed from fetch queue (error)`)
     }
   }, [roomId])
 
@@ -363,45 +323,9 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
         setIsFetchingComplete(false)
         console.log(`[ChattersList] 🔄 Fetch loop iteration - ${currentChatters.length} chatters total`)
         
-        // Pre-check cache for all users to determine fetch order
-        const today = new Date()
-        const dates: string[] = []
-        for (let j = 0; j < 30; j++) {
-          dates.push(format(subDays(today, j), 'yyyy-MM-dd'))
-        }
-        
-        // First pass: Mark users with full cache as complete instantly
-        // Batch all status updates together to avoid multiple re-renders
-        const usersToMarkComplete: string[] = []
-        for (const chatter of currentChatters) {
-          const currentStatus = fetchStatusesRef.current.get(chatter.username)
-          if (!currentStatus) {
-            const cachedDates = getAvailableCachedDates(roomId, dates, chatter.username)
-            if (cachedDates.length === 30) {
-              console.log(`[ChattersList] ✅ ${chatter.username}: Using full cache (30/30 days)`)
-              usersToMarkComplete.push(chatter.username)
-            }
-          }
-        }
-        
-        // Batch update all users at once
-        if (usersToMarkComplete.length > 0) {
-          setFetchStatuses(prev => {
-            const newMap = new Map(prev)
-            usersToMarkComplete.forEach(username => {
-              newMap.set(username, {
-                username,
-                status: 'complete',
-                fromCache: true
-              })
-            })
-            return newMap
-          })
-        }
-        
         let hasWorkToDo = false
         
-        // Second pass: Fetch users in order (top to bottom)
+        // Fetch users in order (top to bottom)
         for (let i = 0; i < currentChatters.length; i++) {
           if (isCancelled || !isMountedRef.current) break
           
@@ -429,9 +353,8 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
             continue
           }
           
-          // Fetch this user (either no cache or partial cache)
-          const cachedDates = getAvailableCachedDates(roomId, dates, chatter.username)
-          console.log(`[ChattersList] 📥 Fetching ${chatter.username} (#${i + 1}, ${cachedDates.length}/30 days cached)`)
+          // Fetch this user
+          console.log(`[ChattersList] 📥 Fetching ${chatter.username} (#${i + 1})`)
           await fetchUserActivity(chatter.username, false)
           await new Promise(resolve => setTimeout(resolve, 300))
           hasWorkToDo = true
@@ -475,27 +398,21 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
       fetchingUsers.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, fetchTrigger, isForceRefresh]) // Removed 'chatters' dependency - using ref instead
+  }, [roomId, fetchTrigger, isForceRefresh])
 
-  // Handle refresh - clear localStorage cache and refetch for all users
+  // Handle refresh - refetch for all users (API handles cache invalidation)
   const handleRefresh = useCallback((e: React.MouseEvent | Event) => {
     if (e instanceof MouseEvent) {
       e.preventDefault()
       e.stopPropagation()
     }
     
-    console.log('[ChattersList] 🔄 REFRESH CLICKED - Clearing cache and refetching activity data for all users')
+    console.log('[ChattersList] 🔄 REFRESH CLICKED - Forcing refetch for all users')
     console.log('[ChattersList] Current chatters:', chatters.length)
     
     onRefreshStateChange?.(true)
     
-    // Clear localStorage cache for all chatters
-    chatters.forEach(chatter => {
-      console.log(`[ChattersList] 🗑️  Clearing cache for ${chatter.username}`)
-      clearClientActivityCache(roomId, chatter.username)
-    })
-    
-    // Set force refresh flag to bypass cache check
+    // Set force refresh flag to bypass cache
     setIsForceRefresh(true)
     
     // Reset completion flag
@@ -510,7 +427,7 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
       console.log('[ChattersList] Fetch trigger updated:', prev, '->', newValue)
       return newValue
     })
-  }, [chatters, roomId, onRefreshStateChange])
+  }, [chatters, onRefreshStateChange])
 
   const handleUserClick = (username: string, event: React.MouseEvent) => {
     // Prevent the hover card from interfering
@@ -551,18 +468,6 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
   const erroredFetches = Array.from(fetchStatuses.values()).filter(s => s.status === 'error').length
   const totalProcessed = completedFetches + erroredFetches
   const hasPendingFetches = !isFetchingComplete && (activeFetches > 0 || totalProcessed < totalChatters)
-  
-  // Debug: Log render state
-  console.log('[ChattersList RENDER]', {
-    totalChatters,
-    fetchStatusesSize: fetchStatuses.size,
-    activeFetches,
-    completedFetches,
-    erroredFetches,
-    hasPendingFetches,
-    isFetchingComplete,
-    statuses: Array.from(fetchStatuses.entries()).map(([u, s]) => `${u}:${s.status}`).join(', ')
-  })
 
   return (
     <div className="h-full flex flex-col">
@@ -572,7 +477,7 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
           <div className="flex items-center justify-between text-xs text-blue-600 dark:text-blue-400 mb-2">
             <div className="flex items-center gap-2">
               <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-              <span className="font-medium">Checking cache & loading data...</span>
+              <span className="font-medium">Loading activity data...</span>
             </div>
             <span className="font-mono font-bold">{totalProcessed}/{totalChatters}</span>
           </div>
@@ -595,26 +500,6 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
         {chatters.map((chatter) => {
           const userMessages = messages.filter(msg => msg.username === chatter.username)
           const fetchStatus = fetchStatuses.get(chatter.username)
-          
-          // Check if user has cached data (30 days) - simple check on render
-          const today = new Date()
-          const last30Days: string[] = []
-          for (let i = 0; i < 30; i++) {
-            last30Days.push(format(subDays(today, i), 'yyyy-MM-dd'))
-          }
-          const cachedDates = getAvailableCachedDates(roomId, last30Days, chatter.username)
-          const hasCachedData = cachedDates.length > 0
-          const cachePercentage = Math.round((cachedDates.length / 30) * 100)
-          
-          // Debug log for first user
-          if (chatter.username === chatters[0]?.username) {
-            console.log(`[ChattersList RENDER] ${chatter.username}:`, {
-              status: fetchStatus?.status,
-              fromCache: fetchStatus?.fromCache,
-              hasCachedData,
-              cachePercentage
-            })
-          }
           
           return (
             <UserHoverCard 
@@ -661,25 +546,19 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
                   ) : fetchStatus?.status === 'error' ? (
                     /* Priority 2: Show error status */
                     <div className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-md ring-2 ring-red-300 animate-pulse" title="Fetch failed" />
-                  ) : fetchStatus?.status === 'complete' && hasCachedData ? (
-                    /* Priority 3: Show green dot if complete (regardless of time window), orange if from cache */
+                  ) : fetchStatus?.status === 'complete' ? (
+                    /* Priority 3: Show completion status - green if fetched fresh, orange if mostly from cache */
                     <div 
                       className={`h-2.5 w-2.5 rounded-full shadow-md ring-2 ${
-                        fetchStatus.fromCache === false 
+                        (fetchStatus.fetchedCount || 0) > 0
                           ? 'bg-green-500 ring-green-300' 
                           : 'bg-orange-500 ring-orange-300'
                       }`}
                       title={
-                        fetchStatus.fromCache === false
-                          ? `Fetched from API (fresh data) - ${cachedDates.length}/30 days cached`
-                          : `${cachedDates.length}/30 days cached (${cachePercentage}%)`
+                        (fetchStatus.fetchedCount || 0) > 0
+                          ? `Fetched ${fetchStatus.fetchedCount} days fresh, ${fetchStatus.cachedCount} from cache`
+                          : `All ${fetchStatus.cachedCount} days from database cache`
                       }
-                    />
-                  ) : hasCachedData ? (
-                    /* Priority 4: Show orange dot if data is cached but no fetch status */
-                    <div 
-                      className="h-2.5 w-2.5 rounded-full bg-orange-500 shadow-md ring-2 ring-orange-300" 
-                      title={`${cachedDates.length}/30 days cached (${cachePercentage}%)`} 
                     />
                   ) : null}
                   <Badge variant="outline" className="text-xs">
@@ -695,5 +574,3 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
     </div>
   )
 })
-
-

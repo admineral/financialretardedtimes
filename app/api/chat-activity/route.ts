@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as cheerio from 'cheerio'
-import { format, subDays } from 'date-fns'
+import { format, subDays, isToday, parseISO } from 'date-fns'
+import { 
+  getCachedActivityForDates, 
+  getMissingActivityDates, 
+  cacheActivityData,
+  isActivityStale,
+  DBActivityMessage
+} from '@/app/Test/lib/db-cache'
 
 // Progress bar helper for terminal logging
 function createProgressBar(current: number, total: number, width: number = 30): string {
@@ -211,6 +218,7 @@ interface ActivityData {
     time: string
     avatar?: string
   }>
+  fromCache?: boolean
 }
 
 interface ChatActivityResponse {
@@ -219,12 +227,17 @@ interface ChatActivityResponse {
   username: string
   totalDays: number
   totalMessages: number
+  cachedCount: number
+  fetchedCount: number
 }
 
 export async function POST(request: NextRequest) {
+  // Get the abort signal from the request to detect client disconnection
+  const abortSignal = request.signal
+  
   try {
     const body = await request.json()
-    const { room, username, days = 30, startOffset = 0, stream = false, dates } = body // Support both 'dates' array and legacy 'days' param
+    const { room, username, days = 30, dates, forceRefresh = false } = body
 
     if (!room || !username) {
       return NextResponse.json(
@@ -232,233 +245,226 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    // Streaming response using NDJSON so the UI can update incrementally
-    if (stream) {
-      const encoder = new TextEncoder()
-      const today = new Date()
-      const activities: ActivityData[] = []
-      let totalMessages = 0
-
-      // Support both specific dates array or legacy day count
-      const datesToFetch = dates && Array.isArray(dates) ? dates : []
-      const useDates = datesToFetch.length > 0
-      const totalToFetch = useDates ? datesToFetch.length : days
-
-      // Log start with user info
-      console.log(`\n📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-      console.log(`📊 ACTIVITY FETCH: "${username}" in ${room}`)
-      console.log(`📊 Fetching ${totalToFetch} days ${useDates ? '(specific dates)' : `(offset: ${startOffset})`}`)
-      console.log(`📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
-
-      const streamBody = new ReadableStream<Uint8Array>({
-        start: async (controller) => {
-          let isClosed = false
-          let runningTotal = 0
-          const startTime = Date.now()
-          
-          try {
-            // Iterate through dates
-            for (let i = 0; i < totalToFetch; i++) {
-              // Check if client disconnected
-              if (isClosed) {
-                console.log('\n⛔ Stream closed by client, stopping fetch')
-                break
-              }
-
-              // Get the date to fetch - either from specific dates array or calculate from offset
-              const dateStr = useDates ? datesToFetch[i] : format(subDays(today, startOffset + i), 'yyyy-MM-dd')
-
-              try {
-                // Fetch fresh data (no server-side cache)
-                const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
-
-                // Check again after async operation
-                if (isClosed) break
-
-                // Add avatar to messages
-                const messagesWithAvatar = allMessages.map(msg => ({
-                  ...msg,
-                  avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
-                }))
-
-                const activityMessages = messagesWithAvatar.slice(0, 5)
-                
-                const activity: ActivityData = {
-                  date: dateStr,
-                  count: allMessages.length,
-                  messages: activityMessages
-                }
-                
-                runningTotal += allMessages.length
-                
-                // Log progress bar with current date info
-                const progress = createProgressBar(i + 1, totalToFetch)
-                const msgInfo = allMessages.length > 0 ? `📨 ${allMessages.length} msgs` : `📭 0 msgs`
-                console.log(`👤 ${username} ${progress} ${dateStr} ${msgInfo}`)
-
-                activities.push(activity)
-                totalMessages += activity.count
-
-                // Emit activity chunk - wrapped in try-catch
-                try {
-                  controller.enqueue(
-                    encoder.encode(JSON.stringify({ type: 'activity', activity }) + '\n')
-                  )
-                  // Emit progress chunk
-                  controller.enqueue(
-                    encoder.encode(JSON.stringify({ type: 'progress', current: (i - startOffset + 1), total: days }) + '\n')
-                  )
-                } catch (enqueueError) {
-                  console.log('Client disconnected during stream:', enqueueError)
-                  isClosed = true
-                  break
-                }
-
-                // Small delay to avoid overwhelming the target site
-                await new Promise(resolve => setTimeout(resolve, 100))
-              } catch (error) {
-                console.error(`Error fetching data for ${dateStr}:`, error)
-                
-                if (isClosed) break
-
-                const activity: ActivityData = { date: dateStr, count: 0, messages: [] }
-                activities.push(activity)
-                
-                try {
-                  controller.enqueue(
-                    encoder.encode(JSON.stringify({ type: 'activity', activity }) + '\n')
-                  )
-                } catch (enqueueError) {
-                  console.log('Client disconnected during error stream:', enqueueError)
-                  isClosed = true
-                  break
-                }
-              }
-            }
-
-            // Only send completion if stream is still open
-            if (!isClosed) {
-              try {
-                // Emit completion chunk with summary data
-                const summary: ChatActivityResponse = {
-                  activities,
-                  room,
-                  username,
-                  totalDays: days,
-                  totalMessages
-                }
-                
-                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-                console.log(`\n✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-                console.log(`✅ COMPLETE: "${username}" - ${totalMessages} total messages`)
-                console.log(`✅ Fetched ${totalToFetch} days in ${elapsed}s`)
-                console.log(`✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
-                
-                controller.enqueue(
-                  encoder.encode(JSON.stringify({ type: 'complete', data: summary }) + '\n')
-                )
-                controller.close()
-              } catch (closeError) {
-                console.log('Stream already closed:', closeError)
-              }
-            }
-          } catch (err) {
-            if (!isClosed) {
-              try {
-                controller.error(err)
-              } catch {
-                console.log('Could not send error, stream already closed')
-              }
-            }
-          }
-        },
-        cancel() {
-          console.log('\n⛔ Stream cancelled by client')
-        }
-      })
-
-      return new Response(streamBody, {
-        headers: {
-          'Content-Type': 'application/x-ndjson; charset=utf-8',
-          'Cache-Control': 'no-cache, no-transform',
-          'Connection': 'keep-alive',
-          'X-Accel-Buffering': 'no'
-        }
-      })
+    
+    // Check if client already disconnected
+    if (abortSignal?.aborted) {
+      console.log(`🛑 ${username}: Client disconnected before processing started`)
+      return NextResponse.json({ error: 'Request aborted' }, { status: 499 })
     }
 
-    // Fallback: non-streaming JSON response (existing behavior)
-    const activities: ActivityData[] = []
+    // Generate dates to fetch
     const today = new Date()
-    let totalMessages = 0
-    const startTime = Date.now()
+    const todayStr = format(today, 'yyyy-MM-dd')
+    const datesToFetch = dates && Array.isArray(dates) ? dates : []
+    
+    // If no specific dates provided, generate last N days
+    if (datesToFetch.length === 0) {
+      for (let i = 0; i < days; i++) {
+        datesToFetch.push(format(subDays(today, i), 'yyyy-MM-dd'))
+      }
+    }
 
-    // Log start with user info
     console.log(`\n📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
     console.log(`📊 ACTIVITY FETCH: "${username}" in ${room}`)
-    console.log(`📊 Fetching ${days} days (non-streaming)`)
+    console.log(`📊 Requested ${datesToFetch.length} days ${forceRefresh ? '(FORCE REFRESH)' : ''}`)
     console.log(`📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 
-    // Fetch data for each day
-    for (let i = days - 1; i >= 0; i--) {
-      const date = subDays(today, i)
-      const dateStr = format(date, 'yyyy-MM-dd')
-      const currentDay = days - i
+    const activities: ActivityData[] = []
+    let totalMessages = 0
+    let cachedCount = 0
+    let fetchedCount = 0
+    const startTime = Date.now()
 
+    // Step 1: Check Supabase cache for existing data
+    let missingDates: string[] = datesToFetch
+    let cachedData = new Map<string, { count: number; messages: DBActivityMessage[] }>()
+
+    if (!forceRefresh) {
       try {
-        // Fetch fresh data (no server-side cache)
-        const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
-
-        // Add avatar to messages
-        const messagesWithAvatar = allMessages.map(msg => ({
-          ...msg,
-          avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
-        }))
-
-        const activityMessages = messagesWithAvatar.slice(0, 5)
+        // Check which dates we already have cached
+        const cached = await getCachedActivityForDates(room, username, datesToFetch)
         
-        activities.push({
-          date: dateStr,
-          count: allMessages.length,
-          messages: activityMessages
-        })
-        totalMessages += allMessages.length
+        // For today's date, check if it's stale (> 15 minutes old)
+        const staleDates: string[] = []
+        for (const [date, data] of cached) {
+          if (date === todayStr) {
+            const stale = await isActivityStale(room, username, date, 15)
+            if (stale) {
+              staleDates.push(date)
+              console.log(`📊 ${username}: Today's data is stale, will refresh`)
+            }
+          }
+        }
         
-        // Log progress bar
-        const progress = createProgressBar(currentDay, days)
-        const msgInfo = allMessages.length > 0 ? `📨 ${allMessages.length} msgs` : `📭 0 msgs`
-        console.log(`👤 ${username} ${progress} ${dateStr} ${msgInfo}`)
-      } catch (error) {
-        console.error(`❌ Error fetching ${dateStr}:`, error)
-        // Add empty activity for errors
-        activities.push({
-          date: dateStr,
-          count: 0,
-          messages: []
-        })
+        // Remove stale dates from cached data
+        for (const date of staleDates) {
+          cached.delete(date)
+        }
         
-        // Still log progress even on error
-        const progress = createProgressBar(currentDay, days)
-        console.log(`👤 ${username} ${progress} ${dateStr} ❌ error`)
+        cachedData = new Map(
+          Array.from(cached).map(([date, data]) => [
+            date, 
+            { count: data.message_count, messages: data.messages }
+          ])
+        )
+        
+        missingDates = await getMissingActivityDates(room, username, datesToFetch)
+        // Also add stale dates to missing
+        missingDates = [...new Set([...missingDates, ...staleDates])]
+        
+        console.log(`📊 ${username}: ${cachedData.size}/${datesToFetch.length} days cached, ${missingDates.length} to fetch`)
+      } catch (dbError) {
+        console.warn('⚠️ [Activity] Database not available, fetching all from TradingView:', dbError)
+        missingDates = datesToFetch
       }
-
-      // Add a small delay to avoid overwhelming the server
-      await new Promise(resolve => setTimeout(resolve, 100))
+    } else {
+      console.log(`📊 ${username}: Force refresh - fetching all ${datesToFetch.length} days`)
     }
+
+    // Step 2: Add cached data to activities
+    for (const date of datesToFetch) {
+      const cached = cachedData.get(date)
+      if (cached) {
+        activities.push({
+          date,
+          count: cached.count,
+          messages: cached.messages.map(m => ({
+            ...m,
+            avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
+          })),
+          fromCache: true
+        })
+        totalMessages += cached.count
+        cachedCount++
+      }
+    }
+
+    // Step 3: Fetch missing dates from TradingView
+    if (missingDates.length > 0) {
+      console.log(`📊 ${username}: Fetching ${missingDates.length} missing dates from TradingView...`)
+      
+      const newActivities: Array<{ date: string; count: number; messages: DBActivityMessage[] }> = []
+      let wasAborted = false
+      
+      for (let i = 0; i < missingDates.length; i++) {
+        // Check if client disconnected before each fetch
+        if (abortSignal?.aborted) {
+          console.log(`🛑 ${username}: Client disconnected at ${i}/${missingDates.length} - stopping fetch`)
+          wasAborted = true
+          break
+        }
+        
+        const dateStr = missingDates[i]
+        
+        try {
+          const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
+          
+          // Check again after fetch in case client disconnected during fetch
+          if (abortSignal?.aborted) {
+            console.log(`🛑 ${username}: Client disconnected after fetching ${dateStr} - stopping`)
+            wasAborted = true
+            // Still cache what we got so far
+            if (allMessages.length > 0) {
+              newActivities.push({
+                date: dateStr,
+                count: allMessages.length,
+                messages: allMessages.slice(0, 5)
+              })
+            }
+            break
+          }
+          
+          // Add avatar to messages
+          const messagesWithAvatar = allMessages.slice(0, 5).map(msg => ({
+            ...msg,
+            avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
+          }))
+          
+          const activity: ActivityData = {
+            date: dateStr,
+            count: allMessages.length,
+            messages: messagesWithAvatar,
+            fromCache: false
+          }
+          
+          // Store for caching
+          newActivities.push({
+            date: dateStr,
+            count: allMessages.length,
+            messages: allMessages.slice(0, 5) // Store only first 5 messages
+          })
+          
+          activities.push(activity)
+          totalMessages += allMessages.length
+          fetchedCount++
+          
+          // Log progress
+          const progress = createProgressBar(i + 1, missingDates.length)
+          const msgInfo = allMessages.length > 0 ? `📨 ${allMessages.length} msgs` : `📭 0 msgs`
+          console.log(`👤 ${username} ${progress} ${dateStr} ${msgInfo}`)
+          
+          // Small delay to avoid overwhelming TradingView
+          await new Promise(resolve => setTimeout(resolve, 100))
+        } catch (error) {
+          console.error(`❌ Error fetching ${dateStr}:`, error)
+          
+          // Add empty activity for errors
+          activities.push({
+            date: dateStr,
+            count: 0,
+            messages: [],
+            fromCache: false
+          })
+          fetchedCount++
+        }
+      }
+      
+      // Step 4: Cache newly fetched data to Supabase (even if aborted - save what we got)
+      if (newActivities.length > 0) {
+        try {
+          await cacheActivityData(room, username, newActivities)
+          console.log(`💾 ${username}: Cached ${newActivities.length} days to Supabase${wasAborted ? ' (partial - client disconnected)' : ''}`)
+        } catch (cacheError) {
+          console.warn('⚠️ [Activity] Failed to cache to Supabase:', cacheError)
+        }
+      }
+      
+      // If aborted, return early with partial data
+      if (wasAborted) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+        console.log(`\n⚠️ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+        console.log(`⚠️ ABORTED: "${username}" - client disconnected`)
+        console.log(`⚠️ ${cachedCount} from cache, ${fetchedCount} fetched in ${elapsed}s before abort`)
+        console.log(`⚠️ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
+        
+        return NextResponse.json({ 
+          error: 'Request aborted by client',
+          partialData: {
+            activities,
+            cachedCount,
+            fetchedCount
+          }
+        }, { status: 499 })
+      }
+    }
+
+    // Sort activities by date (newest first)
+    activities.sort((a, b) => b.date.localeCompare(a.date))
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(`\n✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
     console.log(`✅ COMPLETE: "${username}" - ${totalMessages} total messages`)
-    console.log(`✅ Fetched ${days} days in ${elapsed}s`)
+    console.log(`✅ ${cachedCount} from cache, ${fetchedCount} fetched in ${elapsed}s`)
     console.log(`✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 
     const response: ChatActivityResponse = {
       activities,
       room,
       username,
-      totalDays: days,
-      totalMessages
+      totalDays: datesToFetch.length,
+      totalMessages,
+      cachedCount,
+      fetchedCount
     }
 
     return NextResponse.json(response)

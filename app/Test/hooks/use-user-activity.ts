@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getClientCachedActivities } from '@/lib/client-activity-cache'
 import { format, subDays } from 'date-fns'
 
 interface ActivityData {
@@ -66,39 +65,9 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
         dates.push(format(subDays(today, i), 'yyyy-MM-dd'))
       }
 
-      // Check localStorage cache first
-      const cachedActivities = getClientCachedActivities(roomId, dates, username)
+      console.log(`🔍 [USE USER ACTIVITY] Loading ${days} days for ${username} (database-backed)`)
       
-      // Convert cached data to ActivityData array
-      const cachedActivityData: ActivityData[] = []
-      dates.forEach(date => {
-        const cached = cachedActivities.get(date)
-        if (cached) {
-          cachedActivityData.push(cached)
-        }
-      })
-
-      // If we have all data cached, use it immediately
-      if (cachedActivityData.length === dates.length) {
-        console.log(`✅ [USE USER ACTIVITY] All ${days} days loaded from localStorage for ${username}`)
-        const activityPatterns = calculatePatterns(cachedActivityData)
-        setActivities(cachedActivityData)
-        setPatterns(activityPatterns)
-        setIsLoading(false)
-        return
-      }
-
-      // Show cached data immediately while loading missing data
-      if (cachedActivityData.length > 0) {
-        console.log(`📦 [USE USER ACTIVITY] Loaded ${cachedActivityData.length}/${days} days from localStorage for ${username}`)
-        const partialPatterns = calculatePatterns(cachedActivityData)
-        setActivities(cachedActivityData)
-        setPatterns(partialPatterns)
-      }
-
-      console.log(`🔍 [USE USER ACTIVITY] Loading all ${days} days for ${username} (will use cache where available)`)
-      
-      // Fetch from API - it will also check cache on the server
+      // Fetch from API - it handles database caching
       const response = await fetch('/api/chat-activity', {
         method: 'POST',
         headers: {
@@ -107,8 +76,7 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
         body: JSON.stringify({
           room: roomId,
           username,
-          days,
-          stream: false // Don't stream for hover cards
+          dates
         }),
       })
 
@@ -125,7 +93,7 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
         setActivities(activityData)
         setPatterns(activityPatterns)
         
-        console.log(`✅ [USE USER ACTIVITY] Loaded ${activityData.length} days for ${username}`)
+        console.log(`✅ [USE USER ACTIVITY] Loaded ${activityData.length} days for ${username} (${data.cachedCount || 0} cached, ${data.fetchedCount || 0} fetched)`)
       }
     } catch (err) {
       console.error('❌ [USE USER ACTIVITY] Error fetching activity:', err)
@@ -147,4 +115,3 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
     refetch: fetchActivity
   }
 }
-

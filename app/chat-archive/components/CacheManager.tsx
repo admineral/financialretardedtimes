@@ -1,9 +1,8 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Trash2Icon } from 'lucide-react'
-import { getClientCacheStats, clearClientActivityCache } from '@/lib/client-activity-cache'
+import { RefreshCwIcon } from 'lucide-react'
 import { useActivity } from '@/lib/activity-context'
 
 interface CacheManagerProps {
@@ -13,68 +12,40 @@ interface CacheManagerProps {
 }
 
 export function CacheManager({ room, username, onDataFetched }: CacheManagerProps) {
-  const { refreshActivities } = useActivity()
-  const [cacheStats, setCacheStats] = useState<{ totalEntries: number; totalSize: number }>({ 
-    totalEntries: 0, 
-    totalSize: 0 
-  })
-  const [isClearing, setIsClearing] = useState(false)
+  const { refreshActivities, isLoading } = useActivity()
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  // Load cache stats
-  const loadCacheStats = () => {
-    const stats = getClientCacheStats()
-    setCacheStats(stats)
-  }
-
-  // Refresh stats on mount and when dependencies change
-  useEffect(() => {
-    loadCacheStats()
-  }, [room, username])
-
-  // Handle clear cache for this user/room
-  const handleClearCache = () => {
+  // Handle force refresh (fetches fresh data from TradingView, updates database cache)
+  const handleForceRefresh = async () => {
     if (!room || !username) return
     
-    const confirmed = window.confirm(
-      `Are you sure you want to clear all cached data for ${username} in ${room}?\n\nThis will remove all stored activity data from localStorage.`
-    )
-    
-    if (!confirmed) return
-    
-    setIsClearing(true)
+    setIsRefreshing(true)
     
     try {
-      clearClientActivityCache(room, username)
-      loadCacheStats()
+      await refreshActivities()
       
       // Trigger refresh in parent components
       if (onDataFetched) {
         onDataFetched()
       }
-      
-      // Force refresh activities from API
-      refreshActivities()
-      
-      alert('Cache cleared successfully!')
     } catch (error) {
-      console.error('Error clearing cache:', error)
-      alert('Failed to clear cache')
+      console.error('Error refreshing data:', error)
     } finally {
-      setIsClearing(false)
+      setIsRefreshing(false)
     }
   }
 
   return (
     <div className="w-full flex justify-end">
       <Button
-        variant="destructive"
+        variant="outline"
         size="sm"
-        onClick={handleClearCache}
-        disabled={isClearing || !room || !username || cacheStats.totalEntries === 0}
+        onClick={handleForceRefresh}
+        disabled={isRefreshing || isLoading || !room || !username}
         className="h-9"
       >
-        <Trash2Icon className="h-4 w-4 mr-2" />
-        {isClearing ? 'Clearing Cache...' : 'Clear Cache'}
+        <RefreshCwIcon className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+        {isRefreshing ? 'Refreshing...' : 'Force Refresh'}
       </Button>
     </div>
   )

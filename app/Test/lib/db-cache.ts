@@ -503,6 +503,211 @@ export async function refreshRoomActivity(roomId: string, date: Date): Promise<v
 }
 
 // ============================================
+// Activity Messages Cache (for hover cards)
+// ============================================
+
+export interface DBActivityMessage {
+  id: string
+  text: string
+  time: string
+  avatar?: string
+}
+
+export interface DBActivityWithMessages {
+  room_id: string
+  username: string
+  date: string
+  message_count: number
+  messages: DBActivityMessage[]
+  fetched_at: string
+}
+
+/**
+ * Get cached activity data for a user on specific dates
+ */
+export async function getCachedActivityForDates(
+  roomId: string,
+  username: string,
+  dates: string[]
+): Promise<Map<string, DBActivityWithMessages>> {
+  if (dates.length === 0) {
+    return new Map()
+  }
+  
+  const supabase = await createClient()
+  
+  // Get activity counts
+  const { data: activityData, error: activityError } = await supabase
+    .from('tv_user_activity_daily')
+    .select('*')
+    .eq('room_id', roomId)
+    .eq('username', username)
+    .in('date', dates)
+  
+  if (activityError) {
+    console.error('[DB Cache] Error getting cached activity:', activityError)
+    return new Map()
+  }
+  
+  // Get activity messages
+  const { data: messagesData, error: messagesError } = await supabase
+    .from('tv_user_activity_messages')
+    .select('*')
+    .eq('room_id', roomId)
+    .eq('username', username)
+    .in('date', dates)
+  
+  if (messagesError) {
+    console.error('[DB Cache] Error getting cached activity messages:', messagesError)
+  }
+  
+  // Combine into map
+  const result = new Map<string, DBActivityWithMessages>()
+  
+  const messagesMap = new Map<string, DBActivityMessage[]>()
+  for (const msg of messagesData || []) {
+    messagesMap.set(msg.date, msg.messages || [])
+  }
+  
+  for (const activity of activityData || []) {
+    result.set(activity.date, {
+      room_id: activity.room_id,
+      username: activity.username,
+      date: activity.date,
+      message_count: activity.message_count,
+      messages: messagesMap.get(activity.date) || [],
+      fetched_at: activity.fetched_at || activity.updated_at
+    })
+  }
+  
+  return result
+}
+
+/**
+ * Check which dates are missing from cache
+ */
+export async function getMissingActivityDates(
+  roomId: string,
+  username: string,
+  dates: string[]
+): Promise<string[]> {
+  if (dates.length === 0) {
+    return []
+  }
+  
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('tv_user_activity_daily')
+    .select('date')
+    .eq('room_id', roomId)
+    .eq('username', username)
+    .in('date', dates)
+  
+  if (error) {
+    console.error('[DB Cache] Error checking cached dates:', error)
+    return dates // Return all dates as missing on error
+  }
+  
+  const cachedDates = new Set((data || []).map(d => d.date))
+  return dates.filter(date => !cachedDates.has(date))
+}
+
+/**
+ * Cache activity data for a user
+ */
+export async function cacheActivityData(
+  roomId: string,
+  username: string,
+  activities: Array<{
+    date: string
+    count: number
+    messages: DBActivityMessage[]
+  }>
+): Promise<void> {
+  if (activities.length === 0) {
+    return
+  }
+  
+  const supabase = await createClient()
+  
+  // Prepare activity records
+  const activityRecords = activities.map(a => ({
+    room_id: roomId,
+    username: username,
+    date: a.date,
+    message_count: a.count,
+    fetched_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }))
+  
+  // Prepare message records
+  const messageRecords = activities.map(a => ({
+    room_id: roomId,
+    username: username,
+    date: a.date,
+    messages: a.messages,
+    fetched_at: new Date().toISOString()
+  }))
+  
+  // Upsert activity counts
+  const { error: activityError } = await supabase
+    .from('tv_user_activity_daily')
+    .upsert(activityRecords, {
+      onConflict: 'room_id,username,date'
+    })
+  
+  if (activityError) {
+    console.error('[DB Cache] Error caching activity:', activityError)
+    throw activityError
+  }
+  
+  // Upsert activity messages
+  const { error: messagesError } = await supabase
+    .from('tv_user_activity_messages')
+    .upsert(messageRecords, {
+      onConflict: 'room_id,username,date'
+    })
+  
+  if (messagesError) {
+    console.error('[DB Cache] Error caching activity messages:', messagesError)
+    // Don't throw - messages are optional
+  }
+  
+  console.log(`✅ [DB Cache] Cached ${activities.length} activity records for ${username}`)
+}
+
+/**
+ * Check if activity data for today needs refresh (older than 15 minutes)
+ */
+export async function isActivityStale(
+  roomId: string,
+  username: string,
+  date: string,
+  maxAgeMinutes: number = 15
+): Promise<boolean> {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('tv_user_activity_daily')
+    .select('fetched_at, updated_at')
+    .eq('room_id', roomId)
+    .eq('username', username)
+    .eq('date', date)
+    .single()
+  
+  if (error || !data) {
+    return true // Not cached = stale
+  }
+  
+  const fetchedAt = new Date(data.fetched_at || data.updated_at)
+  const now = new Date()
+  const diffMinutes = (now.getTime() - fetchedAt.getTime()) / (1000 * 60)
+  
+  return diffMinutes > maxAgeMinutes
+}
+
+// ============================================
 // Chatters List (derived from messages)
 // ============================================
 

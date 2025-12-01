@@ -25,7 +25,8 @@ import {
   PlayIcon,
   CodeIcon,
   HistoryIcon,
-  ZapIcon
+  ZapIcon,
+  DownloadIcon
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 
@@ -78,6 +79,12 @@ interface UserSummary {
   last_message: string
   avatar: string | null
   has_profile: boolean
+  // Profile stats (if available)
+  followers: number | null
+  following: number | null
+  ideas_count: number | null
+  reputation: number | null
+  display_name: string | null
 }
 
 interface SyncHistoryRecord {
@@ -128,24 +135,38 @@ export default function CacheAdminPage() {
   
   // User filter
   const [userFilter, setUserFilter] = useState<string>('')
+  
+  // Messages filter and loading all
+  const [messageFilter, setMessageFilter] = useState<string>('')
+  const [isLoadingAllMessages, setIsLoadingAllMessages] = useState(false)
+  const [allMessagesLoaded, setAllMessagesLoaded] = useState(false)
 
-  const fetchStats = useCallback(async () => {
-    setIsLoading(true)
+  const fetchStats = useCallback(async (loadAllMessages: boolean = false) => {
+    if (loadAllMessages) {
+      setIsLoadingAllMessages(true)
+    } else {
+      setIsLoading(true)
+    }
     setError(null)
     
     try {
-      const response = await fetch('/Test/admin/api/cache-stats')
+      const messagesLimit = loadAllMessages ? 0 : 300
+      const response = await fetch(`/Test/admin/api/cache-stats?messagesLimit=${messagesLimit}`)
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       const data = await response.json()
       setStats(data)
       setLastRefresh(new Date())
+      if (loadAllMessages) {
+        setAllMessagesLoaded(true)
+      }
     } catch (err) {
       console.error('Error fetching cache stats:', err)
       setError(err instanceof Error ? err.message : 'Failed to fetch stats')
     } finally {
       setIsLoading(false)
+      setIsLoadingAllMessages(false)
     }
   }, [])
 
@@ -200,6 +221,49 @@ export default function CacheAdminPage() {
   const filteredUsers = stats?.users?.filter(user => 
     user.username.toLowerCase().includes(userFilter.toLowerCase())
   ) || []
+  
+  // Filter messages based on search
+  const filteredMessages = stats?.recentMessages?.filter(msg => 
+    msg.username.toLowerCase().includes(messageFilter.toLowerCase()) ||
+    msg.text.toLowerCase().includes(messageFilter.toLowerCase())
+  ) || []
+  
+  // Export messages to CSV
+  const exportMessagesToCSV = () => {
+    if (!stats?.recentMessages || stats.recentMessages.length === 0) return
+    
+    const messages = messageFilter ? filteredMessages : stats.recentMessages
+    
+    // CSV headers
+    const headers = ['#', 'Username', 'Time', 'Text']
+    
+    // CSV rows with rolling counter
+    const rows = messages.map((msg, idx) => [
+      idx + 1,
+      msg.username,
+      // Format time as HH:MM DD.MM.YYYY
+      format(new Date(msg.time), 'HH:mm dd.MM.yyyy'),
+      // Escape quotes and wrap text in quotes
+      `"${(msg.text || '').replace(/"/g, '""')}"`
+    ])
+    
+    // Combine headers and rows
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n')
+    
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `chat_messages_${format(new Date(), 'yyyy-MM-dd_HH-mm')}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
 
   useEffect(() => {
     fetchStats()
@@ -246,7 +310,7 @@ export default function CacheAdminPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchStats}
+              onClick={() => fetchStats(false)}
               disabled={isLoading}
               className="border-slate-600 text-slate-300 hover:bg-slate-700"
             >
@@ -583,9 +647,12 @@ export default function CacheAdminPage() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-white">{user.username}</span>
+                                  {user.display_name && (
+                                    <span className="text-slate-400 text-sm">({user.display_name})</span>
+                                  )}
                                   {user.has_profile && (
                                     <Badge variant="outline" className="text-xs border-green-500 text-green-500">
-                                      Profile Cached
+                                      Profile
                                     </Badge>
                                   )}
                                 </div>
@@ -593,6 +660,31 @@ export default function CacheAdminPage() {
                                   <span>First: {format(new Date(user.first_message), 'MMM d, HH:mm')}</span>
                                   <span>Last: {format(new Date(user.last_message), 'MMM d, HH:mm')}</span>
                                 </div>
+                                {/* Profile Stats Row */}
+                                {user.has_profile && (
+                                  <div className="flex items-center gap-3 mt-2 text-xs">
+                                    {user.followers !== null && (
+                                      <span className="text-blue-400">
+                                        <span className="text-slate-500">Followers:</span> {user.followers.toLocaleString()}
+                                      </span>
+                                    )}
+                                    {user.following !== null && (
+                                      <span className="text-green-400">
+                                        <span className="text-slate-500">Following:</span> {user.following.toLocaleString()}
+                                      </span>
+                                    )}
+                                    {user.ideas_count !== null && (
+                                      <span className="text-purple-400">
+                                        <span className="text-slate-500">Ideas:</span> {user.ideas_count.toLocaleString()}
+                                      </span>
+                                    )}
+                                    {user.reputation !== null && (
+                                      <span className="text-yellow-400">
+                                        <span className="text-slate-500">Rep:</span> {user.reputation.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                               <div className="text-right">
                                 <p className="text-2xl font-bold text-white">{user.message_count.toLocaleString()}</p>
@@ -616,16 +708,65 @@ export default function CacheAdminPage() {
           <TabsContent value="messages">
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
-                <CardTitle className="text-white">Recent Cached Messages</CardTitle>
+                <CardTitle className="text-white flex items-center justify-between">
+                  <span>Cached Messages</span>
+                  <div className="flex items-center gap-3">
+                    <div className="relative w-64">
+                      <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                      <Input
+                        placeholder="Search messages..."
+                        value={messageFilter}
+                        onChange={(e) => setMessageFilter(e.target.value)}
+                        className="pl-9 bg-slate-900 border-slate-600 text-white placeholder:text-slate-500"
+                      />
+                    </div>
+                    {!allMessagesLoaded && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fetchStats(true)}
+                        disabled={isLoadingAllMessages}
+                        className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                      >
+                        {isLoadingAllMessages ? (
+                          <>
+                            <RefreshCwIcon className="h-4 w-4 mr-2 animate-spin" />
+                            Loading All...
+                          </>
+                        ) : (
+                          <>
+                            <DatabaseIcon className="h-4 w-4 mr-2" />
+                            Load All ({stats?.totalMessages.toLocaleString() || 0})
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={exportMessagesToCSV}
+                      disabled={!stats?.recentMessages || stats.recentMessages.length === 0}
+                      className="border-green-600 text-green-400 hover:bg-green-600/20"
+                    >
+                      <DownloadIcon className="h-4 w-4 mr-2" />
+                      Export CSV
+                    </Button>
+                  </div>
+                </CardTitle>
                 <CardDescription className="text-slate-400">
-                  Latest 50 messages from the database cache
+                  {allMessagesLoaded ? (
+                    <>All {stats?.recentMessages?.length.toLocaleString() || 0} messages loaded</>
+                  ) : (
+                    <>Latest 300 messages from the database cache (showing {filteredMessages.length.toLocaleString()} of {stats?.recentMessages?.length || 0})</>
+                  )}
+                  {messageFilter && ` • Filtered: ${filteredMessages.length.toLocaleString()} matches`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-[500px]">
+                <ScrollArea className="h-[600px]">
                   <div className="space-y-3">
-                    {stats?.recentMessages && stats.recentMessages.length > 0 ? (
-                      stats.recentMessages.map((msg, idx) => (
+                    {filteredMessages.length > 0 ? (
+                      filteredMessages.map((msg, idx) => (
                         <div key={`${msg.id}-${idx}`} className="p-3 bg-slate-900/50 rounded-lg border border-slate-700">
                           <div className="flex items-start gap-3">
                             <Avatar className="h-8 w-8">
@@ -658,7 +799,7 @@ export default function CacheAdminPage() {
                       ))
                     ) : (
                       <div className="text-center py-8 text-slate-500">
-                        No messages cached yet
+                        {messageFilter ? 'No messages match your search' : 'No messages cached yet'}
                       </div>
                     )}
                   </div>

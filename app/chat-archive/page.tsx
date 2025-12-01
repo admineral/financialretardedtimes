@@ -5,8 +5,7 @@ import { ChatViewer, ActivityTracker, UserProfileHeader } from './components'
 import { ActivityProvider, useActivity } from '@/lib/activity-context'
 import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
-import { Trash2Icon, LightbulbIcon, ExternalLinkIcon, ClockIcon, MessageCircleIcon, ZapIcon, CrownIcon } from 'lucide-react'
-import { clearClientActivityCache } from '@/lib/client-activity-cache'
+import { RefreshCwIcon, LightbulbIcon, ExternalLinkIcon, ClockIcon, MessageCircleIcon, ZapIcon, CrownIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   Tooltip,
@@ -252,25 +251,16 @@ function ChatArchiveContent() {
     }
   }
 
-  // Handle clear cache
-  const handleClearCache = () => {
+  // Handle force refresh (fetches fresh data from TradingView, updates database cache)
+  const handleForceRefresh = async () => {
     if (!parsedParams.room || !parsedParams.username) return
-
-    const confirmed = window.confirm(
-      `Are you sure you want to clear all cached data for ${parsedParams.username} in ${parsedParams.room}?\n\nThis will remove all stored activity data from localStorage.`
-    )
-
-    if (!confirmed) return
 
     setIsClearing(true)
 
     try {
-      clearClientActivityCache(parsedParams.room, parsedParams.username)
-      refreshActivities()
-      alert('Cache cleared successfully!')
+      await refreshActivities()
     } catch (error) {
-      console.error('Error clearing cache:', error)
-      alert('Failed to clear cache')
+      console.error('Error refreshing data:', error)
     } finally {
       setIsClearing(false)
     }
@@ -316,26 +306,26 @@ function ChatArchiveContent() {
               </button>
             </div>
             
-            {/* Clear Cache Button - changes based on active tab */}
+            {/* Refresh Button - changes based on active tab */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={activeTab === 'activity' ? handleClearCache : clearIdeasCache}
+                    onClick={activeTab === 'activity' ? handleForceRefresh : clearIdeasCache}
                     disabled={
                       activeTab === 'activity' 
                         ? (isClearing || !parsedParams.room || !parsedParams.username)
                         : (isClearingIdeasCache || !parsedParams.username)
                     }
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    className="hover:bg-muted"
                   >
-                    <Trash2Icon className={cn("h-5 w-5", (isClearing || isClearingIdeasCache) && "animate-spin")} />
+                    <RefreshCwIcon className={cn("h-5 w-5", (isClearing || isClearingIdeasCache) && "animate-spin")} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Clear {activeTab === 'activity' ? 'activity' : 'ideas'} cache</p>
+                  <p>{activeTab === 'activity' ? 'Force refresh activity data' : 'Clear ideas cache'}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

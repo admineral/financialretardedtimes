@@ -1,10 +1,13 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   // Force dynamic by reading headers (prevents prerender warning)
   await headers()
+  
+  const { searchParams } = new URL(request.url)
+  const messagesLimit = parseInt(searchParams.get('messagesLimit') || '300', 10)
   
   try {
     const supabase = await createClient()
@@ -30,12 +33,18 @@ export async function GET() {
       .select('*')
       .order('last_sync_at', { ascending: false })
     
-    // Get recent messages (last 50)
-    const { data: recentMessages } = await supabase
+    // Get recent messages (configurable limit, default 300)
+    // Use messagesLimit = 0 or 'all' to get all messages
+    let recentMessagesQuery = supabase
       .from('tv_chat_messages')
       .select('id, room_id, username, text, time, user_pic, is_moderator, created_at')
       .order('time', { ascending: false })
-      .limit(50)
+    
+    if (messagesLimit > 0) {
+      recentMessagesQuery = recentMessagesQuery.limit(messagesLimit)
+    }
+    
+    const { data: recentMessages } = await recentMessagesQuery
     
     // Get all cached profiles
     const { data: profiles } = await supabase
@@ -87,13 +96,23 @@ export async function GET() {
       }
     }
     
-    // Check which users have cached profiles
-    const profileUsernames = new Set((profiles || []).map(p => p.username))
+    // Create a map of profiles for quick lookup
+    const profileMap = new Map((profiles || []).map(p => [p.username, p]))
     
-    const users = Array.from(userMap.values()).map(user => ({
-      ...user,
-      has_profile: profileUsernames.has(user.username)
-    }))
+    // Merge user stats with profile data
+    const users = Array.from(userMap.values()).map(user => {
+      const profile = profileMap.get(user.username)
+      return {
+        ...user,
+        has_profile: !!profile,
+        // Include profile stats if available
+        followers: profile?.followers ?? null,
+        following: profile?.following ?? null,
+        ideas_count: profile?.ideas_count ?? null,
+        reputation: profile?.reputation ?? null,
+        display_name: profile?.display_name ?? null
+      }
+    })
     
     // Get sync history (last 50 runs)
     const { data: syncHistory } = await supabase

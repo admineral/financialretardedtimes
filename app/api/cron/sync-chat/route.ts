@@ -35,13 +35,81 @@ interface ChatMessage {
   symbol?: string
 }
 
+interface ExtractedLink {
+  url: string
+  domain: string
+  linkType: 'tradingview' | 'twitter' | 'youtube' | 'image' | 'other'
+}
+
+interface ExtractedQuote {
+  quotedUsername: string
+  quotedText: string
+}
+
 /**
- * Fetch newest messages from TradingView
+ * Extract links from message text
  */
-async function fetchNewestMessages(roomId: string): Promise<ChatMessage[]> {
+function extractLinks(text: string): ExtractedLink[] {
+  const links: ExtractedLink[] = []
+  
+  // URL regex - matches http/https URLs
+  const urlRegex = /https?:\/\/[^\s\[\]<>"{}|\\^`]+/gi
+  const matches = text.match(urlRegex) || []
+  
+  for (const url of matches) {
+    try {
+      const urlObj = new URL(url)
+      const domain = urlObj.hostname.replace('www.', '')
+      
+      let linkType: ExtractedLink['linkType'] = 'other'
+      
+      if (domain.includes('tradingview.com')) {
+        linkType = 'tradingview'
+      } else if (domain.includes('twitter.com') || domain.includes('x.com')) {
+        linkType = 'twitter'
+      } else if (domain.includes('youtube.com') || domain.includes('youtu.be')) {
+        linkType = 'youtube'
+      } else if (/\.(jpg|jpeg|png|gif|webp|svg)$/i.test(urlObj.pathname)) {
+        linkType = 'image'
+      }
+      
+      links.push({ url, domain, linkType })
+    } catch {
+      // Invalid URL, skip
+    }
+  }
+  
+  return links
+}
+
+/**
+ * Extract quotes from message text
+ * Format: [quote="username"]quoted text[/quote]
+ */
+function extractQuotes(text: string): ExtractedQuote[] {
+  const quotes: ExtractedQuote[] = []
+  
+  // Match [quote="username"]content[/quote]
+  const quoteRegex = /\[quote="([^"]+)"\]([\s\S]*?)\[\/quote\]/gi
+  let match
+  
+  while ((match = quoteRegex.exec(text)) !== null) {
+    const quotedUsername = match[1]
+    const quotedText = match[2].trim().substring(0, 500) // Limit quoted text length
+    
+    quotes.push({ quotedUsername, quotedText })
+  }
+  
+  return quotes
+}
+
+/**
+ * Fetch messages from TradingView with offset
+ */
+async function fetchMessages(roomId: string, offset: number = 0): Promise<ChatMessage[]> {
   const queryString = new URLSearchParams({
     _rand: Math.random().toString(),
-    offset: '0',
+    offset: offset.toString(),
     room_id: roomId,
     stat_interval: '',
     stat_symbol: '',
@@ -69,12 +137,71 @@ async function fetchNewestMessages(roomId: string): Promise<ChatMessage[]> {
 }
 
 /**
+ * Fetch ALL messages from TradingView (for initial full fetch)
+ */
+async function fetchAllMessages(roomId: string): Promise<ChatMessage[]> {
+  console.log('[CRON] 📚 Starting INITIAL FULL FETCH for room:', roomId)
+  const allMessages: ChatMessage[] = []
+  const seenIds = new Set<string>()
+  let offset = 0
+  const batchSize = 100
+  const maxIterations = 50
+  let iterations = 0
+  let emptyBatchCount = 0
+  
+  while (iterations < maxIterations && emptyBatchCount < 3) {
+    iterations++
+    
+    const messages = await fetchMessages(roomId, offset)
+    
+    if (messages.length === 0) {
+      emptyBatchCount++
+      console.log(`[CRON] 📚 Empty batch at offset ${offset} (${emptyBatchCount}/3)`)
+    } else {
+      emptyBatchCount = 0
+      
+      // Deduplicate
+      let newCount = 0
+      for (const msg of messages) {
+        const msgId = msg.id || `${msg.username}-${msg.time}`
+        if (!seenIds.has(msgId)) {
+          seenIds.add(msgId)
+          allMessages.push(msg)
+          newCount++
+        }
+      }
+      
+      console.log(`[CRON] 📚 Batch ${iterations}: offset=${offset}, fetched=${messages.length}, new=${newCount}, total=${allMessages.length}`)
+      
+      if (newCount === 0 || messages.length < batchSize) {
+        console.log('[CRON] 📚 Reached end of messages')
+        break
+      }
+    }
+    
+    offset += batchSize
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  
+  console.log(`[CRON] 📚 INITIAL FULL FETCH complete: ${allMessages.length} total messages`)
+  return allMessages
+}
+
+/**
  * Cron endpoint for syncing chat messages
  * Called every 10 minutes by Vercel cron
+ * 
+ * Logic:
+ * - First time: Do initial full fetch (all messages)
+ * - After that: Only fetch latest 100 messages
  */
 export async function GET(request: NextRequest) {
   const startTime = new Date()
+  console.log('═══════════════════════════════════════════════════════════')
   console.log('🔄 [CRON] Chat sync started at:', startTime.toISOString())
+  console.log('═══════════════════════════════════════════════════════════')
   
   // Determine trigger type from query param or header
   const { searchParams } = new URL(request.url)
@@ -92,6 +219,11 @@ export async function GET(request: NextRequest) {
     synced: number
     fetched: number
     duplicates: number
+    linksExtracted: number
+    quotesExtracted: number
+    isInitialFetch: boolean
+    latestMessageTime?: string
+    oldestMessageTime?: string
     error?: string
     historyId?: number
   }> = []
@@ -104,6 +236,10 @@ export async function GET(request: NextRequest) {
     const rooms = roomsParam ? roomsParam.split(',') : DEFAULT_ROOMS
     
     for (const roomId of rooms) {
+      console.log('───────────────────────────────────────────────────────────')
+      console.log(`[CRON] 🏠 Processing room: ${roomId}`)
+      console.log('───────────────────────────────────────────────────────────')
+      
       // Create sync history record at start
       const { data: historyRecord } = await supabase
         .from('tv_sync_history')
@@ -122,61 +258,56 @@ export async function GET(request: NextRequest) {
       const historyId = historyRecord?.id
       
       try {
-        console.log(`[CRON] Syncing room: ${roomId} (history ID: ${historyId})`)
-        
-        // Check sync status
+        // Check sync status - do we need initial fetch?
         const { data: syncStatus } = await supabase
           .from('tv_chat_sync_status')
           .select('*')
           .eq('room_id', roomId)
           .single()
         
-        if (!syncStatus?.is_full_history) {
-          const errorMsg = 'Needs initial full fetch'
-          console.log(`[CRON] Room ${roomId} needs initial full fetch - skipping cron sync`)
-          
-          // Update history with error
-          if (historyId) {
-            await supabase
-              .from('tv_sync_history')
-              .update({
-                completed_at: new Date().toISOString(),
-                success: false,
-                error_message: errorMsg
-              })
-              .eq('id', historyId)
-          }
-          
-          results.push({
-            roomId,
-            success: false,
-            synced: 0,
-            fetched: 0,
-            duplicates: 0,
-            error: errorMsg,
-            historyId
-          })
-          continue
+        const needsInitialFetch = !syncStatus?.is_full_history
+        
+        console.log(`[CRON] 📊 Sync status:`)
+        console.log(`[CRON]    - is_full_history: ${syncStatus?.is_full_history || false}`)
+        console.log(`[CRON]    - total_messages: ${syncStatus?.total_messages || 0}`)
+        console.log(`[CRON]    - newest_message_time: ${syncStatus?.newest_message_time || 'N/A'}`)
+        console.log(`[CRON]    - last_sync_at: ${syncStatus?.last_sync_at || 'Never'}`)
+        console.log(`[CRON]    - needs_initial_fetch: ${needsInitialFetch}`)
+        
+        let messages: ChatMessage[]
+        
+        if (needsInitialFetch) {
+          // Do initial full fetch
+          console.log('[CRON] 🚀 Performing INITIAL FULL FETCH...')
+          messages = await fetchAllMessages(roomId)
+        } else {
+          // Just fetch latest 100 messages
+          console.log('[CRON] 📥 Fetching latest 100 messages...')
+          messages = await fetchMessages(roomId, 0)
         }
         
-        // Fetch newest messages
-        const newMessages = await fetchNewestMessages(roomId)
-        console.log(`[CRON] 📥 Fetched ${newMessages.length} messages from TradingView`)
+        console.log(`[CRON] 📥 Fetched ${messages.length} messages from TradingView`)
         
-        // Log sample of fetched messages
-        if (newMessages.length > 0) {
-          console.log(`[CRON] 📝 Sample messages:`)
-          newMessages.slice(0, 3).forEach((m, i) => {
-            const msgId = m.id || `${m.username}-${m.time}`
-            console.log(`[CRON]   ${i + 1}. ID: ${msgId} | User: ${m.username} | Time: ${m.time}`)
-            console.log(`[CRON]      Text: ${m.text.substring(0, 50)}${m.text.length > 50 ? '...' : ''}`)
+        if (messages.length > 0) {
+          // Log time range of fetched messages
+          const times = messages.map(m => new Date(m.time).getTime())
+          const newestTime = new Date(Math.max(...times))
+          const oldestTime = new Date(Math.min(...times))
+          
+          console.log(`[CRON] ⏰ Message time range:`)
+          console.log(`[CRON]    - Newest: ${newestTime.toISOString()}`)
+          console.log(`[CRON]    - Oldest: ${oldestTime.toISOString()}`)
+          
+          // Log sample messages
+          console.log(`[CRON] 📝 Sample messages (first 3):`)
+          messages.slice(0, 3).forEach((m, i) => {
+            console.log(`[CRON]    ${i + 1}. [${m.time}] ${m.username}: ${m.text.substring(0, 60)}${m.text.length > 60 ? '...' : ''}`)
           })
         }
         
-        if (newMessages.length === 0) {
+        if (messages.length === 0) {
           console.log(`[CRON] ℹ️ No messages returned from TradingView API`)
           
-          // Update history - success with 0 messages
           if (historyId) {
             await supabase
               .from('tv_sync_history')
@@ -196,51 +327,46 @@ export async function GET(request: NextRequest) {
             synced: 0,
             fetched: 0,
             duplicates: 0,
+            linksExtracted: 0,
+            quotesExtracted: 0,
+            isInitialFetch: needsInitialFetch,
             historyId
           })
           continue
         }
         
-        // Get existing message IDs to check for duplicates
-        const messageIds = newMessages.map(m => m.id || `${m.username}-${m.time}`)
-        console.log(`[CRON] 🔍 Checking ${messageIds.length} message IDs against database...`)
+        // Check for existing messages to avoid duplicates
+        const messageIds = messages.map(m => m.id || `${m.username}-${m.time}`)
         
-        const { data: existingMessages, error: queryError } = await supabase
+        const { data: existingMessages } = await supabase
           .from('tv_chat_messages')
           .select('id')
           .eq('room_id', roomId)
           .in('id', messageIds)
         
-        if (queryError) {
-          console.error(`[CRON] ❌ Database query error:`, queryError)
-          throw queryError
-        }
-        
         const existingIds = new Set((existingMessages || []).map(m => m.id))
         const duplicatesCount = existingIds.size
-        console.log(`[CRON] 📊 Found ${duplicatesCount} existing messages in database`)
         
-        // Filter to only truly new messages
-        const trulyNewMessages = newMessages.filter(m => {
+        // Filter to only new messages
+        const newMessages = messages.filter(m => {
           const msgId = m.id || `${m.username}-${m.time}`
           return !existingIds.has(msgId)
         })
         
-        console.log(`[CRON] ✨ ${trulyNewMessages.length} truly new messages to insert (${duplicatesCount} duplicates skipped)`)
+        console.log(`[CRON] 📊 Deduplication:`)
+        console.log(`[CRON]    - Total fetched: ${messages.length}`)
+        console.log(`[CRON]    - Already in DB: ${duplicatesCount}`)
+        console.log(`[CRON]    - New to insert: ${newMessages.length}`)
         
         let insertedCount = 0
+        let linksExtracted = 0
+        let quotesExtracted = 0
         
-        if (trulyNewMessages.length > 0) {
-          console.log(`[CRON] 💾 Inserting ${trulyNewMessages.length} new messages...`)
+        if (newMessages.length > 0) {
+          console.log(`[CRON] 💾 Inserting ${newMessages.length} new messages...`)
           
-          // Log new messages being inserted
-          trulyNewMessages.forEach((m, i) => {
-            const msgId = m.id || `${m.username}-${m.time}`
-            console.log(`[CRON]   NEW ${i + 1}. ID: ${msgId} | User: ${m.username}`)
-          })
-          
-          // Insert new messages
-          const dbMessages = trulyNewMessages.map(msg => ({
+          // Insert messages
+          const dbMessages = newMessages.map(msg => ({
             id: msg.id || `${msg.username}-${msg.time}`,
             room_id: roomId,
             username: msg.username,
@@ -267,14 +393,109 @@ export async function GET(request: NextRequest) {
             throw insertError
           }
           
-          insertedCount = insertedData?.length || trulyNewMessages.length
-          console.log(`[CRON] ✅ Successfully inserted ${insertedCount} messages`)
+          insertedCount = insertedData?.length || newMessages.length
+          console.log(`[CRON] ✅ Inserted ${insertedCount} messages`)
+          
+          // Extract and store links
+          const allLinks: Array<{
+            room_id: string
+            message_id: string
+            username: string
+            url: string
+            domain: string
+            link_type: string
+            message_time: string
+          }> = []
+          
+          for (const msg of newMessages) {
+            const links = extractLinks(msg.text)
+            for (const link of links) {
+              allLinks.push({
+                room_id: roomId,
+                message_id: msg.id || `${msg.username}-${msg.time}`,
+                username: msg.username,
+                url: link.url,
+                domain: link.domain,
+                link_type: link.linkType,
+                message_time: msg.time
+              })
+            }
+          }
+          
+          if (allLinks.length > 0) {
+            console.log(`[CRON] 🔗 Extracting ${allLinks.length} links...`)
+            
+            const { error: linksError } = await supabase
+              .from('tv_chat_links')
+              .upsert(allLinks, {
+                onConflict: 'room_id,message_id,url',
+                ignoreDuplicates: true
+              })
+            
+            if (linksError) {
+              console.warn(`[CRON] ⚠️ Links insert warning:`, linksError.message)
+            } else {
+              linksExtracted = allLinks.length
+              console.log(`[CRON] ✅ Stored ${linksExtracted} links`)
+              
+              // Log sample links
+              allLinks.slice(0, 3).forEach((l, i) => {
+                console.log(`[CRON]    ${i + 1}. [${l.link_type}] ${l.username}: ${l.url.substring(0, 60)}...`)
+              })
+            }
+          }
+          
+          // Extract and store quotes
+          const allQuotes: Array<{
+            room_id: string
+            message_id: string
+            quoter_username: string
+            quoted_username: string
+            quoted_text: string
+            message_time: string
+          }> = []
+          
+          for (const msg of newMessages) {
+            const quotes = extractQuotes(msg.text)
+            for (const quote of quotes) {
+              allQuotes.push({
+                room_id: roomId,
+                message_id: msg.id || `${msg.username}-${msg.time}`,
+                quoter_username: msg.username,
+                quoted_username: quote.quotedUsername,
+                quoted_text: quote.quotedText,
+                message_time: msg.time
+              })
+            }
+          }
+          
+          if (allQuotes.length > 0) {
+            console.log(`[CRON] 💬 Extracting ${allQuotes.length} quotes...`)
+            
+            const { error: quotesError } = await supabase
+              .from('tv_chat_quotes')
+              .upsert(allQuotes, {
+                onConflict: 'room_id,message_id,quoted_username',
+                ignoreDuplicates: true
+              })
+            
+            if (quotesError) {
+              console.warn(`[CRON] ⚠️ Quotes insert warning:`, quotesError.message)
+            } else {
+              quotesExtracted = allQuotes.length
+              console.log(`[CRON] ✅ Stored ${quotesExtracted} quotes`)
+              
+              // Log sample quotes
+              allQuotes.slice(0, 3).forEach((q, i) => {
+                console.log(`[CRON]    ${i + 1}. ${q.quoter_username} quoted ${q.quoted_username}: "${q.quoted_text.substring(0, 40)}..."`)
+              })
+            }
+          }
           
           // Update sync status
-          const newestTime = newMessages.reduce((max, m) => {
-            const time = new Date(m.time).getTime()
-            return time > max ? time : max
-          }, 0)
+          const times = messages.map(m => new Date(m.time).getTime())
+          const newestTime = new Date(Math.max(...times))
+          const oldestTime = new Date(Math.min(...times))
           
           // Get total count
           const { count } = await supabase
@@ -282,21 +503,34 @@ export async function GET(request: NextRequest) {
             .select('*', { count: 'exact', head: true })
             .eq('room_id', roomId)
           
-          console.log(`[CRON] 📈 Total messages in DB for ${roomId}: ${count}`)
+          console.log(`[CRON] 📈 Database stats:`)
+          console.log(`[CRON]    - Total messages in DB: ${count}`)
+          console.log(`[CRON]    - Newest message: ${newestTime.toISOString()}`)
           
           await supabase
             .from('tv_chat_sync_status')
-            .update({
+            .upsert({
+              room_id: roomId,
               last_sync_at: new Date().toISOString(),
-              newest_message_time: new Date(newestTime).toISOString(),
+              newest_message_time: newestTime.toISOString(),
+              oldest_message_time: needsInitialFetch ? oldestTime.toISOString() : (syncStatus?.oldest_message_time || oldestTime.toISOString()),
               total_messages: count || 0,
+              is_full_history: true,
               updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'room_id'
             })
-            .eq('room_id', roomId)
           
-          console.log(`[CRON] ✅ Synced ${insertedCount} new messages for ${roomId}`)
+          // Log new messages
+          console.log(`[CRON] 📝 New messages inserted:`)
+          newMessages.slice(0, 5).forEach((m, i) => {
+            console.log(`[CRON]    ${i + 1}. [${m.time}] ${m.username}: ${m.text.substring(0, 50)}...`)
+          })
+          if (newMessages.length > 5) {
+            console.log(`[CRON]    ... and ${newMessages.length - 5} more`)
+          }
         } else {
-          console.log(`[CRON] ℹ️ All ${newMessages.length} messages already exist in database - no insert needed`)
+          console.log(`[CRON] ℹ️ All ${messages.length} messages already exist - no insert needed`)
         }
         
         // Update sync history with success
@@ -306,27 +540,33 @@ export async function GET(request: NextRequest) {
             .update({
               completed_at: new Date().toISOString(),
               success: true,
-              messages_fetched: newMessages.length,
+              messages_fetched: messages.length,
               messages_inserted: insertedCount,
               duplicates_skipped: duplicatesCount
             })
             .eq('id', historyId)
         }
         
+        const times = messages.map(m => new Date(m.time).getTime())
+        
         results.push({
           roomId,
           success: true,
           synced: insertedCount,
-          fetched: newMessages.length,
+          fetched: messages.length,
           duplicates: duplicatesCount,
+          linksExtracted,
+          quotesExtracted,
+          isInitialFetch: needsInitialFetch,
+          latestMessageTime: messages.length > 0 ? new Date(Math.max(...times)).toISOString() : undefined,
+          oldestMessageTime: messages.length > 0 ? new Date(Math.min(...times)).toISOString() : undefined,
           historyId
         })
         
       } catch (roomError) {
-        console.error(`[CRON] Error syncing room ${roomId}:`, roomError)
+        console.error(`[CRON] ❌ Error syncing room ${roomId}:`, roomError)
         const errorMsg = roomError instanceof Error ? roomError.message : 'Unknown error'
         
-        // Update sync history with error
         if (historyId) {
           await supabase
             .from('tv_sync_history')
@@ -344,28 +584,46 @@ export async function GET(request: NextRequest) {
           synced: 0,
           fetched: 0,
           duplicates: 0,
+          linksExtracted: 0,
+          quotesExtracted: 0,
+          isInitialFetch: false,
           error: errorMsg,
           historyId
         })
       }
     }
     
+    const endTime = new Date()
+    const duration = endTime.getTime() - startTime.getTime()
+    
     const totalSynced = results.reduce((sum, r) => sum + r.synced, 0)
     const totalFetched = results.reduce((sum, r) => sum + r.fetched, 0)
+    const totalLinks = results.reduce((sum, r) => sum + r.linksExtracted, 0)
+    const totalQuotes = results.reduce((sum, r) => sum + r.quotesExtracted, 0)
     const allSuccess = results.every(r => r.success)
     
-    console.log(`[CRON] ✅ Sync complete. Fetched: ${totalFetched}, Inserted: ${totalSynced}`)
+    console.log('═══════════════════════════════════════════════════════════')
+    console.log(`[CRON] ✅ Sync complete in ${duration}ms`)
+    console.log(`[CRON] 📊 Summary:`)
+    console.log(`[CRON]    - Messages fetched: ${totalFetched}`)
+    console.log(`[CRON]    - Messages inserted: ${totalSynced}`)
+    console.log(`[CRON]    - Links extracted: ${totalLinks}`)
+    console.log(`[CRON]    - Quotes extracted: ${totalQuotes}`)
+    console.log('═══════════════════════════════════════════════════════════')
     
     return NextResponse.json({
       success: allSuccess,
       timestamp: new Date().toISOString(),
+      duration: `${duration}ms`,
       totalSynced,
       totalFetched,
+      totalLinks,
+      totalQuotes,
       results
     })
     
   } catch (error) {
-    console.error('[CRON] Fatal error:', error)
+    console.error('[CRON] ❌ Fatal error:', error)
     return NextResponse.json(
       { 
         success: false, 
@@ -381,4 +639,3 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return GET(request)
 }
-
