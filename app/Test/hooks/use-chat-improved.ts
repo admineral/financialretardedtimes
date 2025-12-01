@@ -94,52 +94,42 @@ export function useChat(options: ChatOptions = {}) {
     }
   }, [roomId])
 
-  // Load ALL available chat history (fetches until no more data)
+  // Load ALL available chat history
+  // The API now handles caching - it will:
+  // 1. Check if full history is cached in database
+  // 2. If cached, return from DB (instant)
+  // 3. If not cached, fetch all from TradingView and cache it
+  // 4. Then fetch newest messages and merge
   const loadAllChatHistory = useCallback(async () => {
     if (!mountedRef.current) return
 
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }))
       
-      console.log('📚 [CHAT] Loading ALL chat history...')
-      const allMessages = []
-      let offset = 0
-      const stepSize = 100 // Fetch in steps of 100 messages
+      console.log('📚 [CHAT] Loading chat history (using smart cache)...')
       
-      // Load messages in batches until we get no more data
-      while (true) {
-        const response = await fetch(`/Test/api/chat?roomId=${roomId}&offset=${offset}`)
-        const data = await response.json()
-        
-        if (!mountedRef.current) return
-        
-        // Stop if request failed or no messages returned
-        if (!data.success || !data.messages || data.messages.length === 0) {
-          console.log(`📚 [CHAT] No more messages. Offset: ${offset}, Total messages: ${allMessages.length}`)
-          break
-        }
-        
-        allMessages.push(...data.messages)
-        console.log(`📚 [CHAT] Loaded batch at offset ${offset}: ${data.messages.length} messages (Total so far: ${allMessages.length})`)
-        
-        // Move to next batch
-        offset += stepSize
+      // Single API call - the backend handles all caching logic
+      const response = await fetch(`/Test/api/chat?roomId=${roomId}`)
+      const data = await response.json()
+      
+      if (!mountedRef.current) return
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to load chat history')
       }
       
-      // Remove duplicates and sort by time
-      const uniqueMessages = allMessages.filter((msg, index, arr) => {
-        const msgId = msg.id || `${msg.username}-${msg.time}`
-        return arr.findIndex(m => {
-          const mId = m.id || `${m.username}-${m.time}`
-          return mId === msgId
-        }) === index
-      }).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+      const messages = data.messages || []
       
-      console.log(`✅ [CHAT] Loaded ${uniqueMessages.length} unique messages from ${allMessages.length} total fetched`)
+      // Log cache info
+      console.log(`✅ [CHAT] Loaded ${messages.length} messages`, {
+        source: data.meta?.source,
+        cachedCount: data.meta?.cachedCount,
+        newCount: data.meta?.newCount
+      })
       
       setState(prev => ({
         ...prev,
-        messages: uniqueMessages,
+        messages,
         isLoading: false
       }))
         

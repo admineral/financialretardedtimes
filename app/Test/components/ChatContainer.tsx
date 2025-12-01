@@ -28,21 +28,22 @@ export function ChatContainer({
   className = '' 
 }: ChatContainerProps) {
   // Polling configuration state with localStorage persistence
-  const [pollingEnabled, setPollingEnabled] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('tradingview-chat-polling-enabled')
-      return saved !== null ? JSON.parse(saved) : true
-    }
-    return true
-  })
+  // Use consistent defaults for SSR/client to avoid hydration mismatch
+  const [pollingEnabled, setPollingEnabled] = useState(true)
+  const [pollingInterval, setPollingInterval] = useState(10000) // 10 seconds default
   
-  const [pollingInterval, setPollingInterval] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('tradingview-chat-polling-interval')
-      return saved !== null ? parseInt(saved, 10) : 10000
+  // Hydrate state from localStorage after mount
+  useEffect(() => {
+    const savedEnabled = localStorage.getItem('tradingview-chat-polling-enabled')
+    if (savedEnabled !== null) {
+      setPollingEnabled(JSON.parse(savedEnabled))
     }
-    return 10000 // 10 seconds default
-  })
+    
+    const savedInterval = localStorage.getItem('tradingview-chat-polling-interval')
+    if (savedInterval !== null) {
+      setPollingInterval(parseInt(savedInterval, 10))
+    }
+  }, [])
 
   const {
     messages,
@@ -67,15 +68,11 @@ export function ChatContainer({
 
   // Persist polling settings to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('tradingview-chat-polling-enabled', JSON.stringify(pollingEnabled))
-    }
+    localStorage.setItem('tradingview-chat-polling-enabled', JSON.stringify(pollingEnabled))
   }, [pollingEnabled])
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('tradingview-chat-polling-interval', pollingInterval.toString())
-    }
+    localStorage.setItem('tradingview-chat-polling-interval', pollingInterval.toString())
   }, [pollingInterval])
 
   const scrollToBottom = () => {

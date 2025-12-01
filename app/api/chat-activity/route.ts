@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
 
               try {
                 // Fetch fresh data (no server-side cache)
-                console.log(`Fetching data for ${dateStr}`)
+                console.log(`📥 [ACTIVITY] Fetching data for user "${username}" on ${dateStr}`)
                 const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
 
                 // Check again after async operation
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
                   count: allMessages.length,
                   messages: activityMessages
                 }
-                console.log(`Fetched ${allMessages.length} messages for ${dateStr}`)
+                console.log(`✅ [ACTIVITY] Fetched ${allMessages.length} messages for "${username}" on ${dateStr}`)
 
                 activities.push(activity)
                 totalMessages += activity.count
@@ -371,7 +371,7 @@ export async function POST(request: NextRequest) {
     const today = new Date()
     let totalMessages = 0
 
-    console.log(`Fetching ${days} days of activity for ${username} in ${room}`)
+    console.log(`📊 [ACTIVITY] Fetching ${days} days of activity for user "${username}" in room "${room}"`)
 
     // Fetch data for each day
     for (let i = days - 1; i >= 0; i--) {
@@ -380,7 +380,7 @@ export async function POST(request: NextRequest) {
 
       try {
         // Fetch fresh data (no server-side cache)
-        console.log(`Fetching data for ${dateStr}`)
+        console.log(`📥 [ACTIVITY] Fetching data for user "${username}" on ${dateStr}`)
         const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
 
         // Add avatar to messages
@@ -397,7 +397,7 @@ export async function POST(request: NextRequest) {
           messages: activityMessages
         })
         totalMessages += allMessages.length
-        console.log(`Fetched ${allMessages.length} messages for ${dateStr}`)
+        console.log(`✅ [ACTIVITY] Fetched ${allMessages.length} messages for "${username}" on ${dateStr}`)
       } catch (error) {
         console.error(`Error fetching data for ${dateStr}:`, error)
         // Add empty activity for errors

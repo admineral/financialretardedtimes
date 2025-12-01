@@ -3,8 +3,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { getCachedProfile, isProfileFresh, cacheProfile } from '../../lib/db-cache'
 
 const TRADINGVIEW_ORIGIN = 'https://de.tradingview.com'
+
+// Profile cache TTL in hours (24 hours)
+const PROFILE_CACHE_TTL_HOURS = 24
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -200,7 +204,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const userId = searchParams.get('userId')
   const username = searchParams.get('username')
-  // const includeIdeas = searchParams.get('includeIdeas') === 'true' // Reserved for future use
+  const forceRefresh = searchParams.get('forceRefresh') === 'true'
+  const useCache = searchParams.get('useCache') !== 'false' // Default to using cache
 
   if (!userId && !username) {
     return NextResponse.json(
@@ -209,7 +214,30 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  console.log('🔍 [USER PROFILE API] Fetching profile for:', { userId, username })
+  console.log('🔍 [USER PROFILE API] Fetching profile for:', { userId, username, useCache, forceRefresh })
+
+  // Check database cache first (if enabled and not forcing refresh)
+  if (useCache && !forceRefresh && username) {
+    try {
+      const isFresh = await isProfileFresh(username)
+      if (isFresh) {
+        const cachedProfile = await getCachedProfile(username)
+        if (cachedProfile) {
+          console.log('✅ [USER PROFILE API] Serving from database cache:', username)
+          return NextResponse.json({
+            ...cachedProfile,
+            _cached: true,
+            _cacheSource: 'database'
+          }, { headers: corsHeaders })
+        }
+      } else {
+        console.log('📊 [USER PROFILE API] Cache expired or missing for:', username)
+      }
+    } catch (cacheError) {
+      console.warn('⚠️ [USER PROFILE API] Cache check failed:', cacheError)
+      // Continue to fetch from TradingView
+    }
+  }
 
   // Create a detailed log object to store all extracted data
   const extractionLog: ExtractionLog = {
@@ -537,10 +565,44 @@ export async function GET(request: NextRequest) {
     
     console.log('👤 [USER PROFILE API] Parsed profile data:', profileData)
 
-    return NextResponse.json(profileData, { headers: corsHeaders })
+    // Cache the profile to database (if we have a username)
+    if (profileData.username && useCache) {
+      try {
+        await cacheProfile(profileData)
+        console.log('💾 [USER PROFILE API] Profile cached to database:', profileData.username)
+      } catch (cacheError) {
+        console.warn('⚠️ [USER PROFILE API] Failed to cache profile:', cacheError)
+        // Don't fail the request if caching fails
+      }
+    }
+
+    return NextResponse.json({
+      ...profileData,
+      _cached: false,
+      _cacheSource: 'live'
+    }, { headers: corsHeaders })
 
   } catch (error) {
     console.error('❌ [USER PROFILE API] Error fetching user profile:', error)
+    
+    // Try to serve from cache on error
+    if (username) {
+      try {
+        const cachedProfile = await getCachedProfile(username)
+        if (cachedProfile) {
+          console.log('🔄 [USER PROFILE API] Serving stale cache due to error:', username)
+          return NextResponse.json({
+            ...cachedProfile,
+            _cached: true,
+            _cacheSource: 'database_fallback',
+            _error: error instanceof Error ? error.message : 'Unknown error'
+          }, { headers: corsHeaders })
+        }
+      } catch (cacheError) {
+        console.warn('⚠️ [USER PROFILE API] Cache fallback also failed:', cacheError)
+      }
+    }
+    
     return NextResponse.json(
       { 
         error: 'Failed to fetch user profile',
