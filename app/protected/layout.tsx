@@ -47,14 +47,9 @@ export default function ProtectedLayout({
 
       {/* Navigation */}
       <nav className="w-full border-b border-foreground/20 py-3 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 flex justify-center items-center">
           <div className="flex gap-6 font-headline text-sm tracking-wide">
             <Link href="/" className="hover:text-primary transition-colors">← Zurück zur Titelseite</Link>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/protected" className="px-4 py-1.5 bg-primary text-primary-foreground text-sm font-headline tracking-wide hover:bg-primary/90 transition-colors">
-              DASHBOARD
-            </Link>
           </div>
         </div>
       </nav>

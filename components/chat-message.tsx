@@ -33,10 +33,10 @@ export const ChatMessageItem = ({ message, isOwnMessage, showHeader }: ChatMessa
         )}
         <div
           className={cn(
-            'py-1.5 px-2.5 text-xs font-body w-fit',
+            'py-1.5 px-2.5 text-xs font-body w-fit rounded-sm',
             isOwnMessage 
-              ? 'bg-primary text-primary-foreground' 
-              : 'bg-muted/80 text-foreground border-l-2 border-foreground/20'
+              ? 'bg-foreground/10 text-foreground border border-foreground/20' 
+              : 'bg-muted/60 text-foreground border-l-2 border-foreground/30'
           )}
         >
           {message.content}

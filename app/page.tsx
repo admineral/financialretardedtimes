@@ -13,7 +13,7 @@ export default function Home() {
     <main className="min-h-screen bg-background">
       {/* Top Bar */}
       <div className="w-full border-b border-foreground/10 py-2">
-        <div className="max-w-7xl mx-auto px-4 flex justify-between items-center text-xs text-muted-foreground">
+        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 flex justify-between items-center text-xs text-muted-foreground">
           <CurrentDate />
           <div className="flex items-center gap-4">
             <span className="hidden sm:inline">Vol. 1 • No. 1</span>
@@ -30,34 +30,34 @@ export default function Home() {
       </div>
 
       {/* Masthead */}
-      <header className="w-full py-6 border-b-4 border-double border-foreground/60">
-        <div className="max-w-7xl mx-auto px-4 text-center">
+      <header className="w-full py-4 sm:py-6 border-b-4 border-double border-foreground/60">
+        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 text-center">
           <Link href="/" className="inline-block">
-            <h1 className="font-masthead text-5xl md:text-7xl lg:text-8xl tracking-wide text-foreground hover:text-primary transition-colors">
+            <h1 className="font-masthead text-3xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl tracking-wide text-foreground hover:text-primary transition-colors">
               Financial Retarded Times
             </h1>
           </Link>
-          <p className="font-headline text-sm md:text-base tracking-[0.3em] uppercase text-muted-foreground mt-2">
+          <p className="font-headline text-[10px] sm:text-xs md:text-sm lg:text-base tracking-[0.2em] sm:tracking-[0.3em] uppercase text-muted-foreground mt-1 sm:mt-2">
             Tradingview Edition • Die Stimme des Krypto-Chats
           </p>
         </div>
       </header>
 
       {/* Navigation */}
-      <nav className="w-full border-b border-foreground/20 py-3 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
-          <div className="flex gap-6 font-headline text-sm tracking-wide">
+      <nav className="w-full border-b border-foreground/20 py-2 sm:py-3 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
+        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 flex justify-between items-center">
+          <div className="flex gap-3 sm:gap-4 md:gap-6 font-headline text-xs sm:text-sm tracking-wide">
             <Link href="/" className="hover:text-primary transition-colors font-semibold">Analysen</Link>
             <Link href="/" className="hover:text-primary transition-colors">Community</Link>
             <Link href="/" className="hover:text-primary transition-colors">Trending</Link>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <input 
               type="text" 
               placeholder="Suchen..." 
-              className="hidden md:block px-3 py-1.5 text-sm border border-foreground/20 bg-transparent rounded-sm font-body focus:outline-none focus:border-primary/50 w-40"
+              className="hidden lg:block px-3 py-1.5 text-sm border border-foreground/20 bg-transparent rounded-sm font-body focus:outline-none focus:border-primary/50 w-40"
             />
-            <button className="px-4 py-1.5 bg-primary text-primary-foreground text-sm font-headline tracking-wide hover:bg-primary/90 transition-colors">
+            <button className="px-2 sm:px-4 py-1 sm:py-1.5 bg-primary text-primary-foreground text-xs sm:text-sm font-headline tracking-wide hover:bg-primary/90 transition-colors">
               PUBLISH
             </button>
           </div>
@@ -65,8 +65,8 @@ export default function Home() {
       </nav>
 
       {/* Main Content Grid */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           
           {/* Left Sidebar */}
           <aside className="lg:col-span-2 hidden lg:block">
@@ -121,98 +121,98 @@ export default function Home() {
           {/* Main Content */}
           <main className="lg:col-span-7">
             {/* Section Header */}
-            <div className="flex items-center justify-between mb-6 pb-2 border-b-2 border-foreground/60">
-              <h2 className="font-headline text-2xl font-bold">Titelseite</h2>
-              <div className="flex gap-2 text-xs font-headline">
-                <button className="px-3 py-1 border border-foreground/40 hover:bg-muted transition-colors">NEUESTE</button>
-                <button className="px-3 py-1 border border-foreground/20 hover:bg-muted transition-colors text-muted-foreground">TRENDING</button>
-                <button className="px-3 py-1 border border-foreground/20 hover:bg-muted transition-colors text-muted-foreground">VERIFIZIERT</button>
+            <div className="flex items-center justify-between mb-4 sm:mb-6 pb-2 border-b-2 border-foreground/60">
+              <h2 className="font-headline text-xl sm:text-2xl font-bold">Titelseite</h2>
+              <div className="flex gap-1 sm:gap-2 text-[10px] sm:text-xs font-headline">
+                <button className="px-2 sm:px-3 py-1 border border-foreground/40 hover:bg-muted transition-colors">NEUESTE</button>
+                <button className="px-2 sm:px-3 py-1 border border-foreground/20 hover:bg-muted transition-colors text-muted-foreground hidden sm:block">TRENDING</button>
+                <button className="px-2 sm:px-3 py-1 border border-foreground/20 hover:bg-muted transition-colors text-muted-foreground hidden sm:block">VERIFIZIERT</button>
               </div>
             </div>
 
             {/* Featured Article */}
-            <article className="mb-8 pb-8 border-b border-foreground/20">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs font-headline uppercase tracking-wider text-muted-foreground">Redaktion</span>
+            <article className="mb-6 sm:mb-8 pb-6 sm:pb-8 border-b border-foreground/20">
+              <div className="flex items-center gap-2 mb-2 sm:mb-3 flex-wrap">
+                <span className="text-[10px] sm:text-xs font-headline uppercase tracking-wider text-muted-foreground">Redaktion</span>
                 <span className="text-muted-foreground">•</span>
-                <span className="text-xs text-muted-foreground">2025-11-27</span>
-                <span className="ml-auto px-2 py-0.5 bg-primary/10 text-primary text-xs font-semibold rounded border border-primary/30">ANALYSE</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">2025-11-27</span>
+                <span className="ml-auto px-1.5 sm:px-2 py-0.5 bg-primary/10 text-primary text-[10px] sm:text-xs font-semibold rounded border border-primary/30">ANALYSE</span>
               </div>
-              <h3 className="font-headline text-3xl md:text-4xl font-bold leading-tight mb-4 hover:text-primary/80 cursor-pointer transition-colors">
+              <h3 className="font-headline text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold leading-tight mb-3 sm:mb-4 hover:text-primary/80 cursor-pointer transition-colors">
                 Ist das schon der Bärenmarkt – oder erst Welle A?
               </h3>
-              <p className="font-body text-lg leading-relaxed text-muted-foreground mb-4">
+              <p className="font-body text-sm sm:text-base md:text-lg leading-relaxed text-muted-foreground mb-3 sm:mb-4">
                 Aus den Chatlogs lässt sich eine umfassende Debatte rekonstruieren, ob der aktuelle BTC-Rückgang bereits den Beginn eines Bärenmarkts markiert oder 'nur' eine scharfe Korrektur im ...
               </p>
-              <blockquote className="border-l-4 border-foreground/30 pl-4 py-2 my-4 italic font-body text-muted-foreground">
+              <blockquote className="border-l-4 border-foreground/30 pl-3 sm:pl-4 py-2 my-3 sm:my-4 italic font-body text-muted-foreground text-sm sm:text-base">
                 „Aus den Chatlogs lässt sich eine umfassende Debatte rekonstruieren, ob der aktuelle BTC-Rückgang ber..."
               </blockquote>
-              <div className="flex flex-wrap gap-2 mb-4">
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@Elliotwone</span>
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@roland_cristal</span>
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@SwingMann</span>
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@Tragegurt</span>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4">
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@Elliotwone</span>
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@roland_cristal</span>
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@SwingMann</span>
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@Tragegurt</span>
               </div>
-              <div className="flex items-center gap-4 text-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm">
                 <Link href="/" className="text-primary font-headline hover:underline">Weiterlesen →</Link>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[10px] sm:text-xs text-muted-foreground">
                   <span className="text-green-600 font-semibold">94% verifiziert</span> • 24.680 Leser • 342 Kommentare • 7 Shares
                 </span>
               </div>
             </article>
 
             {/* Secondary Article */}
-            <article className="mb-8 pb-8 border-b border-foreground/20">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs font-headline uppercase tracking-wider text-muted-foreground">ROLAND_CRISTAL</span>
+            <article className="mb-6 sm:mb-8 pb-6 sm:pb-8 border-b border-foreground/20">
+              <div className="flex items-center gap-2 mb-2 sm:mb-3 flex-wrap">
+                <span className="text-[10px] sm:text-xs font-headline uppercase tracking-wider text-muted-foreground">ROLAND_CRISTAL</span>
                 <span className="text-muted-foreground">•</span>
-                <span className="text-xs text-muted-foreground">2025-11-27</span>
-                <span className="ml-auto px-2 py-0.5 bg-primary/10 text-primary text-xs font-semibold rounded border border-primary/30">ANALYSE</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">2025-11-27</span>
+                <span className="ml-auto px-1.5 sm:px-2 py-0.5 bg-primary/10 text-primary text-[10px] sm:text-xs font-semibold rounded border border-primary/30">ANALYSE</span>
               </div>
-              <h3 className="font-headline text-2xl font-bold leading-tight mb-3 hover:text-primary/80 cursor-pointer transition-colors">
+              <h3 className="font-headline text-lg sm:text-xl md:text-2xl font-bold leading-tight mb-2 sm:mb-3 hover:text-primary/80 cursor-pointer transition-colors">
                 Kaspa, HBAR, XRP & Co – was taugen die Usecases?
               </h3>
-              <p className="font-body text-base leading-relaxed text-muted-foreground mb-4">
+              <p className="font-body text-sm sm:text-base leading-relaxed text-muted-foreground mb-3 sm:mb-4">
                 Auf die Frage von mustangchefe nach HBAR entwickelt sich eine lange Usecase-Debatte. Roland_cristal erklärt Hadera/Hashgraph, Zentralisierungsprobleme und vergleicht HBAR mit XRP a...
               </p>
-              <div className="flex flex-wrap gap-2 mb-3">
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@roland_cristal</span>
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@mustangchefe</span>
-                <span className="px-2 py-1 bg-muted text-xs font-body rounded">@Elliotwone</span>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2 sm:mb-3">
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@roland_cristal</span>
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@mustangchefe</span>
+                <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded">@Elliotwone</span>
               </div>
             </article>
 
             {/* Third Article */}
-            <article className="mb-8 pb-8 border-b border-foreground/20">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs font-headline uppercase tracking-wider text-muted-foreground">SWINGMANN</span>
+            <article className="mb-6 sm:mb-8 pb-6 sm:pb-8 border-b border-foreground/20">
+              <div className="flex items-center gap-2 mb-2 sm:mb-3 flex-wrap">
+                <span className="text-[10px] sm:text-xs font-headline uppercase tracking-wider text-muted-foreground">SWINGMANN</span>
                 <span className="text-muted-foreground">•</span>
-                <span className="text-xs text-muted-foreground">2025-11-26</span>
-                <span className="ml-auto px-2 py-0.5 bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-semibold rounded border border-amber-500/30">MEINUNG</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">2025-11-26</span>
+                <span className="ml-auto px-1.5 sm:px-2 py-0.5 bg-amber-500/20 text-amber-700 dark:text-amber-400 text-[10px] sm:text-xs font-semibold rounded border border-amber-500/30">MEINUNG</span>
               </div>
-              <h3 className="font-headline text-2xl font-bold leading-tight mb-3 hover:text-primary/80 cursor-pointer transition-colors">
+              <h3 className="font-headline text-lg sm:text-xl md:text-2xl font-bold leading-tight mb-2 sm:mb-3 hover:text-primary/80 cursor-pointer transition-colors">
                 Die Psychologie des Dips: Warum wir immer zu früh kaufen
               </h3>
-              <p className="font-body text-base leading-relaxed text-muted-foreground">
+              <p className="font-body text-sm sm:text-base leading-relaxed text-muted-foreground">
                 Eine ehrliche Analyse der Community-Reaktionen auf den jüngsten Kursrutsch zeigt wiederkehrende Muster im Kaufverhalten...
               </p>
             </article>
 
             {/* More Articles Teaser */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <article className="pb-4 border-b border-foreground/10">
-                <span className="text-xs text-muted-foreground font-headline uppercase tracking-wider">Kultur</span>
-                <h4 className="font-headline font-semibold mt-1 hover:text-primary/80 cursor-pointer transition-colors">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <article className="pb-3 sm:pb-4 border-b border-foreground/10">
+                <span className="text-[10px] sm:text-xs text-muted-foreground font-headline uppercase tracking-wider">Kultur</span>
+                <h4 className="font-headline text-sm sm:text-base font-semibold mt-1 hover:text-primary/80 cursor-pointer transition-colors">
                   Meme-Coins und die Kunst der Ironie
                 </h4>
-                <p className="text-sm text-muted-foreground mt-1 font-body">Wie die Community mit Humor auf Marktbewegungen reagiert...</p>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-body">Wie die Community mit Humor auf Marktbewegungen reagiert...</p>
               </article>
-              <article className="pb-4 border-b border-foreground/10">
-                <span className="text-xs text-muted-foreground font-headline uppercase tracking-wider">Technische Analyse</span>
-                <h4 className="font-headline font-semibold mt-1 hover:text-primary/80 cursor-pointer transition-colors">
+              <article className="pb-3 sm:pb-4 border-b border-foreground/10">
+                <span className="text-[10px] sm:text-xs text-muted-foreground font-headline uppercase tracking-wider">Technische Analyse</span>
+                <h4 className="font-headline text-sm sm:text-base font-semibold mt-1 hover:text-primary/80 cursor-pointer transition-colors">
                   Elliott-Wellen für Anfänger erklärt
                 </h4>
-                <p className="text-sm text-muted-foreground mt-1 font-body">Elliotwone gibt Nachhilfe in Wellentheorie...</p>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1 font-body">Elliotwone gibt Nachhilfe in Wellentheorie...</p>
               </article>
             </div>
           </main>
@@ -305,8 +305,8 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="w-full border-t-2 border-foreground/20 mt-12">
-        <div className="max-w-7xl mx-auto px-4 py-6">
+      <footer className="w-full border-t-2 border-foreground/20 mt-8 sm:mt-12">
+        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
           {/* Links Row */}
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-4 text-sm font-body">
             <span className="text-muted-foreground">Rubriken:</span>
