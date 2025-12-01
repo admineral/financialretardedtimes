@@ -269,12 +269,16 @@ export default function RateChartPage() {
         setLoadingStatus('Loading chat messages...')
         console.log('📚 [RATE CHART] Loading all messages...')
         
-        const allMessages = []
+        const allMessages: ChatMessage[] = []
+        const seenIds = new Set<string>()
         let offset = 0
-        const stepSize = 100
+        const batchSize = 100
+        const maxIterations = 50 // Safety limit to prevent infinite loops
+        let iterations = 0
         
-        // Load messages in batches until we get no more data
-        while (true) {
+        // Load messages in batches until we get no more new data
+        while (iterations < maxIterations) {
+          iterations++
           setLoadingStatus(`Loading messages... (${allMessages.length} loaded)`)
           
           const response = await fetch(`/Test/api/chat?roomId=bitcoin_de_DE&offset=${offset}`)
@@ -285,11 +289,37 @@ export default function RateChartPage() {
             break
           }
           
-          allMessages.push(...data.messages)
-          setLoadedCount(allMessages.length)
-          console.log(`📚 [RATE CHART] Loaded batch at offset ${offset}: ${data.messages.length} messages (Total: ${allMessages.length})`)
+          // Deduplicate messages by ID to prevent counting same messages
+          let newMessagesCount = 0
+          for (const msg of data.messages) {
+            const msgId = msg.id || `${msg.username}-${msg.time}-${msg.text}`
+            if (!seenIds.has(msgId)) {
+              seenIds.add(msgId)
+              allMessages.push(msg)
+              newMessagesCount++
+            }
+          }
           
-          offset += stepSize
+          setLoadedCount(allMessages.length)
+          console.log(`📚 [RATE CHART] Loaded batch at offset ${offset}: ${data.messages.length} messages, ${newMessagesCount} new (Total unique: ${allMessages.length})`)
+          
+          // If we got no new messages, we've reached the end
+          if (newMessagesCount === 0) {
+            console.log(`📚 [RATE CHART] No new messages in batch, stopping. Total: ${allMessages.length}`)
+            break
+          }
+          
+          // If we got fewer messages than the batch size, we've likely reached the end
+          if (data.messages.length < batchSize) {
+            console.log(`📚 [RATE CHART] Received fewer messages than batch size (${data.messages.length} < ${batchSize}), likely at end. Total: ${allMessages.length}`)
+            break
+          }
+          
+          offset += batchSize
+        }
+        
+        if (iterations >= maxIterations) {
+          console.warn(`📚 [RATE CHART] Reached max iterations (${maxIterations}), stopping to prevent infinite loop`)
         }
         
         setLoadingStatus('Filtering for price predictions...')
@@ -451,14 +481,36 @@ export default function RateChartPage() {
           return // Skip predictions before reset
         }
         
-        const matches = [...message.text.matchAll(priceRegex)]
+        // Remove quoted content before searching for predictions
+        // This prevents counting predictions that are just quotes of other users
+        // Format: [quote="username"]content[/quote]
+        const textWithoutQuotes = message.text.replace(/\[quote[^\]]*\][\s\S]*?\[\/quote\]/gi, '')
+        
+        const matches = [...textWithoutQuotes.matchAll(priceRegex)]
         
         matches.forEach((match) => {
-          // Remove commas and replace European decimal comma with dot
-          const cleanedNumber = match[1].replace(/,/g, (m, offset, str) => {
-            // If comma is followed by exactly 3 digits and then end/space/k, it's a thousands separator
+          // Handle both European (20.000 or 20,5) and US (20,000 or 20.5) number formats
+          // European: . is thousands separator, , is decimal
+          // US: , is thousands separator, . is decimal
+          let cleanedNumber = match[1]
+          
+          // Check if it's European format: dot followed by exactly 3 digits (thousands separator)
+          // e.g., 20.000 or 100.000 or 95.500
+          cleanedNumber = cleanedNumber.replace(/\./g, (m, offset, str) => {
+            const afterDot = str.substring(offset + 1)
+            // If dot is followed by exactly 3 digits (and then end or another separator), it's a thousands separator
+            if (/^\d{3}(?:[.,]|$)/.test(afterDot)) {
+              return '' // Remove thousands separator
+            }
+            // Otherwise it's a decimal point
+            return '.'
+          })
+          
+          // Handle commas: could be thousands separator or decimal
+          cleanedNumber = cleanedNumber.replace(/,/g, (m, offset, str) => {
             const afterComma = str.substring(offset + 1)
-            if (/^\d{3}(?:\s*[kK]|$)/.test(afterComma)) {
+            // If comma is followed by exactly 3 digits (and then end or another separator), it's a thousands separator
+            if (/^\d{3}(?:[.,]|$)/.test(afterComma)) {
               return '' // Remove thousands separator
             }
             // Otherwise it's a decimal separator (European style)
@@ -545,12 +597,24 @@ export default function RateChartPage() {
       
       // Only messages after midnight today
       if (messageViennaTime >= midnightToday) {
-        const matches = [...message.text.matchAll(priceRegex)]
+        // Remove quoted content before searching for predictions
+        const textWithoutQuotes = message.text.replace(/\[quote[^\]]*\][\s\S]*?\[\/quote\]/gi, '')
+        
+        const matches = [...textWithoutQuotes.matchAll(priceRegex)]
         
         matches.forEach((match) => {
-          const cleanedNumber = match[1].replace(/,/g, (m, offset, str) => {
+          // Handle European number format (dot as thousands separator)
+          let cleanedNumber = match[1]
+          cleanedNumber = cleanedNumber.replace(/\./g, (m, offset, str) => {
+            const afterDot = str.substring(offset + 1)
+            if (/^\d{3}(?:[.,]|$)/.test(afterDot)) {
+              return ''
+            }
+            return '.'
+          })
+          cleanedNumber = cleanedNumber.replace(/,/g, (m, offset, str) => {
             const afterComma = str.substring(offset + 1)
-            if (/^\d{3}(?:\s*[kK]|$)/.test(afterComma)) {
+            if (/^\d{3}(?:[.,]|$)/.test(afterComma)) {
               return ''
             }
             return '.'
@@ -852,7 +916,7 @@ export default function RateChartPage() {
               </CardContent>
             </Card>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <p className="text-muted-foreground">
               Today&apos;s predictions from chat messages (format: //price) • Winners shown 00:00-08:00 Vienna time 🇦🇹
             </p>
@@ -863,6 +927,35 @@ export default function RateChartPage() {
             )}
           </div>
         </div>
+
+        {/* Explanation Box */}
+        <Card className="mb-6 border-blue-500/30 bg-blue-500/5">
+          <CardContent className="py-4">
+            <div className="space-y-2 text-sm">
+              <h3 className="font-semibold text-blue-600 flex items-center gap-2">
+                📖 So funktioniert&apos;s:
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-muted-foreground">
+                <div>
+                  <p className="font-medium text-foreground mb-1">🎯 Vorhersage abgeben:</p>
+                  <p>Schreibe im Chat <code className="bg-muted px-1.5 py-0.5 rounded text-xs">//Preis</code> z.B. <code className="bg-muted px-1.5 py-0.5 rounded text-xs">//95k</code> oder <code className="bg-muted px-1.5 py-0.5 rounded text-xs">//95.000</code></p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">⏰ Zeitraum:</p>
+                  <p>Täglich von <strong>08:00 bis 00:00 Uhr</strong> (Wien). Um Mitternacht wird der Gewinner ermittelt!</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">📜 Verlauf sichtbar:</p>
+                  <p>Alle Vorhersagen werden gespeichert! Klick auf einen User um seinen <strong>kompletten Verlauf</strong> zu sehen.</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">🏆 Gewinner:</p>
+                  <p>Wer am nächsten am <strong>Mitternachtspreis</strong> liegt, gewinnt! Nur die <strong>letzte</strong> Vorhersage zählt.</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Current Price & Stats - Compact */}
         <Card className="mb-6">
@@ -1163,21 +1256,21 @@ export default function RateChartPage() {
                         >
                           {entry.username}
                           {entry.guessCount > 1 && (
-                            <span className="ml-2 text-xs text-blue-600 font-normal">
-                              (changed {entry.guessCount - 1}x - click to see all)
+                            <span className="ml-2 text-xs text-orange-600 font-normal">
+                              ⚠️ {entry.guessCount - 1}x geändert - click to {selectedUser === entry.username ? 'hide' : 'show'} history
                             </span>
                           )}
                         </button>
                       <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
                         {entry.guessCount > 1 && (
                           <>
-                            <span>{entry.guessCount} predictions (only latest counts!)</span>
+                            <span className="text-orange-600 font-medium">{entry.guessCount} Vorhersagen (nur letzte zählt!)</span>
                             <span>•</span>
                           </>
                         )}
                         <span className="flex items-center gap-1">
                           <CalendarIcon className="h-3 w-3" />
-                          {formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })} (latest)
+                          {formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })} (letzte)
                         </span>
                       </div>
                       </div>
@@ -1193,11 +1286,11 @@ export default function RateChartPage() {
                       </div>
                     </div>
 
-                    {/* Expanded view showing all predictions for this user */}
-                    {selectedUser === entry.username && entry.guesses.length > 1 && (
-                      <div className="mt-2 ml-16 mr-4 mb-4 p-4 border rounded-lg bg-muted/10">
-                        <h4 className="text-sm font-semibold mb-3 text-muted-foreground">
-                          All {entry.guesses.length} predictions from {entry.username} (only ✅ latest counts!):
+                    {/* Always show history for users with multiple predictions */}
+                    {entry.guesses.length > 1 && (
+                      <div className="mt-2 ml-16 mr-4 mb-4 p-4 border-2 border-orange-300 rounded-lg bg-orange-50 dark:bg-orange-950/20">
+                        <h4 className="text-sm font-semibold mb-3 text-orange-600 flex items-center gap-2">
+                          📜 Verlauf von {entry.username} - {entry.guesses.length} Vorhersagen (nur ✅ letzte zählt!):
                         </h4>
                         <div className="space-y-2">
                           {entry.guesses.map((guess, gIndex) => (
@@ -1206,14 +1299,14 @@ export default function RateChartPage() {
                               className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
                                 gIndex === 0 
                                   ? 'bg-green-100 dark:bg-green-950/30 border-2 border-green-500' 
-                                  : 'bg-muted/20 hover:bg-muted/40'
+                                  : 'bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 opacity-60'
                               }`}
                             >
                               <div className="flex items-center gap-3">
                                 <div className={`text-xs font-semibold ${
-                                  gIndex === 0 ? 'text-green-600' : 'text-muted-foreground'
+                                  gIndex === 0 ? 'text-green-600' : 'text-red-500'
                                 }`}>
-                                  {gIndex === 0 ? '✅ COUNTS' : `Changed ${gIndex}`}
+                                  {gIndex === 0 ? '✅ ZÄHLT' : `❌ Überschrieben`}
                                 </div>
                                   <div>
                                     <div className="text-sm font-medium">
@@ -1231,7 +1324,7 @@ export default function RateChartPage() {
                                 <code className="text-xs bg-muted px-2 py-1 rounded">
                                   {guess.originalText}
                                 </code>
-                                {gIndex === 0 && getTimeBonusBadge(guess.timeBonus)}
+                                {getTimeBonusBadge(guess.timeBonus)}
                                 {getPriceDiffBadge(guess.price)}
                               </div>
                               </div>
