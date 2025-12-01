@@ -4,57 +4,65 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    /* Warm newspaper cream palette */
+    --background: 40 33% 96%;
+    --foreground: 30 10% 15%;
+    --card: 40 30% 98%;
+    --card-foreground: 30 10% 15%;
+    --popover: 40 30% 98%;
+    --popover-foreground: 30 10% 15%;
+    --primary: 0 72% 45%;
+    --primary-foreground: 40 30% 98%;
+    --secondary: 35 20% 90%;
+    --secondary-foreground: 30 10% 20%;
+    --muted: 35 15% 92%;
+    --muted-foreground: 30 8% 45%;
+    --accent: 35 25% 88%;
+    --accent-foreground: 30 10% 15%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    --border: 35 20% 82%;
+    --input: 35 20% 85%;
+    --ring: 0 72% 45%;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --radius: 0.25rem;
+    
+    /* Newspaper specific */
+    --newspaper-line: 30 15% 75%;
+    --newspaper-rule: 30 20% 30%;
   }
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
+    --background: 30 10% 8%;
+    --foreground: 35 20% 92%;
+    --card: 30 10% 10%;
+    --card-foreground: 35 20% 92%;
+    --popover: 30 10% 10%;
+    --popover-foreground: 35 20% 92%;
+    --primary: 0 65% 55%;
+    --primary-foreground: 30 10% 8%;
+    --secondary: 30 8% 18%;
+    --secondary-foreground: 35 20% 92%;
+    --muted: 30 8% 15%;
+    --muted-foreground: 35 15% 55%;
+    --accent: 30 8% 18%;
+    --accent-foreground: 35 20% 92%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --border: 30 8% 20%;
+    --input: 30 8% 20%;
+    --ring: 0 65% 55%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    
+    --newspaper-line: 30 8% 25%;
+    --newspaper-rule: 35 15% 70%;
   }
 }
 
@@ -64,5 +72,53 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+  }
+}
+
+@layer components {
+  /* Classic newspaper masthead - using system serif fonts */
+  .font-masthead {
+    font-family: 'Old English Text MT', 'Lucida Blackletter', 'Times New Roman', serif;
+    font-weight: normal;
+    letter-spacing: 0.02em;
+  }
+  
+  /* Headline font - elegant serif */
+  .font-headline {
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-weight: 700;
+  }
+  
+  /* Body text - readable serif */
+  .font-body {
+    font-family: Georgia, 'Times New Roman', Times, serif;
+  }
+  
+  .newspaper-rule {
+    @apply border-t-2 border-foreground/80;
+  }
+  
+  .newspaper-rule-thin {
+    @apply border-t border-foreground/30;
+  }
+  
+  .newspaper-rule-double {
+    border-top: 3px double hsl(var(--foreground) / 0.6);
+  }
+  
+  .drop-cap::first-letter {
+    @apply float-left text-6xl font-bold leading-none mr-2 mt-1;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+  }
+  
+  .column-divider {
+    @apply border-l border-foreground/20;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
   }
 }
