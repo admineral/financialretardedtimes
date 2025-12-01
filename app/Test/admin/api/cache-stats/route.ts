@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
+import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 
 export async function GET() {
+  // Force dynamic by reading headers (prevents prerender warning)
+  await headers()
+  
   try {
     const supabase = await createClient()
     
