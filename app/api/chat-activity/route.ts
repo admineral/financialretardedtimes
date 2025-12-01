@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as cheerio from 'cheerio'
 import { format, subDays } from 'date-fns'
 
+// Progress bar helper for terminal logging
+function createProgressBar(current: number, total: number, width: number = 30): string {
+  const percentage = Math.round((current / total) * 100)
+  const filled = Math.round((current / total) * width)
+  const empty = width - filled
+  const bar = '█'.repeat(filled) + '░'.repeat(empty)
+  return `[${bar}] ${percentage}% (${current}/${total})`
+}
+
 // Helper function to generate URL for a specific page
 function generatePageUrl(room: string, date: string, username: string, pageIndex: number = 1): string {
   return `https://de.tradingview.com/chat/history/?room=${room}&date=${date}&timefrom=00%3A00&timeto=00%3A00&usernames=${username}&order=asc&tzoffset=-120&msgid=&pageindex=${pageIndex}`
@@ -236,22 +245,24 @@ export async function POST(request: NextRequest) {
       const useDates = datesToFetch.length > 0
       const totalToFetch = useDates ? datesToFetch.length : days
 
-      if (useDates) {
-        console.log(`Streaming ${datesToFetch.length} specific dates for ${username} in ${room}`)
-      } else {
-        console.log(`Streaming ${days} days of activity for ${username} in ${room} (starting from offset ${startOffset})`)
-      }
+      // Log start with user info
+      console.log(`\n📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+      console.log(`📊 ACTIVITY FETCH: "${username}" in ${room}`)
+      console.log(`📊 Fetching ${totalToFetch} days ${useDates ? '(specific dates)' : `(offset: ${startOffset})`}`)
+      console.log(`📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 
       const streamBody = new ReadableStream<Uint8Array>({
         start: async (controller) => {
           let isClosed = false
+          let runningTotal = 0
+          const startTime = Date.now()
           
           try {
             // Iterate through dates
             for (let i = 0; i < totalToFetch; i++) {
               // Check if client disconnected
               if (isClosed) {
-                console.log('Stream closed by client, stopping fetch')
+                console.log('\n⛔ Stream closed by client, stopping fetch')
                 break
               }
 
@@ -260,7 +271,6 @@ export async function POST(request: NextRequest) {
 
               try {
                 // Fetch fresh data (no server-side cache)
-                console.log(`📥 [ACTIVITY] Fetching data for user "${username}" on ${dateStr}`)
                 const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
 
                 // Check again after async operation
@@ -279,7 +289,13 @@ export async function POST(request: NextRequest) {
                   count: allMessages.length,
                   messages: activityMessages
                 }
-                console.log(`✅ [ACTIVITY] Fetched ${allMessages.length} messages for "${username}" on ${dateStr}`)
+                
+                runningTotal += allMessages.length
+                
+                // Log progress bar with current date info
+                const progress = createProgressBar(i + 1, totalToFetch)
+                const msgInfo = allMessages.length > 0 ? `📨 ${allMessages.length} msgs` : `📭 0 msgs`
+                console.log(`👤 ${username} ${progress} ${dateStr} ${msgInfo}`)
 
                 activities.push(activity)
                 totalMessages += activity.count
@@ -333,6 +349,12 @@ export async function POST(request: NextRequest) {
                   totalMessages
                 }
                 
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+                console.log(`\n✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+                console.log(`✅ COMPLETE: "${username}" - ${totalMessages} total messages`)
+                console.log(`✅ Fetched ${totalToFetch} days in ${elapsed}s`)
+                console.log(`✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
+                
                 controller.enqueue(
                   encoder.encode(JSON.stringify({ type: 'complete', data: summary }) + '\n')
                 )
@@ -352,7 +374,7 @@ export async function POST(request: NextRequest) {
           }
         },
         cancel() {
-          console.log('Stream cancelled by client')
+          console.log('\n⛔ Stream cancelled by client')
         }
       })
 
@@ -370,17 +392,22 @@ export async function POST(request: NextRequest) {
     const activities: ActivityData[] = []
     const today = new Date()
     let totalMessages = 0
+    const startTime = Date.now()
 
-    console.log(`📊 [ACTIVITY] Fetching ${days} days of activity for user "${username}" in room "${room}"`)
+    // Log start with user info
+    console.log(`\n📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    console.log(`📊 ACTIVITY FETCH: "${username}" in ${room}`)
+    console.log(`📊 Fetching ${days} days (non-streaming)`)
+    console.log(`📊 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 
     // Fetch data for each day
     for (let i = days - 1; i >= 0; i--) {
       const date = subDays(today, i)
       const dateStr = format(date, 'yyyy-MM-dd')
+      const currentDay = days - i
 
       try {
         // Fetch fresh data (no server-side cache)
-        console.log(`📥 [ACTIVITY] Fetching data for user "${username}" on ${dateStr}`)
         const allMessages = await fetchAllMessagesForDay(room, dateStr, username)
 
         // Add avatar to messages
@@ -397,20 +424,34 @@ export async function POST(request: NextRequest) {
           messages: activityMessages
         })
         totalMessages += allMessages.length
-        console.log(`✅ [ACTIVITY] Fetched ${allMessages.length} messages for "${username}" on ${dateStr}`)
+        
+        // Log progress bar
+        const progress = createProgressBar(currentDay, days)
+        const msgInfo = allMessages.length > 0 ? `📨 ${allMessages.length} msgs` : `📭 0 msgs`
+        console.log(`👤 ${username} ${progress} ${dateStr} ${msgInfo}`)
       } catch (error) {
-        console.error(`Error fetching data for ${dateStr}:`, error)
+        console.error(`❌ Error fetching ${dateStr}:`, error)
         // Add empty activity for errors
         activities.push({
           date: dateStr,
           count: 0,
           messages: []
         })
+        
+        // Still log progress even on error
+        const progress = createProgressBar(currentDay, days)
+        console.log(`👤 ${username} ${progress} ${dateStr} ❌ error`)
       }
 
       // Add a small delay to avoid overwhelming the server
       await new Promise(resolve => setTimeout(resolve, 100))
     }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    console.log(`\n✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+    console.log(`✅ COMPLETE: "${username}" - ${totalMessages} total messages`)
+    console.log(`✅ Fetched ${days} days in ${elapsed}s`)
+    console.log(`✅ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 
     const response: ChatActivityResponse = {
       activities,

@@ -13,11 +13,13 @@ function verifyCronSecret(request: NextRequest): boolean {
   
   // If no secret is configured, allow in development
   if (!cronSecret) {
-    console.warn('[CRON] No CRON_SECRET configured - allowing request')
+    console.warn('[CRON] ⚠️ No CRON_SECRET configured - allowing request (set CRON_SECRET env var for production)')
     return true
   }
   
-  return authHeader === `Bearer ${cronSecret}`
+  const isValid = authHeader === `Bearer ${cronSecret}`
+  console.log(`[CRON] Auth check: ${isValid ? '✅ Valid' : '❌ Invalid'} (header: ${authHeader ? 'present' : 'missing'})`)
+  return isValid
 }
 
 interface ChatMessage {
@@ -68,10 +70,15 @@ async function fetchNewestMessages(roomId: string): Promise<ChatMessage[]> {
 
 /**
  * Cron endpoint for syncing chat messages
- * Called every minute by Vercel cron
+ * Called every 10 minutes by Vercel cron
  */
 export async function GET(request: NextRequest) {
-  console.log('🔄 [CRON] Chat sync started at:', new Date().toISOString())
+  const startTime = new Date()
+  console.log('🔄 [CRON] Chat sync started at:', startTime.toISOString())
+  
+  // Determine trigger type from query param or header
+  const { searchParams } = new URL(request.url)
+  const triggerType = searchParams.get('trigger') || 'cron'
   
   // Verify authorization
   if (!verifyCronSecret(request)) {
@@ -83,20 +90,39 @@ export async function GET(request: NextRequest) {
     roomId: string
     success: boolean
     synced: number
+    fetched: number
+    duplicates: number
     error?: string
+    historyId?: number
   }> = []
   
   try {
     const supabase = await createClient()
     
     // Get rooms to sync (from query param or defaults)
-    const { searchParams } = new URL(request.url)
     const roomsParam = searchParams.get('rooms')
     const rooms = roomsParam ? roomsParam.split(',') : DEFAULT_ROOMS
     
     for (const roomId of rooms) {
+      // Create sync history record at start
+      const { data: historyRecord } = await supabase
+        .from('tv_sync_history')
+        .insert({
+          room_id: roomId,
+          started_at: startTime.toISOString(),
+          trigger_type: triggerType,
+          success: false,
+          messages_fetched: 0,
+          messages_inserted: 0,
+          duplicates_skipped: 0
+        })
+        .select('id')
+        .single()
+      
+      const historyId = historyRecord?.id
+      
       try {
-        console.log(`[CRON] Syncing room: ${roomId}`)
+        console.log(`[CRON] Syncing room: ${roomId} (history ID: ${historyId})`)
         
         // Check sync status
         const { data: syncStatus } = await supabase
@@ -106,39 +132,93 @@ export async function GET(request: NextRequest) {
           .single()
         
         if (!syncStatus?.is_full_history) {
+          const errorMsg = 'Needs initial full fetch'
           console.log(`[CRON] Room ${roomId} needs initial full fetch - skipping cron sync`)
+          
+          // Update history with error
+          if (historyId) {
+            await supabase
+              .from('tv_sync_history')
+              .update({
+                completed_at: new Date().toISOString(),
+                success: false,
+                error_message: errorMsg
+              })
+              .eq('id', historyId)
+          }
+          
           results.push({
             roomId,
             success: false,
             synced: 0,
-            error: 'Needs initial full fetch'
+            fetched: 0,
+            duplicates: 0,
+            error: errorMsg,
+            historyId
           })
           continue
         }
         
         // Fetch newest messages
         const newMessages = await fetchNewestMessages(roomId)
-        console.log(`[CRON] Fetched ${newMessages.length} messages from TradingView`)
+        console.log(`[CRON] 📥 Fetched ${newMessages.length} messages from TradingView`)
+        
+        // Log sample of fetched messages
+        if (newMessages.length > 0) {
+          console.log(`[CRON] 📝 Sample messages:`)
+          newMessages.slice(0, 3).forEach((m, i) => {
+            const msgId = m.id || `${m.username}-${m.time}`
+            console.log(`[CRON]   ${i + 1}. ID: ${msgId} | User: ${m.username} | Time: ${m.time}`)
+            console.log(`[CRON]      Text: ${m.text.substring(0, 50)}${m.text.length > 50 ? '...' : ''}`)
+          })
+        }
         
         if (newMessages.length === 0) {
+          console.log(`[CRON] ℹ️ No messages returned from TradingView API`)
+          
+          // Update history - success with 0 messages
+          if (historyId) {
+            await supabase
+              .from('tv_sync_history')
+              .update({
+                completed_at: new Date().toISOString(),
+                success: true,
+                messages_fetched: 0,
+                messages_inserted: 0,
+                duplicates_skipped: 0
+              })
+              .eq('id', historyId)
+          }
+          
           results.push({
             roomId,
             success: true,
-            synced: 0
+            synced: 0,
+            fetched: 0,
+            duplicates: 0,
+            historyId
           })
           continue
         }
         
         // Get existing message IDs to check for duplicates
         const messageIds = newMessages.map(m => m.id || `${m.username}-${m.time}`)
+        console.log(`[CRON] 🔍 Checking ${messageIds.length} message IDs against database...`)
         
-        const { data: existingMessages } = await supabase
+        const { data: existingMessages, error: queryError } = await supabase
           .from('tv_chat_messages')
           .select('id')
           .eq('room_id', roomId)
           .in('id', messageIds)
         
+        if (queryError) {
+          console.error(`[CRON] ❌ Database query error:`, queryError)
+          throw queryError
+        }
+        
         const existingIds = new Set((existingMessages || []).map(m => m.id))
+        const duplicatesCount = existingIds.size
+        console.log(`[CRON] 📊 Found ${duplicatesCount} existing messages in database`)
         
         // Filter to only truly new messages
         const trulyNewMessages = newMessages.filter(m => {
@@ -146,9 +226,19 @@ export async function GET(request: NextRequest) {
           return !existingIds.has(msgId)
         })
         
-        console.log(`[CRON] ${trulyNewMessages.length} truly new messages to insert`)
+        console.log(`[CRON] ✨ ${trulyNewMessages.length} truly new messages to insert (${duplicatesCount} duplicates skipped)`)
+        
+        let insertedCount = 0
         
         if (trulyNewMessages.length > 0) {
+          console.log(`[CRON] 💾 Inserting ${trulyNewMessages.length} new messages...`)
+          
+          // Log new messages being inserted
+          trulyNewMessages.forEach((m, i) => {
+            const msgId = m.id || `${m.username}-${m.time}`
+            console.log(`[CRON]   NEW ${i + 1}. ID: ${msgId} | User: ${m.username}`)
+          })
+          
           // Insert new messages
           const dbMessages = trulyNewMessages.map(msg => ({
             id: msg.id || `${msg.username}-${msg.time}`,
@@ -164,16 +254,21 @@ export async function GET(request: NextRequest) {
             symbol: msg.symbol || null
           }))
           
-          const { error: insertError } = await supabase
+          const { error: insertError, data: insertedData } = await supabase
             .from('tv_chat_messages')
             .upsert(dbMessages, {
               onConflict: 'room_id,id',
               ignoreDuplicates: false
             })
+            .select('id')
           
           if (insertError) {
+            console.error(`[CRON] ❌ Insert error:`, insertError)
             throw insertError
           }
+          
+          insertedCount = insertedData?.length || trulyNewMessages.length
+          console.log(`[CRON] ✅ Successfully inserted ${insertedCount} messages`)
           
           // Update sync status
           const newestTime = newMessages.reduce((max, m) => {
@@ -187,6 +282,8 @@ export async function GET(request: NextRequest) {
             .select('*', { count: 'exact', head: true })
             .eq('room_id', roomId)
           
+          console.log(`[CRON] 📈 Total messages in DB for ${roomId}: ${count}`)
+          
           await supabase
             .from('tv_chat_sync_status')
             .update({
@@ -197,35 +294,73 @@ export async function GET(request: NextRequest) {
             })
             .eq('room_id', roomId)
           
-          console.log(`[CRON] ✅ Synced ${trulyNewMessages.length} new messages for ${roomId}`)
+          console.log(`[CRON] ✅ Synced ${insertedCount} new messages for ${roomId}`)
+        } else {
+          console.log(`[CRON] ℹ️ All ${newMessages.length} messages already exist in database - no insert needed`)
+        }
+        
+        // Update sync history with success
+        if (historyId) {
+          await supabase
+            .from('tv_sync_history')
+            .update({
+              completed_at: new Date().toISOString(),
+              success: true,
+              messages_fetched: newMessages.length,
+              messages_inserted: insertedCount,
+              duplicates_skipped: duplicatesCount
+            })
+            .eq('id', historyId)
         }
         
         results.push({
           roomId,
           success: true,
-          synced: trulyNewMessages.length
+          synced: insertedCount,
+          fetched: newMessages.length,
+          duplicates: duplicatesCount,
+          historyId
         })
         
       } catch (roomError) {
         console.error(`[CRON] Error syncing room ${roomId}:`, roomError)
+        const errorMsg = roomError instanceof Error ? roomError.message : 'Unknown error'
+        
+        // Update sync history with error
+        if (historyId) {
+          await supabase
+            .from('tv_sync_history')
+            .update({
+              completed_at: new Date().toISOString(),
+              success: false,
+              error_message: errorMsg
+            })
+            .eq('id', historyId)
+        }
+        
         results.push({
           roomId,
           success: false,
           synced: 0,
-          error: roomError instanceof Error ? roomError.message : 'Unknown error'
+          fetched: 0,
+          duplicates: 0,
+          error: errorMsg,
+          historyId
         })
       }
     }
     
     const totalSynced = results.reduce((sum, r) => sum + r.synced, 0)
+    const totalFetched = results.reduce((sum, r) => sum + r.fetched, 0)
     const allSuccess = results.every(r => r.success)
     
-    console.log(`[CRON] ✅ Sync complete. Total synced: ${totalSynced}`)
+    console.log(`[CRON] ✅ Sync complete. Fetched: ${totalFetched}, Inserted: ${totalSynced}`)
     
     return NextResponse.json({
       success: allSuccess,
       timestamp: new Date().toISOString(),
       totalSynced,
+      totalFetched,
       results
     })
     

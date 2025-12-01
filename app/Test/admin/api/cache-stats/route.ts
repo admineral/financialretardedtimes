@@ -91,6 +91,13 @@ export async function GET() {
       has_profile: profileUsernames.has(user.username)
     }))
     
+    // Get sync history (last 50 runs)
+    const { data: syncHistory } = await supabase
+      .from('tv_sync_history')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(50)
+    
     return NextResponse.json({
       totalMessages: totalMessages || 0,
       totalProfiles: totalProfiles || 0,
@@ -99,7 +106,8 @@ export async function GET() {
       recentMessages: recentMessages || [],
       profiles: profiles || [],
       recentActivity: recentActivity || [],
-      users
+      users,
+      syncHistory: syncHistory || []
     })
     
   } catch (error) {

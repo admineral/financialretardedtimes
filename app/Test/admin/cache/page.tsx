@@ -23,7 +23,9 @@ import {
   TrendingUpIcon,
   SearchIcon,
   PlayIcon,
-  CodeIcon
+  CodeIcon,
+  HistoryIcon,
+  ZapIcon
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 
@@ -78,6 +80,20 @@ interface UserSummary {
   has_profile: boolean
 }
 
+interface SyncHistoryRecord {
+  id: number
+  room_id: string
+  started_at: string
+  completed_at: string | null
+  success: boolean
+  messages_fetched: number
+  messages_inserted: number
+  duplicates_skipped: number
+  error_message: string | null
+  trigger_type: 'cron' | 'manual'
+  created_at: string
+}
+
 interface CacheStats {
   totalMessages: number
   totalProfiles: number
@@ -87,6 +103,7 @@ interface CacheStats {
   profiles: UserProfile[]
   recentActivity: UserActivity[]
   users: UserSummary[]
+  syncHistory: SyncHistoryRecord[]
 }
 
 interface QueryResult {
@@ -137,7 +154,7 @@ export default function CacheAdminPage() {
     setSyncResult(null)
     
     try {
-      const response = await fetch('/api/cron/sync-chat', {
+      const response = await fetch('/api/cron/sync-chat?trigger=manual', {
         method: 'POST'
       })
       const data = await response.json()
@@ -393,8 +410,12 @@ export default function CacheAdminPage() {
         )}
 
         {/* Tabs for detailed data */}
-        <Tabs defaultValue="users" className="space-y-4">
+        <Tabs defaultValue="history" className="space-y-4">
           <TabsList className="bg-slate-800 border-slate-700">
+            <TabsTrigger value="history" className="data-[state=active]:bg-slate-700">
+              <HistoryIcon className="h-4 w-4 mr-2" />
+              Sync History ({stats?.syncHistory?.length || 0})
+            </TabsTrigger>
             <TabsTrigger value="users" className="data-[state=active]:bg-slate-700">
               <UsersIcon className="h-4 w-4 mr-2" />
               All Users ({stats?.users?.length || 0})
@@ -416,6 +437,109 @@ export default function CacheAdminPage() {
               SQL Query
             </TabsTrigger>
           </TabsList>
+
+          {/* Sync History Tab */}
+          <TabsContent value="history">
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <HistoryIcon className="h-5 w-5 text-cyan-500" />
+                  Sync History
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Recent cron job runs and their results
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[600px]">
+                  <div className="space-y-3">
+                    {stats?.syncHistory && stats.syncHistory.length > 0 ? (
+                      stats.syncHistory.map((record) => (
+                        <div 
+                          key={record.id} 
+                          className={`p-4 rounded-lg border transition-colors ${
+                            record.success 
+                              ? 'bg-slate-900/50 border-slate-700 hover:border-slate-600' 
+                              : 'bg-red-500/5 border-red-500/30 hover:border-red-500/50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              {record.success ? (
+                                <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                              ) : (
+                                <XCircleIcon className="h-5 w-5 text-red-500" />
+                              )}
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm text-slate-300">{record.room_id}</span>
+                                  <Badge 
+                                    variant="outline" 
+                                    className={`text-xs ${
+                                      record.trigger_type === 'cron' 
+                                        ? 'border-blue-500 text-blue-500' 
+                                        : 'border-purple-500 text-purple-500'
+                                    }`}
+                                  >
+                                    {record.trigger_type === 'cron' ? (
+                                      <><ClockIcon className="h-3 w-3 mr-1" /> Cron</>
+                                    ) : (
+                                      <><ZapIcon className="h-3 w-3 mr-1" /> Manual</>
+                                    )}
+                                  </Badge>
+                                </div>
+                                <span className="text-xs text-slate-500">
+                                  {format(new Date(record.started_at), 'MMM d, yyyy HH:mm:ss')}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              {record.completed_at && (
+                                <span className="text-xs text-slate-500">
+                                  Duration: {Math.round((new Date(record.completed_at).getTime() - new Date(record.started_at).getTime()) / 1000)}s
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {record.success ? (
+                            <div className="grid grid-cols-3 gap-4 text-sm">
+                              <div className="bg-slate-800/50 rounded p-2">
+                                <span className="text-slate-500 text-xs block">Fetched</span>
+                                <span className="text-white font-mono text-lg">{record.messages_fetched}</span>
+                              </div>
+                              <div className="bg-slate-800/50 rounded p-2">
+                                <span className="text-slate-500 text-xs block">Inserted</span>
+                                <span className={`font-mono text-lg ${record.messages_inserted > 0 ? 'text-green-400' : 'text-slate-400'}`}>
+                                  {record.messages_inserted}
+                                </span>
+                              </div>
+                              <div className="bg-slate-800/50 rounded p-2">
+                                <span className="text-slate-500 text-xs block">Duplicates</span>
+                                <span className="text-slate-400 font-mono text-lg">{record.duplicates_skipped}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-red-500/10 rounded p-3 mt-2">
+                              <span className="text-red-400 text-sm">{record.error_message || 'Unknown error'}</span>
+                            </div>
+                          )}
+                          
+                          <div className="mt-2 text-xs text-slate-500">
+                            {formatDistanceToNow(new Date(record.started_at), { addSuffix: true })}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-slate-500">
+                        No sync history yet. Trigger a sync or wait for the next cron run.
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Users Tab */}
           <TabsContent value="users">

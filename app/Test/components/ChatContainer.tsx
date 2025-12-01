@@ -68,11 +68,11 @@ export function ChatContainer({
 
   // Persist polling settings to localStorage
   useEffect(() => {
-    localStorage.setItem('tradingview-chat-polling-enabled', JSON.stringify(pollingEnabled))
+      localStorage.setItem('tradingview-chat-polling-enabled', JSON.stringify(pollingEnabled))
   }, [pollingEnabled])
 
   useEffect(() => {
-    localStorage.setItem('tradingview-chat-polling-interval', pollingInterval.toString())
+      localStorage.setItem('tradingview-chat-polling-interval', pollingInterval.toString())
   }, [pollingInterval])
 
   const scrollToBottom = () => {
