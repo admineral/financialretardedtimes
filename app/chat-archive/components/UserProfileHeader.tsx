@@ -163,7 +163,7 @@ export function UserProfileHeader({ username }: UserProfileHeaderProps) {
                       <TooltipContent>
                         <div className="text-xs space-y-1">
                           <p className="font-semibold">Gesamtzahl der Nachrichten</p>
-                          <p>Basierend auf 365 Tagen</p>
+                          <p>Basierend auf {activities.length} Tagen Aktivitätsdaten</p>
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -174,15 +174,15 @@ export function UserProfileHeader({ username }: UserProfileHeaderProps) {
                         <div className="cursor-help">
                           <span className="text-muted-foreground text-sm">Pro Tag</span>
                           <div className="font-semibold">
-                            {Math.round(activityPatterns.totalMessages / 365)}
+                            {activities.length > 0 ? Math.round(activityPatterns.totalMessages / activities.length) : 0}
                           </div>
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
                         <div className="text-xs space-y-1">
                           <p className="font-semibold">Berechnung:</p>
-                          <p>{activityPatterns.totalMessages.toLocaleString()} Nachrichten ÷ 365 Tage</p>
-                          <p>= {Math.round(activityPatterns.totalMessages / 365)} Nachrichten pro Tag</p>
+                          <p>{activityPatterns.totalMessages.toLocaleString()} Nachrichten ÷ {activities.length} Tage</p>
+                          <p>= {activities.length > 0 ? Math.round(activityPatterns.totalMessages / activities.length) : 0} Nachrichten pro Tag</p>
                         </div>
                       </TooltipContent>
                     </Tooltip>

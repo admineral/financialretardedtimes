@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { format, subDays } from 'date-fns'
 
 interface ActivityData {
@@ -82,8 +82,9 @@ export function ActivityProvider({
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
   
-  // Abort controller for canceling requests
-  const abortControllerRef = React.useRef<AbortController | null>(null)
+  // Track current fetch to prevent duplicate requests (React Strict Mode fix)
+  const currentFetchKeyRef = useRef<string | null>(null)
+  const fetchPromiseRef = useRef<Promise<void> | null>(null)
 
   // Calculate activity patterns from messages
   const calculatePatterns = useCallback((activities: ActivityData[]): ActivityPatterns | null => {
@@ -92,18 +93,27 @@ export function ActivityProvider({
       hourCounts[i] = 0
     }
 
-    let totalMessages = 0
+    let totalMessages = 0 // This will be the REAL total from activity.count
+    let sampleMessages = 0 // Messages we have samples for (for hour distribution)
     let daysWithFullData = 0
     let daysWithSampleData = 0
+    let daysWithActivity = 0
 
     activities.forEach(activity => {
+      // Add the REAL count (not just sample count)
+      totalMessages += activity.count
+      
+      if (activity.count > 0) {
+        daysWithActivity++
+      }
+      
       if (activity.messages && activity.messages.length > 0) {
         activity.messages.forEach(message => {
           try {
             const date = new Date(parseFloat(message.time) * 1000)
             const hour = date.getHours()
             hourCounts[hour]++
-            totalMessages++
+            sampleMessages++
           } catch {
             // Skip invalid timestamps
           }
@@ -120,12 +130,12 @@ export function ActivityProvider({
 
     if (totalMessages === 0) return null
 
-    // Find peak hours
+    // Find peak hours (based on sample distribution, but scaled to total)
     const sortedHours = Object.entries(hourCounts)
       .map(([hour, count]) => ({ 
         hour: parseInt(hour), 
         count, 
-        percentage: (count / totalMessages) * 100 
+        percentage: sampleMessages > 0 ? (count / sampleMessages) * 100 : 0
       }))
       .sort((a, b) => b.count - a.count)
 
@@ -133,7 +143,7 @@ export function ActivityProvider({
     const topHours = sortedHours.slice(0, 3).filter(h => h.count > 0)
 
     return {
-      totalMessages,
+      totalMessages, // Now uses the REAL total from activity.count
       peakHour,
       topHours,
       hourCounts,
@@ -144,19 +154,21 @@ export function ActivityProvider({
   }, [])
 
   // Fetch activities with database caching (no localStorage)
+  // Uses deduplication to prevent React Strict Mode double-fetch issues
+  // STREAMING APPROACH: Poll cache while background fetch runs
   const fetchActivities = useCallback(async (forceRefresh = false) => {
     if (!room || !username) {
       return
     }
 
-    // Abort any ongoing request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
+    // Create a unique key for this fetch request
+    const fetchKey = `${room}:${username}:${selectedDays}:${forceRefresh}`
+    
+    // If we're already fetching for the same parameters, reuse the existing promise
+    if (currentFetchKeyRef.current === fetchKey && fetchPromiseRef.current) {
+      console.log(`🔄 Reusing existing fetch for ${fetchKey}`)
+      return fetchPromiseRef.current
     }
-
-    // Create new abort controller
-    const abortController = new AbortController()
-    abortControllerRef.current = abortController
 
     const today = new Date()
     
@@ -172,49 +184,118 @@ export function ActivityProvider({
     setIsLoading(true)
     setProgress({ current: 0, total: neededDates.length })
 
-    try {
-      const response = await fetch('/api/chat-activity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room,
-          username,
-          dates: neededDates,
-          forceRefresh
-        }),
-        signal: abortController.signal
-      })
+    // Helper to fetch and update from cache
+    const updateFromCache = async () => {
+      try {
+        const cachedResponse = await fetch('/api/chat-activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room,
+            username,
+            dates: neededDates,
+            cacheOnly: true
+          })
+        })
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.statusText}`)
+        if (cachedResponse.ok) {
+          const cachedData = await cachedResponse.json()
+          if (cachedData.activities && cachedData.activities.length > 0) {
+            setActivities(cachedData.activities)
+            const patterns = calculatePatterns(cachedData.activities)
+            setActivityPatterns(patterns)
+            setLastSyncTime(new Date())
+            setProgress({ current: cachedData.cachedCount || cachedData.activities.length, total: neededDates.length })
+            return cachedData.activities.length
+          }
+        }
+      } catch (err) {
+        console.warn('Cache poll failed:', err)
       }
+      return 0
+    }
 
-      const data = await response.json()
+    // Create the fetch promise
+    const fetchPromise = (async () => {
+      let pollingInterval: NodeJS.Timeout | null = null
       
-      if (data.activities) {
-        setActivities(data.activities)
-        const patterns = calculatePatterns(data.activities)
-        setActivityPatterns(patterns)
-        setLastSyncTime(new Date())
+      try {
+        // PHASE 1: Get initial cached data (fast)
+        if (!forceRefresh) {
+          console.log(`📋 Phase 1: Fetching cached data only...`)
+          const initialCount = await updateFromCache()
+          console.log(`📋 Phase 1 complete: Got ${initialCount} cached activities`)
+        }
+
+        // PHASE 2: Start background fetch AND poll for updates
+        console.log(`🌐 Phase 2: Starting background fetch with polling...`)
         
-        console.log(`✅ Loaded ${data.activities.length} days (${data.cachedCount || 0} from cache, ${data.fetchedCount || 0} fetched fresh)`)
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        console.log('Fetch aborted')
-      } else {
+        // Start polling every 2 seconds to get newly cached data
+        let lastCount = 0
+        pollingInterval = setInterval(async () => {
+          const newCount = await updateFromCache()
+          if (newCount > lastCount) {
+            console.log(`🔄 Poll update: ${lastCount} → ${newCount} activities`)
+            lastCount = newCount
+          }
+        }, 2000)
+
+        // Background fetch (this takes a long time)
+        const response = await fetch('/api/chat-activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room,
+            username,
+            dates: neededDates,
+            forceRefresh
+          })
+        })
+
+        // Stop polling once main fetch completes
+        if (pollingInterval) {
+          clearInterval(pollingInterval)
+          pollingInterval = null
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.statusText}`)
+        }
+
+        const data = await response.json()
+        
+        if (data.activities) {
+          setActivities(data.activities)
+          const patterns = calculatePatterns(data.activities)
+          setActivityPatterns(patterns)
+          setLastSyncTime(new Date())
+          
+          console.log(`✅ Phase 2 complete: Loaded ${data.activities.length} days (${data.cachedCount || 0} from cache, ${data.fetchedCount || 0} fetched fresh)`)
+        }
+      } catch (err) {
         console.error('Error fetching activities:', err)
-      }
-    } finally {
-      if (!abortController.signal.aborted) {
+      } finally {
+        // Clean up polling interval
+        if (pollingInterval) {
+          clearInterval(pollingInterval)
+        }
+        
         setIsLoading(false)
         setProgress({ current: 0, total: 0 })
+        
+        // Clear the fetch tracking refs
+        if (currentFetchKeyRef.current === fetchKey) {
+          currentFetchKeyRef.current = null
+          fetchPromiseRef.current = null
+        }
       }
-      
-      if (abortControllerRef.current === abortController) {
-        abortControllerRef.current = null
-      }
-    }
+    })()
+
+    // Store the fetch key and promise for deduplication
+    currentFetchKeyRef.current = fetchKey
+    fetchPromiseRef.current = fetchPromise
+
+    return fetchPromise
   }, [room, username, selectedDays, calculatePatterns])
 
   // Refresh activities (force fetch)
@@ -228,15 +309,6 @@ export function ActivityProvider({
       fetchActivities()
     }
   }, [room, username, selectedDays]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-    }
-  }, [])
 
   const value = useMemo(() => ({
     room,

@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json()
-    const { room, username, days = 30, dates, forceRefresh = false } = body
+    const { room, username, days = 30, dates, forceRefresh = false, cacheOnly = false } = body
 
     if (!room || !username) {
       return NextResponse.json(
@@ -261,6 +261,61 @@ export async function POST(request: NextRequest) {
     if (datesToFetch.length === 0) {
       for (let i = 0; i < days; i++) {
         datesToFetch.push(format(subDays(today, i), 'yyyy-MM-dd'))
+      }
+    }
+
+    // CACHE-ONLY MODE: Return only cached data immediately (no TradingView fetch)
+    if (cacheOnly) {
+      console.log(`📋 [CACHE-ONLY] ${username}: Returning cached data for ${datesToFetch.length} days`)
+      
+      try {
+        const cached = await getCachedActivityForDates(room, username, datesToFetch)
+        const activities: ActivityData[] = []
+        let totalMessages = 0
+        
+        for (const date of datesToFetch) {
+          const cachedEntry = cached.get(date)
+          if (cachedEntry) {
+            activities.push({
+              date,
+              count: cachedEntry.message_count,
+              messages: cachedEntry.messages.map(m => ({
+                ...m,
+                avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
+              })),
+              fromCache: true
+            })
+            totalMessages += cachedEntry.message_count
+          }
+        }
+        
+        // Sort by date (newest first)
+        activities.sort((a, b) => b.date.localeCompare(a.date))
+        
+        console.log(`📋 [CACHE-ONLY] ${username}: Found ${activities.length} cached days with ${totalMessages} messages`)
+        
+        return NextResponse.json({
+          activities,
+          room,
+          username,
+          totalDays: datesToFetch.length,
+          totalMessages,
+          cachedCount: activities.length,
+          fetchedCount: 0,
+          cacheOnly: true
+        })
+      } catch (dbError) {
+        console.warn('⚠️ [CACHE-ONLY] Database error:', dbError)
+        return NextResponse.json({
+          activities: [],
+          room,
+          username,
+          totalDays: datesToFetch.length,
+          totalMessages: 0,
+          cachedCount: 0,
+          fetchedCount: 0,
+          cacheOnly: true
+        })
       }
     }
 
@@ -343,7 +398,6 @@ export async function POST(request: NextRequest) {
     if (missingDates.length > 0) {
       console.log(`📊 ${username}: Fetching ${missingDates.length} missing dates from TradingView...`)
       
-      const newActivities: Array<{ date: string; count: number; messages: DBActivityMessage[] }> = []
       let wasAborted = false
       
       for (let i = 0; i < missingDates.length; i++) {
@@ -363,13 +417,15 @@ export async function POST(request: NextRequest) {
           if (abortSignal?.aborted) {
             console.log(`🛑 ${username}: Client disconnected after fetching ${dateStr} - stopping`)
             wasAborted = true
-            // Still cache what we got so far
-            if (allMessages.length > 0) {
-              newActivities.push({
-                date: dateStr,
-                count: allMessages.length,
-                messages: allMessages.slice(0, 5)
-              })
+            // Still cache what we got
+            if (allMessages.length >= 0) {
+              try {
+                await cacheActivityData(room, username, [{
+                  date: dateStr,
+                  count: allMessages.length,
+                  messages: allMessages.slice(0, 5)
+                }])
+              } catch (e) { /* ignore cache errors */ }
             }
             break
           }
@@ -387,12 +443,16 @@ export async function POST(request: NextRequest) {
             fromCache: false
           }
           
-          // Store for caching
-          newActivities.push({
-            date: dateStr,
-            count: allMessages.length,
-            messages: allMessages.slice(0, 5) // Store only first 5 messages
-          })
+          // IMMEDIATELY cache this day's data so polling can pick it up
+          try {
+            await cacheActivityData(room, username, [{
+              date: dateStr,
+              count: allMessages.length,
+              messages: allMessages.slice(0, 5)
+            }])
+          } catch (cacheErr) {
+            console.warn(`⚠️ Failed to cache ${dateStr}:`, cacheErr)
+          }
           
           activities.push(activity)
           totalMessages += allMessages.length
@@ -408,6 +468,15 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           console.error(`❌ Error fetching ${dateStr}:`, error)
           
+          // Cache empty activity for errors too (so we don't retry)
+          try {
+            await cacheActivityData(room, username, [{
+              date: dateStr,
+              count: 0,
+              messages: []
+            }])
+          } catch (e) { /* ignore */ }
+          
           // Add empty activity for errors
           activities.push({
             date: dateStr,
@@ -416,16 +485,6 @@ export async function POST(request: NextRequest) {
             fromCache: false
           })
           fetchedCount++
-        }
-      }
-      
-      // Step 4: Cache newly fetched data to Supabase (even if aborted - save what we got)
-      if (newActivities.length > 0) {
-        try {
-          await cacheActivityData(room, username, newActivities)
-          console.log(`💾 ${username}: Cached ${newActivities.length} days to Supabase${wasAborted ? ' (partial - client disconnected)' : ''}`)
-        } catch (cacheError) {
-          console.warn('⚠️ [Activity] Failed to cache to Supabase:', cacheError)
         }
       }
       
