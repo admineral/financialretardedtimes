@@ -1286,8 +1286,8 @@ export default function RateChartPage() {
                       </div>
                     </div>
 
-                    {/* Always show history for users with multiple predictions */}
-                    {entry.guesses.length > 1 && (
+                    {/* Show history when user is selected */}
+                    {entry.guesses.length > 1 && selectedUser === entry.username && (
                       <div className="mt-2 ml-16 mr-4 mb-4 p-4 border-2 border-orange-300 rounded-lg bg-orange-50 dark:bg-orange-950/20">
                         <h4 className="text-sm font-semibold mb-3 text-orange-600 flex items-center gap-2">
                           📜 Verlauf von {entry.username} - {entry.guesses.length} Vorhersagen (nur ✅ letzte zählt!):
