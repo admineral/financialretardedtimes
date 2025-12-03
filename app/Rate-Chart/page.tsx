@@ -1261,6 +1261,10 @@ export default function RateChartPage() {
                   <div className="text-xs text-zinc-500 mt-1">= $95,000</div>
                 </div>
                 <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+                  <code className="text-blue-400 font-bold">//99857</code>
+                  <div className="text-xs text-zinc-500 mt-1">= $99,900 🎯</div>
+                </div>
+                <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
                   <code className="text-blue-400 font-bold">//95.000</code>
                   <div className="text-xs text-zinc-500 mt-1">= $95,000</div>
                 </div>
@@ -1283,9 +1287,15 @@ export default function RateChartPage() {
                   <div className="text-xs text-zinc-500 mt-1">= $95,000 ⚡</div>
                 </div>
               </div>
-              <div className="mt-4 text-xs text-zinc-500 flex items-center gap-2">
-                <span className="text-amber-400">⚡</span>
-                <span>Zahlen zwischen 50-200 ohne &quot;k&quot; werden automatisch als Tausender erkannt (z.B. //95 = $95,000)</span>
+              <div className="mt-4 text-xs text-zinc-500 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-400">🎯</span>
+                  <span>Exakte Zahlen werden auf $100 gerundet (z.B. //99857 = $99,900)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400">⚡</span>
+                  <span>Zahlen zwischen 50-200 ohne &quot;k&quot; werden automatisch als Tausender erkannt (z.B. //95 = $95,000)</span>
+                </div>
               </div>
             </div>
 
