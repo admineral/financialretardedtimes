@@ -2,14 +2,11 @@
  * route.ts (Fear & Greed Analysis API)
  * 
  * AI-powered sentiment analysis endpoint that analyzes chat messages
- * and returns a Fear & Greed index with structured insights.
+ * and returns Fear & Greed indices for TODAY, LAST 3 DAYS, and LAST 7 DAYS.
  * 
  * ENDPOINT: POST /test-fg/api/analyze
  * 
- * REQUEST BODY:
- * - days: number (1, 3, or 7) - How many days to analyze
- * 
- * RESPONSE: Streaming JSON matching FearGreedSchema
+ * RESPONSE: Streaming JSON with all three time periods
  */
 
 import { NextRequest } from 'next/server'
@@ -20,13 +17,10 @@ import { streamObject } from 'ai'
 import { z } from 'zod'
 
 /**
- * Fear & Greed Analysis Schema
+ * Single period sentiment schema
  */
-export const FearGreedSchema = z.object({
-  // Overall index (0-100, 0 = Extreme Fear, 100 = Extreme Greed)
+const PeriodSentimentSchema = z.object({
   index: z.number().min(0).max(100),
-  
-  // Classification
   classification: z.enum([
     'Extreme Fear',
     'Fear', 
@@ -34,8 +28,6 @@ export const FearGreedSchema = z.object({
     'Greed',
     'Extreme Greed'
   ]),
-  
-  // German classification for display
   classificationDE: z.enum([
     'Extreme Angst',
     'Angst',
@@ -43,35 +35,43 @@ export const FearGreedSchema = z.object({
     'Gier',
     'Extreme Gier'
   ]),
+})
+
+/**
+ * Fear & Greed Analysis Schema - All 3 periods in one response
+ */
+export const FearGreedSchema = z.object({
+  // Today's sentiment
+  today: PeriodSentimentSchema,
   
-  // Trend compared to previous period
+  // Last 3 days sentiment
+  last3Days: PeriodSentimentSchema,
+  
+  // Last 7 days sentiment (overall)
+  last7Days: PeriodSentimentSchema,
+  
+  // Trend direction based on comparison
   trend: z.enum(['rising', 'falling', 'stable']),
+  trendInsight: z.string(), // e.g. "Stimmung verbessert sich seit 3 Tagen"
   
-  // Key sentiment drivers
+  // Key sentiment drivers (from the full 7 day period)
   drivers: z.array(z.object({
-    factor: z.string(), // e.g. "Price Action", "Volume Discussion", "Technical Analysis"
+    factor: z.string(),
     sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-    weight: z.number().min(0).max(100), // How much this factor contributed
-    insight: z.string() // Brief explanation
-  })).min(3).max(6),
+    weight: z.number().min(0).max(100),
+    insight: z.string()
+  })).min(3).max(5),
   
-  // Notable quotes that reflect the sentiment
+  // Notable quotes (from any period)
   quotes: z.array(z.object({
     username: z.string(),
     text: z.string(),
-    sentiment: z.enum(['bullish', 'bearish', 'neutral'])
-  })).min(2).max(5),
+    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
+    period: z.enum(['today', 'last3Days', 'last7Days'])
+  })).min(3).max(6),
   
-  // Summary paragraph
-  summary: z.string(),
-  
-  // Comparison insights for multi-day analysis
-  periodComparison: z.object({
-    today: z.number().min(0).max(100).optional(),
-    last3Days: z.number().min(0).max(100).optional(),
-    last7Days: z.number().min(0).max(100).optional(),
-    insight: z.string()
-  }).optional()
+  // Overall summary
+  summary: z.string()
 })
 
 export type FearGreedData = z.infer<typeof FearGreedSchema>
@@ -81,10 +81,13 @@ export type FearGreedData = z.infer<typeof FearGreedSchema>
  */
 const FEAR_GREED_PROMPT = `Du bist ein Sentiment-Analyst für den TradingView Bitcoin-Chat.
 
-Deine Aufgabe: Analysiere die Chat-Nachrichten und erstelle einen Fear & Greed Index (0-100).
+Deine Aufgabe: Analysiere die Chat-Nachrichten und erstelle Fear & Greed Indices für DREI Zeiträume:
+1. HEUTE (nur heutige Nachrichten)
+2. LETZTE 3 TAGE
+3. LETZTE 7 TAGE (Gesamtbild)
 
 ═══════════════════════════════════════════════════════════════════════
-FEAR & GREED SKALA
+FEAR & GREED SKALA (0-100)
 ═══════════════════════════════════════════════════════════════════════
 
 0-20:   Extreme Fear (Extreme Angst)
@@ -103,53 +106,57 @@ FEAR & GREED SKALA
         → Euphorie, FOMO, "to the moon", übertriebene Preisziele
 
 ═══════════════════════════════════════════════════════════════════════
+WICHTIG: ZEITRAUM-UNTERSCHEIDUNG
+═══════════════════════════════════════════════════════════════════════
+
+Die Nachrichten haben Zeitstempel im Format [DD.MM, HH:MM].
+Nutze diese um die Stimmung für jeden Zeitraum SEPARAT zu berechnen:
+
+• TODAY: Nur Nachrichten von heute
+• LAST 3 DAYS: Nachrichten der letzten 3 Tage (inkl. heute)
+• LAST 7 DAYS: Alle Nachrichten (Gesamtbild)
+
+Der TREND ergibt sich aus dem Vergleich:
+- rising: heute > 3 Tage > 7 Tage (Stimmung verbessert sich)
+- falling: heute < 3 Tage < 7 Tage (Stimmung verschlechtert sich)
+- stable: keine klare Richtung
+
+═══════════════════════════════════════════════════════════════════════
 ANALYSE-FAKTOREN
 ═══════════════════════════════════════════════════════════════════════
 
-Berücksichtige diese Faktoren für deine Analyse:
-
 1. PREIS-DISKUSSION
-   - Werden steigende oder fallende Preise erwartet?
-   - Welche Preisziele werden genannt?
-   - Wie reagiert der Chat auf Preisbewegungen?
+   - Preiserwartungen und -ziele
+   - Reaktionen auf Bewegungen
 
 2. TECHNISCHE ANALYSE
-   - Bullishe vs. bearishe Chartmuster
-   - Support/Resistance Diskussionen
-   - Indikator-Interpretationen (RSI, MACD, etc.)
+   - Bullishe vs. bearishe Muster
+   - Support/Resistance
 
 3. STIMMUNG & TON
-   - Allgemeine Stimmungslage im Chat
+   - Optimismus vs. Pessimismus
    - Humor vs. Frustration
-   - Selbstbewusstsein vs. Unsicherheit
 
 4. HANDELSVERHALTEN
-   - Long vs. Short Positionen
+   - Long vs. Short
    - Kaufen vs. Verkaufen
-   - Warten vs. Handeln
 
 5. MARKT-NARRATIVE
-   - Bullrun vs. Bärenmarkt Diskussionen
+   - Bullrun vs. Bärenmarkt
    - Makro-Einschätzungen
-   - Vergleiche mit historischen Situationen
 
 ═══════════════════════════════════════════════════════════════════════
 OUTPUT-REGELN
 ═══════════════════════════════════════════════════════════════════════
 
-• Sei präzise: Der Index sollte die tatsächliche Stimmung widerspiegeln
-• Belege mit Zitaten: Wähle repräsentative Zitate aus dem Chat
-• Erkläre die Drivers: Was treibt die Stimmung?
-• Sei neutral: Berichte, was ist – nicht was sein sollte
-• Kurze Insights: Max 1-2 Sätze pro Driver/Quote
-
-Bei Multi-Tag-Analysen:
-• Vergleiche die Stimmung über die Tage
-• Erkenne Trends (steigend/fallend/stabil)
-• Gib Kontext zur Entwicklung`
+• Gib für JEDEN Zeitraum einen separaten Index (0-100)
+• Die Werte können unterschiedlich sein!
+• Belege mit Zitaten aus verschiedenen Zeiträumen
+• Erkläre den Trend zwischen den Perioden
+• Kurze, prägnante Insights`
 
 /**
- * Fetch BTC context for additional market data
+ * Fetch BTC context
  */
 async function fetchBTCContext() {
   try {
@@ -167,6 +174,7 @@ async function fetchBTCContext() {
       price: Math.round(market.current_price.usd),
       change24h: Math.round(market.price_change_percentage_24h * 100) / 100,
       change7d: Math.round(market.price_change_percentage_7d * 100) / 100,
+      change30d: Math.round(market.price_change_percentage_30d * 100) / 100,
     }
   } catch {
     return null
@@ -189,15 +197,16 @@ export async function POST(request: NextRequest) {
   
   try {
     const btcPromise = fetchBTCContext()
-    const body = await request.json()
-    const { days = 7 }: { days?: number } = body
+    
+    // We don't need body params anymore - always fetch 7 days
+    await request.json().catch(() => ({}))
     
     const supabase = await createClient()
     
-    // Calculate date range
+    // Always fetch last 7 days
     const endDate = new Date()
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - days)
+    startDate.setDate(startDate.getDate() - 7)
     
     // Fetch messages
     const allMessages: { username: string; text: string; time: string }[] = []
@@ -205,7 +214,7 @@ export async function POST(request: NextRequest) {
     let offset = 0
     let hasMore = true
     
-    console.log(`[FEAR-GREED] 📊 Analyzing last ${days} days`)
+    console.log(`[FEAR-GREED] 📊 Fetching last 7 days for multi-period analysis`)
     
     while (hasMore) {
       const { data: pageMessages, error } = await supabase
@@ -234,7 +243,17 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Format messages
+    // Calculate date boundaries for context
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const threeDaysAgo = new Date(todayStart)
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+    
+    // Count messages per period
+    const todayMessages = allMessages.filter(m => new Date(m.time) >= todayStart)
+    const last3DaysMessages = allMessages.filter(m => new Date(m.time) >= threeDaysAgo)
+    
+    // Format messages with timestamps
     const formattedChat = allMessages.map(msg => {
       const time = new Date(msg.time).toLocaleString('de-DE', { 
         hour: '2-digit', 
@@ -249,23 +268,29 @@ export async function POST(request: NextRequest) {
     const btcContext = await btcPromise
     
     const btcInfo = btcContext 
-      ? `\n\n📊 Aktuelle BTC-Daten: $${btcContext.price.toLocaleString()} (24h: ${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h}%, 7d: ${btcContext.change7d >= 0 ? '+' : ''}${btcContext.change7d}%)`
+      ? `\n\n📊 Aktuelle BTC-Daten: $${btcContext.price.toLocaleString()} (24h: ${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h}%, 7d: ${btcContext.change7d >= 0 ? '+' : ''}${btcContext.change7d}%, 30d: ${btcContext.change30d >= 0 ? '+' : ''}${btcContext.change30d}%)`
       : ''
     
-    console.log(`[FEAR-GREED] 📨 Sending ${allMessages.length} messages from ${uniqueUsers} users to AI`)
+    const todayStr = todayStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+    
+    console.log(`[FEAR-GREED] 📨 Messages: Today=${todayMessages.length}, 3d=${last3DaysMessages.length}, 7d=${allMessages.length}`)
     
     const result = streamObject({
       model: openai('gpt-4o'),
       schema: FearGreedSchema,
       system: FEAR_GREED_PROMPT,
-      prompt: `Analysiere den folgenden Chat und erstelle einen Fear & Greed Index.
+      prompt: `Analysiere den folgenden Chat und erstelle Fear & Greed Indices für alle drei Zeiträume.
 
-Zeitraum: Letzte ${days} Tag(e)
-Nachrichten: ${allMessages.length}
-Unique Users: ${uniqueUsers}
+HEUTE ist der ${todayStr}
+
+Nachrichten-Statistik:
+• Heute: ${todayMessages.length} Nachrichten
+• Letzte 3 Tage: ${last3DaysMessages.length} Nachrichten  
+• Letzte 7 Tage: ${allMessages.length} Nachrichten
+• Unique Users: ${uniqueUsers}
 ${btcInfo}
 
-Chat-Protokoll:
+Chat-Protokoll (chronologisch, älteste zuerst):
 
 ${formattedChat}`
     })
@@ -280,4 +305,3 @@ ${formattedChat}`
     )
   }
 }
-

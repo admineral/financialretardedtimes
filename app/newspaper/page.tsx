@@ -35,6 +35,7 @@ import {
   DateTimeline,
   ChatSection,
 } from './components'
+import { FearGreedWidget } from '@/app/test-fg/components'
 import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats, UnifiedNewspaperData } from './lib/types'
@@ -316,11 +317,18 @@ export default function NewspaperPage() {
           {/* Right Sidebar */}
           <aside className="lg:col-span-3">
             <div className="sticky top-20">
+              {/* Fear & Greed Index */}
+              <div className="p-4 border-2 border-foreground/20 bg-muted/30">
+                <FearGreedWidget autoStart />
+              </div>
+
               {/* Short News */}
-              <ShortNewsSidebar 
-                data={newspaperData} 
-                isLoading={isLoading} 
-              />
+              <div className="mt-6">
+                <ShortNewsSidebar 
+                  data={newspaperData} 
+                  isLoading={isLoading} 
+                />
+              </div>
 
               {/* Live Chat */}
               <ChatSection />

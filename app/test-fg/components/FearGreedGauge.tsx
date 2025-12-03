@@ -1,17 +1,29 @@
 'use client'
 
-import { useMemo } from 'react'
-import { TrendingUp, TrendingDown, Minus, Quote } from 'lucide-react'
+import { useMemo, useEffect, useState, useCallback } from 'react'
+import { TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react'
+import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { z } from 'zod'
 import { cn } from '@/lib/utils'
+
+/**
+ * Single period sentiment
+ */
+interface PeriodSentiment {
+  index: number
+  classification: 'Extreme Fear' | 'Fear' | 'Neutral' | 'Greed' | 'Extreme Greed'
+  classificationDE: 'Extreme Angst' | 'Angst' | 'Neutral' | 'Gier' | 'Extreme Gier'
+}
 
 /**
  * Fear & Greed Data Interface
  */
 export interface FearGreedData {
-  index: number
-  classification: 'Extreme Fear' | 'Fear' | 'Neutral' | 'Greed' | 'Extreme Greed'
-  classificationDE: 'Extreme Angst' | 'Angst' | 'Neutral' | 'Gier' | 'Extreme Gier'
+  today: PeriodSentiment
+  last3Days: PeriodSentiment
+  last7Days: PeriodSentiment
   trend: 'rising' | 'falling' | 'stable'
+  trendInsight: string
   drivers: {
     factor: string
     sentiment: 'bullish' | 'bearish' | 'neutral'
@@ -22,292 +34,317 @@ export interface FearGreedData {
     username: string
     text: string
     sentiment: 'bullish' | 'bearish' | 'neutral'
+    period: 'today' | 'last3Days' | 'last7Days'
   }[]
   summary: string
-  periodComparison?: {
-    today?: number
-    last3Days?: number
-    last7Days?: number
-    insight: string
-  }
 }
 
-interface FearGreedGaugeProps {
-  data: Partial<FearGreedData> | undefined
-  isLoading: boolean
-  days: number
-}
+// Schema for streaming validation
+const PeriodSentimentSchema = z.object({
+  index: z.number().min(0).max(100),
+  classification: z.enum(['Extreme Fear', 'Fear', 'Neutral', 'Greed', 'Extreme Greed']),
+  classificationDE: z.enum(['Extreme Angst', 'Angst', 'Neutral', 'Gier', 'Extreme Gier']),
+})
+
+const FearGreedSchema = z.object({
+  today: PeriodSentimentSchema,
+  last3Days: PeriodSentimentSchema,
+  last7Days: PeriodSentimentSchema,
+  trend: z.enum(['rising', 'falling', 'stable']),
+  trendInsight: z.string(),
+  drivers: z.array(z.object({
+    factor: z.string(),
+    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
+    weight: z.number().min(0).max(100),
+    insight: z.string()
+  })).min(3).max(5),
+  quotes: z.array(z.object({
+    username: z.string(),
+    text: z.string(),
+    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
+    period: z.enum(['today', 'last3Days', 'last7Days'])
+  })).min(3).max(6),
+  summary: z.string()
+})
 
 /**
- * Get color based on index value
+ * Get color based on index value - Retro/muted tones
  */
 function getIndexColor(index: number): string {
-  if (index <= 20) return 'text-red-600'
-  if (index <= 40) return 'text-orange-500'
-  if (index <= 60) return 'text-yellow-500'
-  if (index <= 80) return 'text-lime-500'
-  return 'text-green-500'
+  if (index <= 20) return 'text-red-400/90'
+  if (index <= 40) return 'text-amber-600/90'
+  if (index <= 60) return 'text-yellow-600/80'
+  if (index <= 80) return 'text-lime-600/80'
+  return 'text-emerald-600/90'
 }
 
 /**
- * Get background color based on index value
+ * Mini Gauge Component - Newspaper Style
  */
-function getIndexBgColor(index: number): string {
-  if (index <= 20) return 'bg-red-600'
-  if (index <= 40) return 'bg-orange-500'
-  if (index <= 60) return 'bg-yellow-500'
-  if (index <= 80) return 'bg-lime-500'
-  return 'bg-green-500'
-}
+function MiniGauge({ 
+  index, 
+  label, 
+  classification,
+}: { 
+  index: number | undefined
+  label: string
+  classification?: string
+}) {
+  const rotation = useMemo(() => {
+    if (index === undefined) return -90
+    return (index / 100) * 180 - 90
+  }, [index])
 
-/**
- * Get sentiment color
- */
-function getSentimentColor(sentiment: 'bullish' | 'bearish' | 'neutral'): string {
-  switch (sentiment) {
-    case 'bullish': return 'text-green-500'
-    case 'bearish': return 'text-red-500'
-    default: return 'text-yellow-500'
-  }
-}
-
-/**
- * Get sentiment background color
- */
-function getSentimentBgColor(sentiment: 'bullish' | 'bearish' | 'neutral'): string {
-  switch (sentiment) {
-    case 'bullish': return 'bg-green-500/10 border-green-500/30'
-    case 'bearish': return 'bg-red-500/10 border-red-500/30'
-    default: return 'bg-yellow-500/10 border-yellow-500/30'
-  }
-}
-
-/**
- * Fear & Greed Gauge Component
- * 
- * Displays the Fear & Greed index with a visual gauge,
- * sentiment drivers, and notable quotes.
- */
-export function FearGreedGauge({ data, isLoading, days }: FearGreedGaugeProps) {
-  // Calculate gauge rotation (-90 to 90 degrees based on 0-100 index)
-  const gaugeRotation = useMemo(() => {
-    if (!data?.index) return -90
-    return (data.index / 100) * 180 - 90
-  }, [data?.index])
-
-  if (isLoading && !data) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        {/* Gauge Skeleton */}
-        <div className="flex flex-col items-center">
-          <div className="w-64 h-32 bg-muted rounded-t-full" />
-          <div className="h-8 w-24 bg-muted rounded mt-4" />
-          <div className="h-6 w-32 bg-muted rounded mt-2" />
+  return (
+    <div className="flex flex-col items-center">
+      {/* Mini gauge - Retro muted colors */}
+      <div className="relative w-16 h-8 overflow-hidden mb-1">
+        <div className="absolute inset-0 rounded-t-full overflow-hidden opacity-80">
+          <div 
+            className="absolute inset-0"
+            style={{
+              background: 'conic-gradient(from 180deg at 50% 100%, #b45454 0deg, #c4854a 45deg, #b8a44a 90deg, #7a9e5a 135deg, #5a8a6a 180deg)'
+            }}
+          />
         </div>
-        
-        {/* Drivers Skeleton */}
-        <div className="space-y-3">
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-5 bg-muted/50 rounded-t-full" />
+        <div 
+          className="absolute bottom-0 left-1/2 origin-bottom transition-transform duration-700 ease-out"
+          style={{ transform: `translateX(-50%) rotate(${rotation}deg)` }}
+        >
+          <div className="w-0.5 h-6 bg-foreground/80 rounded-full" />
+          <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-foreground/80 rounded-full" />
+        </div>
+      </div>
+      
+      {/* Value */}
+      <div className={cn(
+        "text-lg font-bold font-headline tabular-nums",
+        index !== undefined ? getIndexColor(index) : 'text-muted-foreground'
+      )}>
+        {index ?? '—'}
+      </div>
+      
+      {/* Label */}
+      <div className="text-[10px] text-muted-foreground font-body uppercase tracking-wider">{label}</div>
+      
+      {/* Classification */}
+      {classification && (
+        <div className="text-[9px] font-body text-muted-foreground/70">
+          {classification}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface FearGreedWidgetProps {
+  /** Auto-start analysis on mount (checks cache first) */
+  autoStart?: boolean
+  /** Custom className for the container */
+  className?: string
+}
+
+/**
+ * Fear & Greed Widget Component - Newspaper Style
+ * 
+ * Self-contained component that fetches and displays Fear & Greed indices
+ * for Today, 3 Days, and 7 Days. Uses cache when available.
+ */
+export function FearGreedWidget({ 
+  autoStart = false, 
+  className,
+}: FearGreedWidgetProps) {
+  const [cachedData, setCachedData] = useState<FearGreedData | null>(null)
+  const [isLoadingCache, setIsLoadingCache] = useState(false)
+  const [hasFetched, setHasFetched] = useState(false)
+  
+  const { object, isLoading: isLoadingAI, error, submit } = useObject({
+    api: '/test-fg/api/analyze',
+    schema: FearGreedSchema,
+  })
+
+  const streamingData = object as Partial<FearGreedData> | undefined
+  const data = cachedData || streamingData
+  const isLoading = isLoadingCache || isLoadingAI
+  const hasData = data?.today || data?.last3Days || data?.last7Days
+
+  // Save to cache when streaming completes
+  useEffect(() => {
+    if (streamingData?.today && streamingData?.last3Days && streamingData?.last7Days && 
+        streamingData?.trend && streamingData?.summary && !isLoadingAI) {
+      fetch('/test-fg/api/cache', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: streamingData })
+      }).catch(console.error)
+    }
+  }, [streamingData, isLoadingAI])
+
+  // Check cache on mount
+  const checkCache = useCallback(async () => {
+    setIsLoadingCache(true)
+    try {
+      const response = await fetch('/test-fg/api/cache')
+      if (response.ok) {
+        const result = await response.json()
+        if (result.cached && result.data) {
+          setCachedData(result.data as FearGreedData)
+          setHasFetched(true)
+          return true
+        }
+      }
+    } catch (err) {
+      console.error('[FearGreedWidget] Cache check failed:', err)
+    } finally {
+      setIsLoadingCache(false)
+    }
+    return false
+  }, [])
+
+  // Generate new data
+  const generate = useCallback(() => {
+    setCachedData(null)
+    setHasFetched(true)
+    submit({})
+  }, [submit])
+
+  // Auto-start: check cache first, then generate if needed
+  useEffect(() => {
+    if (autoStart && !hasFetched && !isLoading) {
+      checkCache().then(cached => {
+        if (!cached) {
+          generate()
+        }
+      })
+    }
+  }, [autoStart, hasFetched, isLoading, checkCache, generate])
+
+  // Loading skeleton - newspaper style
+  if (isLoading && !hasData) {
+    return (
+      <div className={cn("", className)}>
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
+          <h4 className="font-headline text-sm font-bold uppercase tracking-wider">
+            Fear & Greed
+          </h4>
+          <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />
+        </div>
+        <div className="grid grid-cols-3 gap-2 animate-pulse">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-16 bg-muted rounded" />
+            <div key={i} className="flex flex-col items-center">
+              <div className="w-16 h-8 bg-muted/40 rounded-t-full mb-1" />
+              <div className="w-8 h-5 bg-muted/40 rounded" />
+              <div className="w-10 h-2 bg-muted/40 rounded mt-1" />
+            </div>
           ))}
         </div>
       </div>
     )
   }
 
-  return (
-    <div className="space-y-8">
-      {/* Main Gauge */}
-      <div className="flex flex-col items-center">
-        {/* Semi-circular gauge */}
-        <div className="relative w-72 h-36 overflow-hidden">
-          {/* Gauge background */}
-          <div className="absolute inset-0 rounded-t-full overflow-hidden">
-            <div 
-              className="absolute inset-0"
-              style={{
-                background: 'conic-gradient(from 180deg at 50% 100%, #dc2626 0deg, #f97316 45deg, #eab308 90deg, #84cc16 135deg, #22c55e 180deg)'
-              }}
-            />
-          </div>
-          
-          {/* Inner circle (cutout) */}
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 bg-background rounded-t-full" />
-          
-          {/* Needle */}
-          <div 
-            className="absolute bottom-0 left-1/2 origin-bottom transition-transform duration-1000 ease-out"
-            style={{ transform: `translateX(-50%) rotate(${gaugeRotation}deg)` }}
-          >
-            <div className="w-1 h-28 bg-foreground rounded-full shadow-lg" />
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-foreground rounded-full" />
-          </div>
-          
-          {/* Labels */}
-          <div className="absolute bottom-2 left-4 text-xs font-medium text-red-600">Fear</div>
-          <div className="absolute bottom-2 right-4 text-xs font-medium text-green-500">Greed</div>
+  // Error state
+  if (error) {
+    return (
+      <div className={cn("", className)}>
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
+          <h4 className="font-headline text-sm font-bold uppercase tracking-wider">
+            Fear & Greed
+          </h4>
+          <button onClick={generate} className="text-xs text-primary hover:underline">
+            Retry
+          </button>
         </div>
-        
-        {/* Index Value */}
-        <div className="mt-4 text-center">
-          <div className={cn(
-            "text-5xl font-bold tabular-nums transition-colors",
-            data?.index !== undefined ? getIndexColor(data.index) : 'text-muted-foreground'
-          )}>
-            {data?.index ?? '—'}
-          </div>
-          <div className="text-lg font-medium text-muted-foreground mt-1">
-            {data?.classificationDE ?? 'Analysiere...'}
-          </div>
-          
-          {/* Trend indicator */}
-          {data?.trend && (
-            <div className="flex items-center justify-center gap-1 mt-2 text-sm">
-              {data.trend === 'rising' && (
-                <>
-                  <TrendingUp className="w-4 h-4 text-green-500" />
-                  <span className="text-green-500">Steigend</span>
-                </>
-              )}
-              {data.trend === 'falling' && (
-                <>
-                  <TrendingDown className="w-4 h-4 text-red-500" />
-                  <span className="text-red-500">Fallend</span>
-                </>
-              )}
-              {data.trend === 'stable' && (
-                <>
-                  <Minus className="w-4 h-4 text-yellow-500" />
-                  <span className="text-yellow-500">Stabil</span>
-                </>
-              )}
-            </div>
+        <p className="text-xs text-red-500 text-center">Fehler beim Laden</p>
+      </div>
+    )
+  }
+
+  // Initial state (no data yet, not loading, not auto-start)
+  if (!hasData && !isLoading && !autoStart) {
+    return (
+      <div className={cn("", className)}>
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
+          <h4 className="font-headline text-sm font-bold uppercase tracking-wider">
+            Fear & Greed
+          </h4>
+        </div>
+        <button
+          onClick={generate}
+          className="w-full py-2 text-xs font-headline text-primary hover:underline"
+        >
+          📊 Analyse starten
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn("", className)}>
+      {/* Header with refresh - newspaper style */}
+      <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
+        <h4 className="font-headline text-sm font-bold uppercase tracking-wider">
+          Fear & Greed
+        </h4>
+        <button
+          onClick={generate}
+          disabled={isLoading}
+          className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
+          title="Neu analysieren"
+        >
+          <RefreshCw className={cn("w-3 h-3 text-muted-foreground", isLoading && "animate-spin")} />
+        </button>
+      </div>
+
+      {/* 3 Gauges */}
+      <div className="grid grid-cols-3 gap-1">
+        <MiniGauge 
+          index={data?.today?.index}
+          label="Heute"
+          classification={data?.today?.classificationDE}
+        />
+        <MiniGauge 
+          index={data?.last3Days?.index}
+          label="3 Tage"
+          classification={data?.last3Days?.classificationDE}
+        />
+        <MiniGauge 
+          index={data?.last7Days?.index}
+          label="7 Tage"
+          classification={data?.last7Days?.classificationDE}
+        />
+      </div>
+
+      {/* Trend Indicator - retro newspaper style */}
+      {data?.trend && (
+        <div className="flex items-center justify-center gap-1.5 mt-3 pt-2 border-t border-foreground/10 text-xs">
+          {data.trend === 'rising' && (
+            <>
+              <TrendingUp className="w-3 h-3 text-emerald-700/80" />
+              <span className="text-emerald-700/80 font-body">steigend</span>
+            </>
+          )}
+          {data.trend === 'falling' && (
+            <>
+              <TrendingDown className="w-3 h-3 text-red-400/80" />
+              <span className="text-red-400/80 font-body">fallend</span>
+            </>
+          )}
+          {data.trend === 'stable' && (
+            <>
+              <Minus className="w-3 h-3 text-amber-600/80" />
+              <span className="text-amber-600/80 font-body">stabil</span>
+            </>
           )}
         </div>
-      </div>
-
-      {/* Period Comparison (for multi-day) */}
-      {data?.periodComparison && (
-        <div className="bg-muted/30 rounded-lg p-4 border border-border">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Zeitraum-Vergleich
-          </h3>
-          <div className="grid grid-cols-3 gap-4 mb-3">
-            {data.periodComparison.today !== undefined && (
-              <div className="text-center">
-                <div className={cn("text-2xl font-bold", getIndexColor(data.periodComparison.today))}>
-                  {data.periodComparison.today}
-                </div>
-                <div className="text-xs text-muted-foreground">Heute</div>
-              </div>
-            )}
-            {data.periodComparison.last3Days !== undefined && (
-              <div className="text-center">
-                <div className={cn("text-2xl font-bold", getIndexColor(data.periodComparison.last3Days))}>
-                  {data.periodComparison.last3Days}
-                </div>
-                <div className="text-xs text-muted-foreground">3 Tage</div>
-              </div>
-            )}
-            {data.periodComparison.last7Days !== undefined && (
-              <div className="text-center">
-                <div className={cn("text-2xl font-bold", getIndexColor(data.periodComparison.last7Days))}>
-                  {data.periodComparison.last7Days}
-                </div>
-                <div className="text-xs text-muted-foreground">7 Tage</div>
-              </div>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">{data.periodComparison.insight}</p>
-        </div>
       )}
 
-      {/* Summary */}
-      {data?.summary && (
-        <div className="bg-muted/20 rounded-lg p-4 border-l-4 border-primary">
-          <p className="text-sm leading-relaxed">{data.summary}</p>
+      {/* Loading indicator */}
+      {isLoading && hasData && (
+        <div className="text-center text-[10px] text-muted-foreground mt-2">
+          Aktualisiere...
         </div>
       )}
-
-      {/* Sentiment Drivers */}
-      {data?.drivers && data.drivers.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Sentiment-Treiber
-          </h3>
-          <div className="space-y-3">
-            {data.drivers.map((driver, i) => (
-              <div 
-                key={i}
-                className={cn(
-                  "rounded-lg p-3 border",
-                  getSentimentBgColor(driver.sentiment)
-                )}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-medium">{driver.factor}</span>
-                  <div className="flex items-center gap-2">
-                    <span className={cn("text-xs font-medium", getSentimentColor(driver.sentiment))}>
-                      {driver.sentiment === 'bullish' ? '🐂 Bullish' : 
-                       driver.sentiment === 'bearish' ? '🐻 Bearish' : '⚖️ Neutral'}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {driver.weight}%
-                    </span>
-                  </div>
-                </div>
-                {/* Weight bar */}
-                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mb-2">
-                  <div 
-                    className={cn("h-full rounded-full transition-all duration-500", getIndexBgColor(
-                      driver.sentiment === 'bullish' ? 75 : 
-                      driver.sentiment === 'bearish' ? 25 : 50
-                    ))}
-                    style={{ width: `${driver.weight}%` }}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">{driver.insight}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Notable Quotes */}
-      {data?.quotes && data.quotes.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Stimmungsbilder aus dem Chat
-          </h3>
-          <div className="space-y-3">
-            {data.quotes.map((quote, i) => (
-              <div 
-                key={i}
-                className={cn(
-                  "rounded-lg p-3 border relative",
-                  getSentimentBgColor(quote.sentiment)
-                )}
-              >
-                <Quote className="absolute top-2 right-2 w-4 h-4 text-muted-foreground/30" />
-                <p className="text-sm italic pr-6">&ldquo;{quote.text}&rdquo;</p>
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-xs font-medium">— {quote.username}</span>
-                  <span className={cn("text-xs", getSentimentColor(quote.sentiment))}>
-                    {quote.sentiment === 'bullish' ? '🐂' : 
-                     quote.sentiment === 'bearish' ? '🐻' : '⚖️'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Days indicator */}
-      <div className="text-center text-xs text-muted-foreground">
-        Basierend auf den letzten {days} Tag{days > 1 ? 'en' : ''}
-      </div>
     </div>
   )
 }
-

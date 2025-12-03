@@ -1,2 +1,1 @@
-export { FearGreedGauge, type FearGreedData } from './FearGreedGauge'
-
+export { FearGreedWidget, type FearGreedData } from './FearGreedGauge'
