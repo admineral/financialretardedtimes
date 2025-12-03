@@ -247,39 +247,20 @@ export default function RateChartPage() {
         }
         
         setIsLoading(true)
-        setLoadingStatus('Loading chat messages...')
+        setLoadingStatus('Loading chat messages from database...')
         
-        const allMessages: ChatMessage[] = []
-        const seenIds = new Set<string>()
-        let offset = 0
-        const batchSize = 100
-        const maxIterations = 50
-        let iterations = 0
+        // Fetch messages directly from database (not TradingView API)
+        // This ensures we get ALL messages, not just recent ones
+        const response = await fetch(`/Rate-Chart/api/messages?date=${gameDate}`)
+        const data = await response.json()
         
-        while (iterations < maxIterations) {
-          iterations++
-          setLoadingStatus(`Loading messages... (${allMessages.length} loaded)`)
-          
-          const response = await fetch(`/Test/api/chat?roomId=bitcoin_de_DE&offset=${offset}`)
-          const data = await response.json()
-          
-          if (!data.success || !data.messages || data.messages.length === 0) break
-          
-          let newMessagesCount = 0
-          for (const msg of data.messages) {
-            const msgId = msg.id || `${msg.username}-${msg.time}-${msg.text}`
-            if (!seenIds.has(msgId)) {
-              seenIds.add(msgId)
-              allMessages.push(msg)
-              newMessagesCount++
-            }
-          }
-          
-          setLoadedCount(allMessages.length)
-          
-          if (newMessagesCount === 0 || data.messages.length < batchSize) break
-          offset += batchSize
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch messages')
         }
+        
+        const allMessages: ChatMessage[] = data.messages || []
+        setLoadedCount(allMessages.length)
+        setLoadingStatus(`Loaded ${allMessages.length} messages from database`)
         
         setLoadingStatus('Saving to cache...')
         
@@ -388,6 +369,7 @@ export default function RateChartPage() {
     let gameDayEnd: Date
     
     if (currentHour < 8) {
+      // Winners Period (00:00-08:00): Show YESTERDAY's game (08:00 yesterday to midnight)
       const yesterdayVienna = new Date(viennaTime)
       yesterdayVienna.setDate(yesterdayVienna.getDate() - 1)
       yesterdayVienna.setHours(8, 0, 0, 0)
@@ -398,14 +380,15 @@ export default function RateChartPage() {
       gameDayStart = yesterdayVienna
       gameDayEnd = midnightToday
     } else {
-      const midnightToday = new Date(viennaTime)
-      midnightToday.setHours(0, 0, 0, 0)
+      // Active game period (08:00-23:59): Show TODAY's game (08:00 today to midnight)
+      const today8AM = new Date(viennaTime)
+      today8AM.setHours(8, 0, 0, 0)
       
       const midnightTomorrow = new Date(viennaTime)
       midnightTomorrow.setDate(midnightTomorrow.getDate() + 1)
       midnightTomorrow.setHours(0, 0, 0, 0)
       
-      gameDayStart = midnightToday
+      gameDayStart = today8AM
       gameDayEnd = midnightTomorrow
     }
     
