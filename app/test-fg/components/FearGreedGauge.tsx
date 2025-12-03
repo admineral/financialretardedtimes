@@ -23,20 +23,8 @@ export interface FearGreedData {
   last3Days: PeriodSentiment
   last7Days: PeriodSentiment
   trend: 'rising' | 'falling' | 'stable'
-  trendInsight: string
-  drivers: {
-    factor: string
-    sentiment: 'bullish' | 'bearish' | 'neutral'
-    weight: number
-    insight: string
-  }[]
-  quotes: {
-    username: string
-    text: string
-    sentiment: 'bullish' | 'bearish' | 'neutral'
-    period: 'today' | 'last3Days' | 'last7Days'
-  }[]
-  summary: string
+  insight: string
+  topDrivers: string[]
 }
 
 // Schema for streaming validation
@@ -51,20 +39,8 @@ const FearGreedSchema = z.object({
   last3Days: PeriodSentimentSchema,
   last7Days: PeriodSentimentSchema,
   trend: z.enum(['rising', 'falling', 'stable']),
-  trendInsight: z.string(),
-  drivers: z.array(z.object({
-    factor: z.string(),
-    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-    weight: z.number().min(0).max(100),
-    insight: z.string()
-  })).min(3).max(5),
-  quotes: z.array(z.object({
-    username: z.string(),
-    text: z.string(),
-    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-    period: z.enum(['today', 'last3Days', 'last7Days'])
-  })).min(3).max(6),
-  summary: z.string()
+  insight: z.string(),
+  topDrivers: z.array(z.string()).min(2).max(3),
 })
 
 /**
@@ -172,7 +148,7 @@ export function FearGreedWidget({
   // Save to cache when streaming completes
   useEffect(() => {
     if (streamingData?.today && streamingData?.last3Days && streamingData?.last7Days && 
-        streamingData?.trend && streamingData?.summary && !isLoadingAI) {
+        streamingData?.trend && streamingData?.insight && streamingData?.topDrivers && !isLoadingAI) {
       fetch('/test-fg/api/cache', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -336,6 +312,27 @@ export function FearGreedWidget({
               <span className="text-amber-600/80 font-body">stabil</span>
             </>
           )}
+        </div>
+      )}
+
+      {/* Insight Text */}
+      {data?.insight && (
+        <p className="mt-3 text-[11px] text-muted-foreground font-body leading-relaxed text-center italic">
+          „{data.insight}"
+        </p>
+      )}
+
+      {/* Top Drivers as Tags */}
+      {data?.topDrivers && data.topDrivers.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-1.5 mt-2">
+          {data.topDrivers.map((driver, i) => (
+            <span 
+              key={i}
+              className="px-1.5 py-0.5 text-[9px] font-body bg-muted/50 text-muted-foreground rounded border border-foreground/10"
+            >
+              {driver}
+            </span>
+          ))}
         </div>
       )}
 

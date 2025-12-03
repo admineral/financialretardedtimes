@@ -1,12 +1,25 @@
 /**
  * route.ts (Fear & Greed Analysis API)
  * 
- * AI-powered sentiment analysis endpoint that analyzes chat messages
- * and returns Fear & Greed indices for TODAY, LAST 3 DAYS, and LAST 7 DAYS.
+ * AI-powered sentiment analysis endpoint using OpenAI GPT-5.1.
+ * 
+ * LOCAL: Handles POST requests to analyze chat sentiment and generate
+ * Fear & Greed indices for three time periods (today, 3 days, 7 days).
+ * Fetches messages from Supabase, adds BTC market context, and streams AI responses.
+ * 
+ * GLOBAL: Primary API endpoint for the Fear & Greed widget. Called by FearGreedWidget
+ * component via useObject hook. Returns streaming JSON matching FearGreedSchema.
  * 
  * ENDPOINT: POST /test-fg/api/analyze
  * 
- * RESPONSE: Streaming JSON with all three time periods
+ * REQUEST BODY: Empty object (no parameters needed)
+ * 
+ * RESPONSE: Streaming JSON object with sentiment indices for 3 periods
+ * 
+ * ERRORS:
+ * - 500: OpenAI API key not configured
+ * - 404: No messages found for the last 7 days
+ * - 500: Database or AI errors
  */
 
 import { NextRequest } from 'next/server'
@@ -16,8 +29,13 @@ import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
 
+// ═══════════════════════════════════════════════════════════════════════
+// SCHEMAS
+// ═══════════════════════════════════════════════════════════════════════
+
 /**
- * Single period sentiment schema
+ * Single period sentiment schema.
+ * Represents the Fear & Greed index for one time period.
  */
 const PeriodSentimentSchema = z.object({
   index: z.number().min(0).max(100),
@@ -38,7 +56,8 @@ const PeriodSentimentSchema = z.object({
 })
 
 /**
- * Fear & Greed Analysis Schema - All 3 periods in one response
+ * Fear & Greed Analysis Schema - All 3 periods in one response.
+ * Used for streaming validation and type inference.
  */
 export const FearGreedSchema = z.object({
   // Today's sentiment
@@ -52,32 +71,23 @@ export const FearGreedSchema = z.object({
   
   // Trend direction based on comparison
   trend: z.enum(['rising', 'falling', 'stable']),
-  trendInsight: z.string(), // e.g. "Stimmung verbessert sich seit 3 Tagen"
   
-  // Key sentiment drivers (from the full 7 day period)
-  drivers: z.array(z.object({
-    factor: z.string(),
-    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-    weight: z.number().min(0).max(100),
-    insight: z.string()
-  })).min(3).max(5),
+  // Short insight text (1-2 sentences, displayed in widget)
+  insight: z.string().describe('Kurze Erklärung der aktuellen Stimmung (max 2 Sätze, deutsch)'),
   
-  // Notable quotes (from any period)
-  quotes: z.array(z.object({
-    username: z.string(),
-    text: z.string(),
-    sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-    period: z.enum(['today', 'last3Days', 'last7Days'])
-  })).min(3).max(6),
-  
-  // Overall summary
-  summary: z.string()
+  // Top 2-3 sentiment drivers as short tags
+  topDrivers: z.array(z.string()).min(2).max(3).describe('Die 2-3 wichtigsten Stimmungstreiber als kurze Schlagworte'),
 })
 
 export type FearGreedData = z.infer<typeof FearGreedSchema>
 
+// ═══════════════════════════════════════════════════════════════════════
+// SYSTEM PROMPT
+// ═══════════════════════════════════════════════════════════════════════
+
 /**
- * System prompt for Fear & Greed analysis
+ * System prompt for Fear & Greed sentiment analysis.
+ * Instructs the AI on how to calculate indices for each time period.
  */
 const FEAR_GREED_PROMPT = `Du bist ein Sentiment-Analyst für den TradingView Bitcoin-Chat.
 
@@ -151,21 +161,45 @@ OUTPUT-REGELN
 
 • Gib für JEDEN Zeitraum einen separaten Index (0-100)
 • Die Werte können unterschiedlich sein!
-• Belege mit Zitaten aus verschiedenen Zeiträumen
-• Erkläre den Trend zwischen den Perioden
-• Kurze, prägnante Insights`
+• "insight": 1-2 kurze Sätze die die aktuelle Stimmung erklären
+  → Beispiel: "Euphorie wegen ETF-Zuflüssen. Viele erwarten neue ATHs."
+  → Beispiel: "Nervosität nach dem Dump. Unsicherheit über nächste Richtung."
+• "topDrivers": 2-3 Schlagworte als Stimmungstreiber
+  → Beispiel: ["ETF-Zuflüsse", "Halving-Countdown", "Bullishe TA"]
+  → Beispiel: ["Makro-Unsicherheit", "Whale-Verkäufe", "Support-Test"]`
+
+// ═══════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Fetch BTC context
+ * Bitcoin market context interface.
+ * Used to provide price context to the AI.
  */
-async function fetchBTCContext() {
+interface BTCContext {
+  price: number
+  change24h: number
+  change7d: number
+  change30d: number
+}
+
+/**
+ * Fetch current Bitcoin market data from CoinGecko API.
+ * Used to provide market context to the AI for more relevant analysis.
+ * 
+ * @returns BTCContext object or null if fetch fails
+ */
+async function fetchBTCContext(): Promise<BTCContext | null> {
   try {
     const response = await fetch(
       'https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false',
-      { next: { revalidate: 300 } }
+      { next: { revalidate: 300 } } // Cache for 5 minutes
     )
     
-    if (!response.ok) return null
+    if (!response.ok) {
+      console.warn('[BTC API] CoinGecko API error:', response.status)
+      return null
+    }
     
     const data = await response.json()
     const market = data.market_data
@@ -176,17 +210,47 @@ async function fetchBTCContext() {
       change7d: Math.round(market.price_change_percentage_7d * 100) / 100,
       change30d: Math.round(market.price_change_percentage_30d * 100) / 100,
     }
-  } catch {
+  } catch (error) {
+    console.error('[BTC API] Error fetching BTC data:', error)
     return null
   }
 }
 
 /**
- * POST handler for Fear & Greed analysis
+ * Format BTC context as a readable string for the AI prompt.
+ * 
+ * @param btc - Bitcoin market data
+ * @returns Formatted string with price and performance info
+ */
+function formatBTCContext(btc: BTCContext): string {
+  const formatPercent = (pct: number) => (pct >= 0 ? `+${pct}%` : `${pct}%`)
+  
+  return `
+═══════════════════════════════════════════════════
+📊 BITCOIN MARKTDATEN (Live)
+═══════════════════════════════════════════════════
+💰 Aktueller Preis: $${btc.price.toLocaleString('de-DE')}
+
+📈 Performance:
+   • 24h: ${formatPercent(btc.change24h)}
+   • 7 Tage: ${formatPercent(btc.change7d)}
+   • 30 Tage: ${formatPercent(btc.change30d)}
+═══════════════════════════════════════════════════
+`
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// POST HANDLER
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * POST handler for Fear & Greed sentiment analysis.
+ * Fetches 7 days of messages, adds BTC context, and streams AI-generated indices.
  */
 export async function POST(request: NextRequest) {
   await headers()
   
+  // Validate API key
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     return new Response(
@@ -196,19 +260,21 @@ export async function POST(request: NextRequest) {
   }
   
   try {
+    // Fetch BTC data in parallel with request parsing
     const btcPromise = fetchBTCContext()
     
-    // We don't need body params anymore - always fetch 7 days
+    // Parse request body (no params needed, but consume the body)
     await request.json().catch(() => ({}))
     
+    // Initialize Supabase client
     const supabase = await createClient()
     
-    // Always fetch last 7 days
+    // Calculate date range (last 7 days)
     const endDate = new Date()
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - 7)
     
-    // Fetch messages
+    // Fetch chat messages with pagination
     const allMessages: { username: string; text: string; time: string }[] = []
     const pageSize = 1000
     let offset = 0
@@ -225,7 +291,9 @@ export async function POST(request: NextRequest) {
         .order('time', { ascending: true })
         .range(offset, offset + pageSize - 1)
       
-      if (error) throw new Error(`Database error: ${error.message}`)
+      if (error) {
+        throw new Error(`Database error: ${error.message}`)
+      }
       
       if (!pageMessages || pageMessages.length === 0) {
         hasMore = false
@@ -236,14 +304,15 @@ export async function POST(request: NextRequest) {
       }
     }
     
+    // Validate messages exist
     if (allMessages.length === 0) {
       return new Response(
-        JSON.stringify({ error: 'No messages found for the selected period' }),
+        JSON.stringify({ error: 'No messages found for the last 7 days' }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       )
     }
     
-    // Calculate date boundaries for context
+    // Calculate date boundaries for period breakdown
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const threeDaysAgo = new Date(todayStart)
@@ -253,7 +322,7 @@ export async function POST(request: NextRequest) {
     const todayMessages = allMessages.filter(m => new Date(m.time) >= todayStart)
     const last3DaysMessages = allMessages.filter(m => new Date(m.time) >= threeDaysAgo)
     
-    // Format messages with timestamps
+    // Format messages for AI prompt
     const formattedChat = allMessages.map(msg => {
       const time = new Date(msg.time).toLocaleString('de-DE', { 
         hour: '2-digit', 
@@ -264,35 +333,51 @@ export async function POST(request: NextRequest) {
       return `[${time}] ${msg.username}: ${msg.text}`
     }).join('\n')
     
+    // Calculate statistics
     const uniqueUsers = new Set(allMessages.map(m => m.username)).size
-    const btcContext = await btcPromise
-    
-    const btcInfo = btcContext 
-      ? `\n\n📊 Aktuelle BTC-Daten: $${btcContext.price.toLocaleString()} (24h: ${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h}%, 7d: ${btcContext.change7d >= 0 ? '+' : ''}${btcContext.change7d}%, 30d: ${btcContext.change30d >= 0 ? '+' : ''}${btcContext.change30d}%)`
-      : ''
-    
     const todayStr = todayStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
     
-    console.log(`[FEAR-GREED] 📨 Messages: Today=${todayMessages.length}, 3d=${last3DaysMessages.length}, 7d=${allMessages.length}`)
+    // Wait for BTC data
+    const btcContext = await btcPromise
+    const btcContextStr = btcContext ? formatBTCContext(btcContext) : ''
     
+    // Log summary of what we're sending to the model
+    console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
+    console.log(`[FEAR-GREED] 🤖 Sending to model:`)
+    console.log(`[FEAR-GREED]    Today: ${todayMessages.length} messages`)
+    console.log(`[FEAR-GREED]    Last 3 days: ${last3DaysMessages.length} messages`)
+    console.log(`[FEAR-GREED]    Last 7 days: ${allMessages.length} messages`)
+    console.log(`[FEAR-GREED]    Unique users: ${uniqueUsers}`)
+    console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
+    
+    // Stream AI response using GPT-5.1
     const result = streamObject({
-      model: openai('gpt-4o'),
+      model: openai('gpt-5.1'),
       schema: FearGreedSchema,
       system: FEAR_GREED_PROMPT,
       prompt: `Analysiere den folgenden Chat und erstelle Fear & Greed Indices für alle drei Zeiträume.
 
 HEUTE ist der ${todayStr}
-
+${btcContextStr}
 Nachrichten-Statistik:
 • Heute: ${todayMessages.length} Nachrichten
 • Letzte 3 Tage: ${last3DaysMessages.length} Nachrichten  
 • Letzte 7 Tage: ${allMessages.length} Nachrichten
 • Unique Users: ${uniqueUsers}
-${btcInfo}
 
 Chat-Protokoll (chronologisch, älteste zuerst):
 
-${formattedChat}`
+${formattedChat}`,
+      onFinish: async ({ object, error: finishError }) => {
+        if (object) {
+          console.log(`[FEAR-GREED] ✅ Analysis complete: Today=${object.today?.index}, 3d=${object.last3Days?.index}, 7d=${object.last7Days?.index}`)
+        } else if (finishError) {
+          console.error(`[FEAR-GREED] ❌ Schema error:`, String(finishError))
+        }
+      },
+      onError: (error) => {
+        console.error('[FEAR-GREED] ❌ Stream error:', error)
+      }
     })
     
     return result.toTextStreamResponse()
