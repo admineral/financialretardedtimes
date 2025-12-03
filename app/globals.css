@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+/* Local Font Definitions */
+@font-face {
+  font-family: 'UnifrakturMaguntia';
+  src: url('/fonts/UnifrakturMaguntia.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Libre Baskerville';
+  src: url('/fonts/LibreBaskerville-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Libre Baskerville';
+  src: url('/fonts/LibreBaskerville-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -133,27 +158,27 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-family: 'Libre Baskerville', Georgia, 'Times New Roman', Times, serif;
   }
 }
 
 @layer components {
-  /* Classic newspaper masthead - using system serif fonts */
+  /* Classic newspaper masthead - Blackletter font */
   .font-masthead {
-    font-family: 'Old English Text MT', 'Lucida Blackletter', 'Times New Roman', serif;
+    font-family: 'UnifrakturMaguntia', 'Old English Text MT', serif;
     font-weight: normal;
     letter-spacing: 0.02em;
   }
 
   /* Headline font - elegant serif */
   .font-headline {
-    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-family: 'Libre Baskerville', Georgia, 'Times New Roman', Times, serif;
     font-weight: 700;
   }
 
   /* Body text - readable serif */
   .font-body {
-    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-family: 'Libre Baskerville', Georgia, 'Times New Roman', Times, serif;
   }
 
   .newspaper-rule {
@@ -170,7 +195,7 @@
 
   .drop-cap::first-letter {
     @apply float-left text-6xl font-bold leading-none mr-2 mt-1;
-    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-family: 'Libre Baskerville', Georgia, 'Times New Roman', Times, serif;
   }
 
   .column-divider {
