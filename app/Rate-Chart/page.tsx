@@ -238,30 +238,47 @@ export default function RateChartPage() {
   }, [nextRefreshTime, isRefreshing])
 
   useEffect(() => {
-    const CACHE_KEY = 'rate_chart_messages_cache'
     const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in milliseconds
+    
+    // Helper to get current game date in Vienna timezone (YYYY-MM-DD)
+    const getGameDate = () => {
+      const now = new Date()
+      const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+      const currentHour = viennaTime.getHours()
+      
+      // If before 8 AM, use yesterday's date (we're showing yesterday's game)
+      if (currentHour < 8) {
+        viennaTime.setDate(viennaTime.getDate() - 1)
+      }
+      
+      return viennaTime.toISOString().split('T')[0]
+    }
     
     const fetchAllMessages = async (forceRefresh = false) => {
       try {
-        // Check cache first
-        if (!forceRefresh && typeof window !== 'undefined') {
-          const cached = localStorage.getItem(CACHE_KEY)
-          if (cached) {
-            const { messages: cachedMessages, timestamp } = JSON.parse(cached)
-            const age = Date.now() - timestamp
-            
-            if (age < CACHE_DURATION) {
-              console.log(`💾 [RATE CHART] Using cached messages: ${cachedMessages.length} messages (${Math.round(age / 1000)}s old)`)
-              setMessages(cachedMessages)
-              setLoadedCount(cachedMessages.length)
-              setIsLoading(false)
-              setLoadingStatus('Complete!')
-              // Update next refresh time based on cache age
-              setNextRefreshTime(timestamp + CACHE_DURATION)
-              return
-            } else {
-              console.log(`⏰ [RATE CHART] Cache expired (${Math.round(age / 1000)}s old), refreshing...`)
-            }
+        const gameDate = getGameDate()
+        
+        // Check Supabase cache first
+        if (!forceRefresh) {
+          setLoadingStatus('Checking cache...')
+          console.log(`💾 [RATE CHART] Checking Supabase cache for ${gameDate}...`)
+          
+          const cacheResponse = await fetch(`/Rate-Chart/api/cache?date=${gameDate}`)
+          const cacheData = await cacheResponse.json()
+          
+          if (cacheData.found && cacheData.valid) {
+            console.log(`💾 [RATE CHART] Using Supabase cache: ${cacheData.messageCount} messages (${Math.round(cacheData.cacheAge / 1000)}s old)`)
+            setMessages(cacheData.messages)
+            setLoadedCount(cacheData.messageCount)
+            setIsLoading(false)
+            setLoadingStatus('Complete!')
+            // Update next refresh time based on cache age
+            setNextRefreshTime(Date.now() + (CACHE_DURATION - cacheData.cacheAge))
+            return
+          } else if (cacheData.found && !cacheData.valid) {
+            console.log(`⏰ [RATE CHART] Supabase cache expired (${Math.round(cacheData.cacheAge / 1000)}s old), refreshing...`)
+          } else {
+            console.log(`📭 [RATE CHART] No Supabase cache found for ${gameDate}`)
           }
         }
         
@@ -322,16 +339,25 @@ export default function RateChartPage() {
           console.warn(`📚 [RATE CHART] Reached max iterations (${maxIterations}), stopping to prevent infinite loop`)
         }
         
-        setLoadingStatus('Filtering for price predictions...')
-        await new Promise(resolve => setTimeout(resolve, 500)) // Brief pause to show filtering status
+        setLoadingStatus('Saving to cache...')
         
-        // Cache the messages
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(CACHE_KEY, JSON.stringify({
-            messages: allMessages,
-            timestamp: Date.now()
-          }))
-          console.log(`💾 [RATE CHART] Cached ${allMessages.length} messages for 5 minutes`)
+        // Save to Supabase cache
+        try {
+          await fetch('/Rate-Chart/api/cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              date: gameDate,
+              messages: allMessages,
+              messageCount: allMessages.length,
+              participantCount: 0, // Will be calculated later
+              predictionCount: 0,  // Will be calculated later
+              resetTimestamp: null
+            })
+          })
+          console.log(`💾 [RATE CHART] Saved ${allMessages.length} messages to Supabase cache`)
+        } catch (cacheError) {
+          console.error('Failed to save to Supabase cache:', cacheError)
         }
         
         // Update next refresh time
@@ -881,10 +907,7 @@ export default function RateChartPage() {
                   onClick={async () => {
                     if (fetchMessages && !isRefreshing) {
                       setIsRefreshing(true)
-                      // Clear cache
-                      if (typeof window !== 'undefined') {
-                        localStorage.removeItem('rate_chart_messages_cache')
-                      }
+                      // Force refresh - bypass Supabase cache
                       await fetchMessages(true)
                       setIsRefreshing(false)
                     }
