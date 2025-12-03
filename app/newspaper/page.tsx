@@ -35,6 +35,8 @@ import {
   DateTimeline,
   ChatSection,
 } from './components'
+import type { CacheInfo } from './components'
+import type { DayRange } from './components/DateTimeline'
 import type { DateStats, UnifiedNewspaperData } from './lib/types'
 
 /**
@@ -72,12 +74,31 @@ function CurrentDate() {
 }
 
 /**
+ * Format time ago in German
+ */
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  
+  if (diffMins < 1) return 'gerade eben'
+  if (diffMins < 60) return `vor ${diffMins}m`
+  if (diffHours < 24) return `vor ${diffHours}h ${diffMins % 60}m`
+  return `vor ${diffDays}d ${diffHours % 24}h`
+}
+
+/**
  * Main Newspaper Page Component
  */
 export default function NewspaperPage() {
   // Date selection state
   const [availableDates, setAvailableDates] = useState<DateStats[]>([])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selectedDates, setSelectedDates] = useState<string[]>([])
+  const [dayRange, setDayRange] = useState<DayRange>(1)
   const [isLoadingDates, setIsLoadingDates] = useState(true)
   
   // Market data state
@@ -91,6 +112,9 @@ export default function NewspaperPage() {
   
   // Shared newspaper data (for sidebar synchronization)
   const [newspaperData, setNewspaperData] = useState<Partial<UnifiedNewspaperData> | undefined>(undefined)
+  
+  // Cache info for displaying version and time
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
 
   /**
    * Fetch BTC market data from CoinGecko
@@ -152,6 +176,15 @@ export default function NewspaperPage() {
   // Callbacks for child component communication
   const handleDateSelect = useCallback((date: string) => {
     setSelectedDate(date)
+    // When selecting a new date, reset to single day if currently on multi-day
+    if (dayRange === 1) {
+      setSelectedDates([date])
+    }
+  }, [dayRange])
+  
+  const handleDayRangeChange = useCallback((days: DayRange, dates: string[]) => {
+    setDayRange(days)
+    setSelectedDates(dates)
   }, [])
 
   const handleLoadingChange = useCallback((loading: boolean) => {
@@ -165,6 +198,10 @@ export default function NewspaperPage() {
   const handleRefresh = useCallback(() => {
     setRefreshKey(k => k + 1)
   }, [])
+  
+  const handleCacheInfoChange = useCallback((info: CacheInfo | null) => {
+    setCacheInfo(info)
+  }, [])
 
   return (
     <main className="min-h-screen bg-background">
@@ -173,6 +210,17 @@ export default function NewspaperPage() {
         <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 flex justify-between items-center text-xs text-muted-foreground">
           <CurrentDate />
           <div className="flex items-center gap-4">
+            {/* Cache Info */}
+            {cacheInfo && !isLoading && (
+              <span className="hidden md:flex items-center gap-1.5 text-muted-foreground/70">
+                <span className={cacheInfo.isFromCache ? 'text-emerald-600' : 'text-amber-600'}>
+                  {cacheInfo.dayRange}d
+                </span>
+                <span>•</span>
+                <span>{formatTimeAgo(cacheInfo.updatedAt)}</span>
+                {cacheInfo.isFromCache && <span className="text-emerald-600/60">(cache)</span>}
+              </span>
+            )}
             <span className="hidden sm:inline">Vol. 1 • No. 1</span>
             {isLoading && (
               <span className="flex items-center gap-1.5 text-amber-600">
@@ -230,6 +278,7 @@ export default function NewspaperPage() {
           isLoadingDates={isLoadingDates}
           isLoading={isLoading}
           onDateSelect={handleDateSelect}
+          onDayRangeChange={handleDayRangeChange}
           onRefresh={handleRefresh}
         />
       </div>
@@ -249,8 +298,11 @@ export default function NewspaperPage() {
             {/* AI-Generated Newspaper Content */}
             <NewspaperContent 
               selectedDate={selectedDate}
+              selectedDates={selectedDates}
+              dayRange={dayRange}
               onLoadingChange={handleLoadingChange}
               onDataChange={handleDataChange}
+              onCacheInfoChange={handleCacheInfoChange}
               forceRefresh={refreshKey}
             />
           </main>

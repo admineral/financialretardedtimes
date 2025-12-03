@@ -34,9 +34,16 @@ import type { UnifiedNewspaperData } from '../../lib/types'
 /**
  * Save generated newspaper content to cache.
  * Called after streaming completes successfully.
+ * 
+ * @param date - The start date for the cache entry
+ * @param dayRange - Number of days (1, 3, or 7)
+ * @param data - The generated newspaper data
+ * @param messageCount - Total messages used
+ * @param uniqueUsers - Unique user count
  */
 async function saveToCache(
   date: string,
+  dayRange: number,
   data: UnifiedNewspaperData,
   messageCount: number,
   uniqueUsers: number
@@ -44,22 +51,47 @@ async function saveToCache(
   try {
     const supabase = await createClient()
     
+    // Try to save with day_range first
     const { error } = await supabase
       .from('newspaper_cache')
       .upsert({
         cache_date: date,
+        day_range: dayRange,
         data: data,
         message_count: messageCount,
         unique_users: uniqueUsers,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'cache_date'
+        onConflict: 'cache_date,day_range'
       })
     
     if (error) {
+      // If day_range column doesn't exist yet, try without it
+      if (error.code === '42703' || error.message?.includes('day_range')) {
+        console.log('[CACHE] ⚠️ day_range column not found, saving without it')
+        const { error: fallbackError } = await supabase
+          .from('newspaper_cache')
+          .upsert({
+            cache_date: date,
+            data: data,
+            message_count: messageCount,
+            unique_users: uniqueUsers,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'cache_date'
+          })
+        
+        if (fallbackError) {
+          console.error('[CACHE] ❌ Fallback save failed:', fallbackError.message)
+        } else {
+          console.log(`[CACHE] ✅ Saved (legacy): ${date}`)
+        }
+        return
+      }
+      
       console.error('[CACHE] ❌ Save failed:', error.message)
     } else {
-      console.log(`[CACHE] ✅ Saved: ${date}`)
+      console.log(`[CACHE] ✅ Saved: ${date} (${dayRange}d)`)
     }
   } catch (error) {
     console.error('[CACHE] ❌ Exception:', error instanceof Error ? error.message : error)
@@ -162,7 +194,7 @@ export async function POST(request: NextRequest) {
     
     // Parse request body
     const body = await request.json()
-    const { selectedDates }: { selectedDates?: string[] } = body
+    const { selectedDates, dayRange = 1 }: { selectedDates?: string[]; dayRange?: number } = body
     
     // Initialize Supabase client
     const supabase = await createClient()
@@ -170,9 +202,14 @@ export async function POST(request: NextRequest) {
     // Fetch chat messages
     let messages: { username: string; text: string; time: string; is_moderator: boolean }[] = []
     
+    // Track per-day statistics for logging
+    const dayStats: { date: string; count: number; firstHour: string; lastHour: string }[] = []
+    
     if (selectedDates && selectedDates.length > 0) {
       // Fetch messages for specific dates
       const allMessages: typeof messages = []
+      
+      console.log(`[SUMMARIZE] 📅 Fetching ${selectedDates.length} day(s): ${selectedDates.join(', ')}`)
       
       for (const date of selectedDates) {
         const startOfDay = `${date}T00:00:00.000Z`
@@ -189,8 +226,19 @@ export async function POST(request: NextRequest) {
           throw new Error(`Database error for date ${date}: ${dayError.message}`)
         }
         
-        if (dayMessages) {
+        if (dayMessages && dayMessages.length > 0) {
           allMessages.push(...dayMessages)
+          
+          // Log per-day stats with first and last message hours
+          const firstMsg = dayMessages[0]
+          const lastMsg = dayMessages[dayMessages.length - 1]
+          const firstHour = new Date(firstMsg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+          const lastHour = new Date(lastMsg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+          
+          dayStats.push({ date, count: dayMessages.length, firstHour, lastHour })
+          console.log(`[SUMMARIZE]   📆 ${date}: ${dayMessages.length} msgs (${firstHour} - ${lastHour})`)
+        } else {
+          console.log(`[SUMMARIZE]   📆 ${date}: 0 msgs`)
         }
       }
       
@@ -255,7 +303,24 @@ export async function POST(request: NextRequest) {
       ? selectedDates[0] 
       : today
     
-    console.log(`[SUMMARIZE] ${cacheDate} | ${messages.length} msgs | ${uniqueUsers} users`)
+    // Use the requested dayRange for caching (1, 3, or 7)
+    // This ensures consistent cache keys even if fewer dates are available
+    const effectiveDayRange = dayRange || (selectedDates ? selectedDates.length : 1)
+    
+    // Log summary of what we're sending to the model
+    const isMultiDay = effectiveDayRange > 1
+    console.log(`[SUMMARIZE] ════════════════════════════════════════════`)
+    console.log(`[SUMMARIZE] 🤖 Sending to model:`)
+    console.log(`[SUMMARIZE]    Mode: ${effectiveDayRange}-day summary (${selectedDates?.length || 1} days of data)`)
+    console.log(`[SUMMARIZE]    Total messages: ${messages.length}`)
+    console.log(`[SUMMARIZE]    Unique users: ${uniqueUsers}`)
+    if (dayStats.length > 0) {
+      console.log(`[SUMMARIZE]    Date range: ${dateRangeStr}`)
+      dayStats.forEach(ds => {
+        console.log(`[SUMMARIZE]      • ${ds.date}: ${ds.count} msgs (first: ${ds.firstHour}, last: ${ds.lastHour})`)
+      })
+    }
+    console.log(`[SUMMARIZE] ════════════════════════════════════════════`)
     
     // Stream AI response using GPT-5.1
     const result = streamObject({
@@ -272,7 +337,7 @@ Chat-Protokoll (${messages.length} Nachrichten von ${uniqueUsers} Usern):
 ${formattedChat}`,
       onFinish: async ({ object, error: finishError }) => {
         if (object) {
-          await saveToCache(cacheDate, object as UnifiedNewspaperData, messages.length, uniqueUsers)
+          await saveToCache(cacheDate, effectiveDayRange, object as UnifiedNewspaperData, messages.length, uniqueUsers)
         } else if (finishError) {
           console.error(`[SUMMARIZE] ❌ Schema error:`, String(finishError))
         }

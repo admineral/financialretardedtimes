@@ -21,9 +21,11 @@
 
 // Main Components
 export { NewspaperContent } from './NewspaperContent'
+export type { CacheInfo } from './NewspaperContent'
 export { NewspaperSidebar } from './NewspaperSidebar'
 export { ShortNewsSidebar } from './ShortNewsSidebar'
 export { DateTimeline } from './DateTimeline'
+export type { DayRange } from './DateTimeline'
 export { ChatSection } from './ChatSection'
 
 // UI Components

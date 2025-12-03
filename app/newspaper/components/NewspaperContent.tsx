@@ -31,8 +31,11 @@ import { getCategoryStyle, getEventStyle } from './ui/helpers'
 
 interface NewspaperContentProps {
   selectedDate: string | null
+  selectedDates?: string[] // For multi-day summaries (3-day, 7-day)
+  dayRange?: 1 | 3 | 7 // Number of days for the summary
   onLoadingChange?: (isLoading: boolean) => void
   onDataChange?: (data: Partial<UnifiedNewspaperData> | undefined) => void
+  onCacheInfoChange?: (info: CacheInfo | null) => void // Callback for cache metadata
   forceRefresh?: number // Increment to force regeneration (bypasses cache)
 }
 
@@ -41,6 +44,14 @@ interface CacheResponse {
   messageCount: number
   uniqueUsers: number
   updatedAt: string
+  dayRange: number
+}
+
+export interface CacheInfo {
+  updatedAt: string
+  dayRange: number
+  messageCount: number
+  isFromCache: boolean
 }
 
 /**
@@ -62,18 +73,24 @@ function StreamingCursor({ show }: { show: boolean }) {
 
 export function NewspaperContent({ 
   selectedDate, 
+  selectedDates,
+  dayRange = 1,
   onLoadingChange, 
   onDataChange,
+  onCacheInfoChange,
   forceRefresh = 0
 }: NewspaperContentProps) {
   // Track last loaded date and refresh key to prevent duplicate fetches
   const lastLoadedDateRef = useRef<string | null>(null)
+  const lastLoadedDatesRef = useRef<string[]>([])
+  const lastDayRangeRef = useRef<number>(1)
   const lastRefreshKeyRef = useRef<number>(0)
   
   // Cache state
   const [cachedData, setCachedData] = useState<UnifiedNewspaperData | null>(null)
   const [isCacheLoading, setIsCacheLoading] = useState(false)
   const [cacheError, setCacheError] = useState<string | null>(null)
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
   
   // AI streaming state
   const { 
@@ -99,20 +116,33 @@ export function NewspaperContent({
   const isLoading = isCacheLoading || isAILoading
   const error = aiError || (cacheError ? new Error(cacheError) : null)
 
-  // Fetch from cache
-  const fetchFromCache = useCallback(async (date: string): Promise<boolean> => {
+  // Fetch from cache with dayRange support
+  const fetchFromCache = useCallback(async (date: string, range: number): Promise<boolean> => {
     setIsCacheLoading(true)
     setCacheError(null)
     
     try {
-      const response = await fetch(`/newspaper/api/cache?date=${date}`)
+      const response = await fetch(`/newspaper/api/cache?date=${date}&dayRange=${range}`)
       
       if (response.ok) {
         const cacheResponse: CacheResponse = await response.json()
         setCachedData(cacheResponse.data)
         setShowingCache(true)
+        
+        // Set cache info
+        const info: CacheInfo = {
+          updatedAt: cacheResponse.updatedAt,
+          dayRange: cacheResponse.dayRange,
+          messageCount: cacheResponse.messageCount,
+          isFromCache: true
+        }
+        setCacheInfo(info)
+        onCacheInfoChange?.(info)
+        
         return true
       } else if (response.status === 404) {
+        setCacheInfo(null)
+        onCacheInfoChange?.(null)
         return false
       } else {
         const errorData = await response.json()
@@ -120,18 +150,31 @@ export function NewspaperContent({
       }
     } catch (err) {
       console.error('[Cache]', err)
+      setCacheInfo(null)
+      onCacheInfoChange?.(null)
       return false
     } finally {
       setIsCacheLoading(false)
     }
-  }, [])
+  }, [onCacheInfoChange])
 
-  // Generate new content via AI
-  const generateContent = useCallback((date: string) => {
+  // Generate new content via AI with dayRange
+  const generateContent = useCallback((dates: string[], range: number) => {
     setShowingCache(false)
     setCachedData(null)
-    submit({ selectedDates: [date] })
-  }, [submit])
+    
+    // Set cache info to indicate fresh generation
+    const info: CacheInfo = {
+      updatedAt: new Date().toISOString(),
+      dayRange: range,
+      messageCount: 0, // Will be updated when complete
+      isFromCache: false
+    }
+    setCacheInfo(info)
+    onCacheInfoChange?.(info)
+    
+    submit({ selectedDates: dates, dayRange: range })
+  }, [submit, onCacheInfoChange])
 
   // Notify parent of loading state changes
   useEffect(() => {
@@ -147,26 +190,41 @@ export function NewspaperContent({
   useEffect(() => {
     if (!selectedDate) return
     
-    const isNewDate = selectedDate !== lastLoadedDateRef.current
+    // Determine which dates to use
+    const datesToUse = selectedDates && selectedDates.length > 0 ? selectedDates : [selectedDate]
+    // Use the requested dayRange (1, 3, or 7) for caching, not the actual count of dates
+    // This ensures we cache by the requested range, even if fewer dates are available
+    const effectiveDayRange = dayRange || 1
+    
+    // Check if dates or dayRange have changed
+    const datesKey = datesToUse.join(',')
+    const lastDatesKey = lastLoadedDatesRef.current.join(',')
+    const isNewDates = datesKey !== lastDatesKey
+    const isDayRangeChanged = effectiveDayRange !== lastDayRangeRef.current
     const isRefreshTriggered = forceRefresh > lastRefreshKeyRef.current
     
-    if (isNewDate) {
+    if (isNewDates || isDayRangeChanged) {
       lastLoadedDateRef.current = selectedDate
+      lastLoadedDatesRef.current = datesToUse
+      lastDayRangeRef.current = effectiveDayRange
       lastRefreshKeyRef.current = forceRefresh
       
-      fetchFromCache(selectedDate).then((cacheHit) => {
-        if (!cacheHit) generateContent(selectedDate)
+      // Check cache using the requested dayRange (1, 3, or 7)
+      fetchFromCache(selectedDate, effectiveDayRange).then((cacheHit) => {
+        if (!cacheHit) generateContent(datesToUse, effectiveDayRange)
       })
     } else if (isRefreshTriggered) {
       lastRefreshKeyRef.current = forceRefresh
-      generateContent(selectedDate)
+      generateContent(datesToUse, effectiveDayRange)
     }
-  }, [selectedDate, forceRefresh, fetchFromCache, generateContent])
+  }, [selectedDate, selectedDates, dayRange, forceRefresh, fetchFromCache, generateContent])
 
   // Manual regeneration handler - always bypasses cache
   const handleRegenerate = () => {
     if (selectedDate) {
-      generateContent(selectedDate)
+      const datesToUse = selectedDates && selectedDates.length > 0 ? selectedDates : [selectedDate]
+      const effectiveDayRange = dayRange || 1
+      generateContent(datesToUse, effectiveDayRange)
     }
   }
 

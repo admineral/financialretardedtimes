@@ -3,21 +3,23 @@
  * 
  * API endpoint for retrieving cached newspaper content from Supabase.
  * 
- * LOCAL: Handles GET requests to fetch cached newspaper data for a specific date.
+ * LOCAL: Handles GET requests to fetch cached newspaper data for a specific date
+ * and day range (1, 3, or 7 days).
  * Returns cached content if available, or 404 if no cache exists.
  * 
  * GLOBAL: Used by NewspaperContent component to check for existing cache
  * before triggering expensive AI generation. Reduces API costs and improves UX.
  * 
- * ENDPOINT: GET /newspaper/api/cache?date=YYYY-MM-DD
+ * ENDPOINT: GET /newspaper/api/cache?date=YYYY-MM-DD&dayRange=1
  * 
  * QUERY PARAMS:
- * - date: string (required) - The date to fetch cache for (YYYY-MM-DD format)
+ * - date: string (required) - The start date to fetch cache for (YYYY-MM-DD format)
+ * - dayRange: number (optional, default 1) - Number of days (1, 3, or 7)
  * 
  * RESPONSE:
- * - 200: { data: UnifiedNewspaperData, messageCount: number, uniqueUsers: number, updatedAt: string }
+ * - 200: { data: UnifiedNewspaperData, messageCount: number, uniqueUsers: number, updatedAt: string, dayRange: number }
  * - 400: Missing date parameter
- * - 404: No cache found for this date
+ * - 404: No cache found for this date/range
  * - 500: Database error
  */
 
@@ -26,21 +28,58 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   const date = request.nextUrl.searchParams.get('date')
+  const dayRangeParam = request.nextUrl.searchParams.get('dayRange')
+  const dayRange = dayRangeParam ? parseInt(dayRangeParam, 10) : 1
   
   if (!date) {
     return NextResponse.json({ error: 'Missing date parameter' }, { status: 400 })
   }
   
+  // Validate dayRange
+  if (![1, 3, 7].includes(dayRange)) {
+    return NextResponse.json({ error: 'Invalid dayRange. Must be 1, 3, or 7' }, { status: 400 })
+  }
+  
   try {
     const supabase = await createClient()
     
-    const { data: cache, error } = await supabase
+    // Try to fetch with day_range first
+    let query = supabase
       .from('newspaper_cache')
-      .select('data, message_count, unique_users, updated_at')
+      .select('data, message_count, unique_users, updated_at, day_range')
       .eq('cache_date', date)
-      .single()
+    
+    // Add day_range filter
+    query = query.eq('day_range', dayRange)
+    
+    const { data: cache, error } = await query.single()
     
     if (error) {
+      // Check if it's a "column doesn't exist" error (migration not applied yet)
+      if (error.code === '42703' || error.message?.includes('day_range')) {
+        // Fallback: try without day_range filter (for backwards compatibility)
+        const { data: fallbackCache, error: fallbackError } = await supabase
+          .from('newspaper_cache')
+          .select('data, message_count, unique_users, updated_at')
+          .eq('cache_date', date)
+          .single()
+        
+        if (fallbackError) {
+          if (fallbackError.code === 'PGRST116') {
+            return NextResponse.json({ error: 'No cache found' }, { status: 404 })
+          }
+          throw fallbackError
+        }
+        
+        return NextResponse.json({
+          data: fallbackCache.data,
+          messageCount: fallbackCache.message_count,
+          uniqueUsers: fallbackCache.unique_users,
+          updatedAt: fallbackCache.updated_at,
+          dayRange: 1 // Default for old cache entries
+        })
+      }
+      
       if (error.code === 'PGRST116') {
         return NextResponse.json({ error: 'No cache found' }, { status: 404 })
       }
@@ -51,7 +90,8 @@ export async function GET(request: NextRequest) {
       data: cache.data,
       messageCount: cache.message_count,
       uniqueUsers: cache.unique_users,
-      updatedAt: cache.updated_at
+      updatedAt: cache.updated_at,
+      dayRange: cache.day_range || 1
     })
     
   } catch (error) {
