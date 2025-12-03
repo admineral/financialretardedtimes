@@ -721,14 +721,32 @@ export default function RateChartPage() {
                 <span className="tabular-nums text-zinc-400">{timeUntilRefresh}</span>
                 <button
                   onClick={async () => {
-                    if (fetchMessages && !isRefreshing) {
+                    if (!isRefreshing) {
                       setIsRefreshing(true)
-                      await fetchMessages(true)
-                      setIsRefreshing(false)
+                      setLoadingStatus('Syncing from TradingView...')
+                      try {
+                        // First, trigger sync to fetch new messages from TradingView
+                        const syncResponse = await fetch('/api/cron/sync-chat?trigger=manual', {
+                          method: 'POST'
+                        })
+                        const syncData = await syncResponse.json()
+                        console.log('[RATE-CHART] Sync result:', syncData)
+                        
+                        // Then reload messages from database
+                        if (fetchMessages) {
+                          await fetchMessages(true)
+                        }
+                      } catch (error) {
+                        console.error('[RATE-CHART] Sync failed:', error)
+                      } finally {
+                        setIsRefreshing(false)
+                        setLoadingStatus('Complete!')
+                      }
                     }
                   }}
                   disabled={isRefreshing}
                   className="p-1.5 hover:bg-zinc-800 rounded-md transition-colors disabled:opacity-50"
+                  title="Sync new messages from TradingView"
                 >
                   <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
