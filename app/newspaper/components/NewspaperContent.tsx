@@ -116,8 +116,20 @@ export function NewspaperContent({
   const isLoading = isCacheLoading || isAILoading
   const error = aiError || (cacheError ? new Error(cacheError) : null)
 
+  /**
+   * Check if cache is too old and should be regenerated
+   * - Cache older than 1 day should be regenerated
+   */
+  const isCacheTooOld = useCallback((updatedAt: string): boolean => {
+    const cacheTime = new Date(updatedAt).getTime()
+    const now = Date.now()
+    const oneDayMs = 24 * 60 * 60 * 1000 // 1 day in milliseconds
+    return (now - cacheTime) > oneDayMs
+  }, [])
+
   // Fetch from cache with dayRange support
-  const fetchFromCache = useCallback(async (date: string, range: number): Promise<boolean> => {
+  // Returns: { hit: boolean, needsRefresh: boolean }
+  const fetchFromCache = useCallback(async (date: string, range: number): Promise<{ hit: boolean; needsRefresh: boolean }> => {
     setIsCacheLoading(true)
     setCacheError(null)
     
@@ -126,6 +138,11 @@ export function NewspaperContent({
       
       if (response.ok) {
         const cacheResponse: CacheResponse = await response.json()
+        
+        // Check if cache is too old (older than 1 day)
+        const tooOld = isCacheTooOld(cacheResponse.updatedAt)
+        
+        // Still show cached data while regenerating
         setCachedData(cacheResponse.data)
         setShowingCache(true)
         
@@ -139,11 +156,12 @@ export function NewspaperContent({
         setCacheInfo(info)
         onCacheInfoChange?.(info)
         
-        return true
+        // Return whether cache needs refresh
+        return { hit: true, needsRefresh: tooOld }
       } else if (response.status === 404) {
         setCacheInfo(null)
         onCacheInfoChange?.(null)
-        return false
+        return { hit: false, needsRefresh: false }
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Cache fetch failed')
@@ -152,11 +170,11 @@ export function NewspaperContent({
       console.error('[Cache]', err)
       setCacheInfo(null)
       onCacheInfoChange?.(null)
-      return false
+      return { hit: false, needsRefresh: false }
     } finally {
       setIsCacheLoading(false)
     }
-  }, [onCacheInfoChange])
+  }, [onCacheInfoChange, isCacheTooOld])
 
   // Generate new content via AI with dayRange
   const generateContent = useCallback((dates: string[], range: number) => {
@@ -186,7 +204,7 @@ export function NewspaperContent({
     onDataChange?.(data)
   }, [data, onDataChange])
 
-  // Load content when date changes: check cache first, generate if not found
+  // Load content when date changes: check cache first, generate if not found or too old
   useEffect(() => {
     if (!selectedDate) return
     
@@ -210,8 +228,17 @@ export function NewspaperContent({
       lastRefreshKeyRef.current = forceRefresh
       
       // Check cache using the requested dayRange (1, 3, or 7)
-      fetchFromCache(selectedDate, effectiveDayRange).then((cacheHit) => {
-        if (!cacheHit) generateContent(datesToUse, effectiveDayRange)
+      // If cache is too old (> 1 day), regenerate in background
+      fetchFromCache(selectedDate, effectiveDayRange).then(({ hit, needsRefresh }) => {
+        if (!hit) {
+          // No cache: generate new content
+          generateContent(datesToUse, effectiveDayRange)
+        } else if (needsRefresh) {
+          // Cache is too old: show cached data but regenerate in background
+          console.log('[NewspaperContent] Cache is older than 1 day, regenerating...')
+          generateContent(datesToUse, effectiveDayRange)
+        }
+        // If hit && !needsRefresh: cache is fresh, just use it (already set in fetchFromCache)
       })
     } else if (isRefreshTriggered) {
       lastRefreshKeyRef.current = forceRefresh

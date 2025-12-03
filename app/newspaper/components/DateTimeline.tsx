@@ -43,6 +43,10 @@ import type { DateStats } from '../lib/types'
 
 export type DayRange = 1 | 3 | 7
 
+// Visible dates configuration per breakpoint
+const VISIBLE_DATES_MOBILE = 3  // Mobile: show 3 dates
+const VISIBLE_DATES_DESKTOP = 7 // Desktop: show 7 dates
+
 interface DateTimelineProps {
   availableDates: DateStats[]
   selectedDate: string | null
@@ -51,6 +55,7 @@ interface DateTimelineProps {
   onDateSelect: (date: string) => void
   onDayRangeChange?: (days: DayRange, dates: string[]) => void
   onRefresh?: () => void
+  cumulativeUsers?: Record<number, number> // Pre-calculated deduplicated user counts for 1d, 3d, 7d
 }
 
 export function DateTimeline({ 
@@ -60,86 +65,125 @@ export function DateTimeline({
   isLoading,
   onDateSelect,
   onDayRangeChange,
-  onRefresh
+  onRefresh,
+  cumulativeUsers
 }: DateTimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [dayRange, setDayRange] = useState<DayRange>(1)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
+  const [scrollIndex, setScrollIndex] = useState(0)
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_DATES_DESKTOP)
 
   /**
-   * Check if timeline can scroll in either direction
+   * Update visible count based on screen size
+   */
+  useEffect(() => {
+    const updateVisibleCount = () => {
+      // Mobile: < 640px (sm breakpoint)
+      const isMobile = window.innerWidth < 640
+      setVisibleCount(isMobile ? VISIBLE_DATES_MOBILE : VISIBLE_DATES_DESKTOP)
+    }
+    
+    updateVisibleCount()
+    window.addEventListener('resize', updateVisibleCount)
+    return () => window.removeEventListener('resize', updateVisibleCount)
+  }, [])
+
+  /**
+   * Update scroll button states based on current index
    */
   const updateScrollButtons = () => {
-    if (timelineRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = timelineRef.current
-      setCanScrollLeft(scrollLeft > 0)
-      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 1)
-    }
+    setCanScrollLeft(scrollIndex > 0)
+    setCanScrollRight(scrollIndex + visibleCount < availableDates.length)
   }
 
-  // Update scroll buttons on mount and when dates change
+  // Update scroll buttons when index, visible count, or dates change
   useEffect(() => {
     updateScrollButtons()
-    // Also add resize observer to handle window resizing
-    const handleResize = () => updateScrollButtons()
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [availableDates])
+  }, [scrollIndex, visibleCount, availableDates.length])
 
   /**
-   * Scroll the timeline left or right by 200px
+   * Scroll the timeline left or right by one date at a time
    */
   const scrollTimeline = (direction: 'left' | 'right') => {
-    if (timelineRef.current) {
-      const scrollAmount = 200
-      const newScrollLeft = direction === 'left' 
-        ? timelineRef.current.scrollLeft - scrollAmount
-        : timelineRef.current.scrollLeft + scrollAmount
-      
-      timelineRef.current.scrollTo({
-        left: newScrollLeft,
-        behavior: 'smooth'
-      })
-      
-      // Update button states after scroll animation
-      setTimeout(updateScrollButtons, 350)
+    if (direction === 'left') {
+      setScrollIndex(prev => Math.max(0, prev - 1))
+    } else {
+      setScrollIndex(prev => Math.min(Math.max(0, availableDates.length - visibleCount), prev + 1))
     }
   }
+  
+  // Reset scroll index when dates change significantly
+  useEffect(() => {
+    setScrollIndex(0)
+  }, [availableDates.length])
 
   /**
    * Handle day range change - calculate dates to include
-   * Always starts from the most recent date (index 0) when selecting multi-day
+   * 
+   * Behavior:
+   * - 1d: Always jumps to most recent date (today)
+   * - 3d: Always shows last 3 days from most recent date
+   * - 7d: Always shows last 7 days from most recent date
    */
   const handleDayRangeChange = (newRange: DayRange) => {
     setDayRange(newRange)
     
+    // Reset scroll to show most recent dates
+    setScrollIndex(0)
+    
     if (availableDates.length > 0 && onDayRangeChange) {
+      // ALL ranges start from the most recent date
+      const mostRecentDate = availableDates[0].date
+      
       if (newRange === 1) {
-        // For single day, keep current selection or use most recent
-        const dateToUse = selectedDate || availableDates[0].date
-        onDayRangeChange(newRange, [dateToUse])
-        // Also update selected date if needed
-        if (!selectedDate) {
-          onDateSelect(availableDates[0].date)
-        }
+        // Single day: select most recent date
+        onDateSelect(mostRecentDate)
+        onDayRangeChange(newRange, [mostRecentDate])
       } else {
-        // For multi-day (3d, 7d), ALWAYS start from most recent date
-        const mostRecentDate = availableDates[0].date
+        // Multi-day (3d, 7d): select range from most recent date
         const datesToInclude = availableDates
           .slice(0, newRange)
           .map(d => d.date)
         
-        // Update selected date to most recent
         onDateSelect(mostRecentDate)
         onDayRangeChange(newRange, datesToInclude)
       }
     }
   }
+  
+  /**
+   * Handle date click in timeline
+   * 
+   * Behavior:
+   * - If in multi-day mode (3d/7d) and clicking a date outside the current range:
+   *   → Switch to 1d mode and select that date
+   * - If in 1d mode: just select the date
+   */
+  const handleDateClick = (clickedDate: string) => {
+    if (dayRange > 1) {
+      // Check if clicked date is in the current multi-day range
+      const currentRangeDates = availableDates.slice(0, dayRange).map(d => d.date)
+      const isInCurrentRange = currentRangeDates.includes(clickedDate)
+      
+      if (!isInCurrentRange) {
+        // Clicked outside range → switch to 1d mode with this date
+        setDayRange(1)
+        onDateSelect(clickedDate)
+        if (onDayRangeChange) {
+          onDayRangeChange(1, [clickedDate])
+        }
+        return
+      }
+    }
+    
+    // Normal case: just select the date
+    onDateSelect(clickedDate)
+  }
 
   // Update day range dates when selected date changes (only for single day mode)
-  // For multi-day mode, we always use the most recent date as starting point
   useEffect(() => {
     if (selectedDate && dayRange === 1 && onDayRangeChange) {
       onDayRangeChange(dayRange, [selectedDate])
@@ -157,7 +201,10 @@ export function DateTimeline({
     // Always start from most recent date for multi-day
     const datesInRange = availableDates.slice(0, dayRange)
     const totalMessages = datesInRange.reduce((sum, d) => sum + d.messageCount, 0)
-    const totalUsers = datesInRange.reduce((sum, d) => sum + d.uniqueUsers, 0)
+    
+    // Use pre-calculated deduplicated user count if available
+    const totalUsers = cumulativeUsers?.[dayRange] ?? 
+      datesInRange.reduce((sum, d) => sum + d.uniqueUsers, 0)
     
     // Show requested dayRange (e.g., "7d") even if fewer days of data exist
     return { totalMessages, totalUsers, daysCount: dayRange, actualDays: datesInRange.length }
@@ -165,8 +212,8 @@ export function DateTimeline({
   
   const multiDayStats = getMultiDayStats()
   
-  // Show all available dates for scrolling
-  const visibleDates = availableDates
+  // Show only the visible slice of dates based on scroll index
+  const visibleDates = availableDates.slice(scrollIndex, scrollIndex + visibleCount)
 
   // Determine which dates are in the current range for visual highlighting
   // For multi-day modes, always highlight from most recent date
@@ -224,9 +271,7 @@ export function DateTimeline({
             {/* Timeline Container */}
             <div 
               ref={timelineRef}
-              className="flex gap-0.5 overflow-x-auto scrollbar-none"
-              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              onScroll={updateScrollButtons}
+              className="flex gap-0.5 overflow-hidden"
             >
               {isLoadingDates ? (
                 // Loading state
@@ -240,19 +285,20 @@ export function DateTimeline({
                   Keine Daten
                 </span>
               ) : (
-                // Date buttons - show all but scroll starts at recent
-                visibleDates.map((dateStats, idx) => {
+                // Date buttons - show visible slice
+                visibleDates.map((dateStats) => {
                   const date = new Date(dateStats.date + 'T00:00:00')
                   const isSelected = selectedDate === dateStats.date
                   const isInRange = datesInRange.includes(dateStats.date)
-                  const isToday = idx === 0
+                  // Check if this is the most recent date (first in full array)
+                  const isToday = availableDates.length > 0 && availableDates[0].date === dateStats.date
                   const dayName = date.toLocaleDateString('de-DE', { weekday: 'short' })
                   const dayNum = date.getDate()
                   
                   return (
                     <button
                       key={dateStats.date}
-                      onClick={() => onDateSelect(dateStats.date)}
+                      onClick={() => handleDateClick(dateStats.date)}
                       disabled={isLoading}
                       className={`
                         flex-shrink-0 px-2 py-1 rounded text-[11px] transition-all

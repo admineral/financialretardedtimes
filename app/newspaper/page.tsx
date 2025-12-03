@@ -100,6 +100,7 @@ export default function NewspaperPage() {
   const [selectedDates, setSelectedDates] = useState<string[]>([])
   const [dayRange, setDayRange] = useState<DayRange>(1)
   const [isLoadingDates, setIsLoadingDates] = useState(true)
+  const [cumulativeUsers, setCumulativeUsers] = useState<Record<number, number> | undefined>(undefined)
   
   // Market data state
   const [btcData, setBtcData] = useState<BTCData | null>(null)
@@ -159,6 +160,10 @@ export default function NewspaperPage() {
         if (response.ok) {
           const data = await response.json()
           setAvailableDates(data.dates || [])
+          // Store cumulative users for deduplicated multi-day stats
+          if (data.cumulativeUsers) {
+            setCumulativeUsers(data.cumulativeUsers)
+          }
           // Auto-select the most recent date
           if (data.dates && data.dates.length > 0) {
             setSelectedDate(data.dates[0].date)
@@ -280,6 +285,7 @@ export default function NewspaperPage() {
           onDateSelect={handleDateSelect}
           onDayRangeChange={handleDayRangeChange}
           onRefresh={handleRefresh}
+          cumulativeUsers={cumulativeUsers}
         />
       </div>
 

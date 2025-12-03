@@ -215,18 +215,35 @@ export async function POST(request: NextRequest) {
         const startOfDay = `${date}T00:00:00.000Z`
         const endOfDay = `${date}T23:59:59.999Z`
         
-        const { data: dayMessages, error: dayError } = await supabase
-          .from('tv_chat_messages')
-          .select('username, text, time, is_moderator')
-          .gte('time', startOfDay)
-          .lte('time', endOfDay)
-          .order('time', { ascending: true })
+        // Paginate to get all messages for this day (Supabase limits to 1000 per request)
+        const dayMessages: typeof messages = []
+        const pageSize = 1000
+        let offset = 0
+        let hasMore = true
         
-        if (dayError) {
-          throw new Error(`Database error for date ${date}: ${dayError.message}`)
+        while (hasMore) {
+          const { data: pageMessages, error: pageError } = await supabase
+            .from('tv_chat_messages')
+            .select('username, text, time, is_moderator')
+            .gte('time', startOfDay)
+            .lte('time', endOfDay)
+            .order('time', { ascending: true })
+            .range(offset, offset + pageSize - 1)
+          
+          if (pageError) {
+            throw new Error(`Database error for date ${date}: ${pageError.message}`)
+          }
+          
+          if (!pageMessages || pageMessages.length === 0) {
+            hasMore = false
+          } else {
+            dayMessages.push(...pageMessages)
+            offset += pageSize
+            hasMore = pageMessages.length === pageSize
+          }
         }
         
-        if (dayMessages && dayMessages.length > 0) {
+        if (dayMessages.length > 0) {
           allMessages.push(...dayMessages)
           
           // Log per-day stats with first and last message hours
