@@ -44,7 +44,7 @@ export const EventSchema = z.object({
   type: z.enum(['discussion', 'debate', 'insight', 'humor', 'milestone']),
   title: z.string(),
   summary: z.string(),
-  participants: z.array(z.string()).min(1).max(4)
+  participants: z.array(z.string()).min(1).max(6) // Increased from 4 to allow more participants
 })
 
 /**

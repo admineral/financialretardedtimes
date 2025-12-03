@@ -57,12 +57,12 @@ async function saveToCache(
       })
     
     if (error) {
-      console.error('[CACHE] Error saving to cache:', error)
+      console.error('[CACHE] ❌ Save failed:', error.message)
     } else {
-      console.log(`[CACHE] ✅ Saved newspaper content for ${date} to cache`)
+      console.log(`[CACHE] ✅ Saved: ${date}`)
     }
   } catch (error) {
-    console.error('[CACHE] Error saving to cache:', error)
+    console.error('[CACHE] ❌ Exception:', error instanceof Error ? error.message : error)
   }
 }
 
@@ -250,30 +250,14 @@ export async function POST(request: NextRequest) {
     const btcContext = await btcPromise
     const btcContextStr = btcContext ? formatBTCContext(btcContext) : ''
     
-    // Log request summary
-    console.log(`[SUMMARIZE API] ═══════════════════════════════════════`)
-    console.log(`[SUMMARIZE API] 📊 Request Summary:`)
-    console.log(`[SUMMARIZE API]   Dates: ${!selectedDates || selectedDates.length === 0 ? 'Recent' : selectedDates.join(', ')}`)
-    console.log(`[SUMMARIZE API]   📨 Messages: ${messages.length}`)
-    console.log(`[SUMMARIZE API]   👥 Unique Users: ${uniqueUsers}`)
-    console.log(`[SUMMARIZE API]   📅 Date Span: ${dateRangeStr}`)
-    if (messages.length > 0) {
-      const firstMsgTime = new Date(messages[0].time).toLocaleString('de-DE')
-      const lastMsgTime = new Date(messages[messages.length - 1].time).toLocaleString('de-DE')
-      console.log(`[SUMMARIZE API]   ⏰ Time Range: ${firstMsgTime} → ${lastMsgTime}`)
-    }
-    if (btcContext) {
-      console.log(`[SUMMARIZE API]   💰 BTC: $${btcContext.currentPrice.toLocaleString()} (${btcContext.change24h >= 0 ? '+' : ''}${btcContext.change24h}% 24h)`)
-    }
-    console.log(`[SUMMARIZE API] ═══════════════════════════════════════`)
-    
     // Determine the cache date (use first selected date or today)
     const cacheDate = selectedDates && selectedDates.length > 0 
       ? selectedDates[0] 
       : today
     
+    console.log(`[SUMMARIZE] ${cacheDate} | ${messages.length} msgs | ${uniqueUsers} users`)
+    
     // Stream AI response using GPT-5.1
-    // maxOutputTokens set high to ensure full schema completion (shortNews, moreArticles at end)
     const result = streamObject({
       model: openai('gpt-5.1'),
       schema: UnifiedNewspaperSchema,
@@ -286,14 +270,15 @@ ${btcContextStr}
 Chat-Protokoll (${messages.length} Nachrichten von ${uniqueUsers} Usern):
 
 ${formattedChat}`,
-      onFinish: async ({ object }) => {
-        // Save completed response to cache
+      onFinish: async ({ object, error: finishError }) => {
         if (object) {
           await saveToCache(cacheDate, object as UnifiedNewspaperData, messages.length, uniqueUsers)
+        } else if (finishError) {
+          console.error(`[SUMMARIZE] ❌ Schema error:`, String(finishError))
         }
       },
       onError: (error) => {
-        console.error('[SUMMARIZE API] Stream error:', error)
+        console.error('[SUMMARIZE] ❌ Stream error:', error)
       }
     })
     

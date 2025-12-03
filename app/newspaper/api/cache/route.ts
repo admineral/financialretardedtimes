@@ -25,14 +25,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams
-  const date = searchParams.get('date')
+  const date = request.nextUrl.searchParams.get('date')
   
   if (!date) {
-    return NextResponse.json(
-      { error: 'Missing date parameter' },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: 'Missing date parameter' }, { status: 400 })
   }
   
   try {
@@ -46,11 +42,7 @@ export async function GET(request: NextRequest) {
     
     if (error) {
       if (error.code === 'PGRST116') {
-        // No rows found
-        return NextResponse.json(
-          { error: 'No cache found for this date' },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: 'No cache found' }, { status: 404 })
       }
       throw error
     }
@@ -63,7 +55,7 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('[CACHE API] Error fetching cache:', error)
+    console.error('[CACHE] ❌', error instanceof Error ? error.message : error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

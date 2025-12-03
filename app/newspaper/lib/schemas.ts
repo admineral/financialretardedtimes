@@ -64,7 +64,7 @@ PFLICHTFELDER (alle müssen gefüllt werden!)
   - type: discussion | debate | insight | humor | milestone
   - title: Prägnant, z.B. "Bullisch vs. Bearisch"
   - summary: Was wurde diskutiert? Welche Argumente? Mit Zitat wenn möglich.
-  - participants: Beteiligte User
+  - participants: 1-6 beteiligte User (max 6!)
 
 ▸ shortNews [GENAU 3]
   Sidebar mit weiteren Themen:

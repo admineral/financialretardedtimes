@@ -86,9 +86,14 @@ export function NewspaperContent({
     schema: UnifiedNewspaperSchema,
   })
 
-  // Combined data: prefer streaming data when available, fall back to cache
+  // Track if we're showing cached vs streamed data
+  const [showingCache, setShowingCache] = useState(true)
+  
+  // Combined data: show cache when loaded from cache, streaming data when generating
   const streamingData = newspaperData as Partial<UnifiedNewspaperData> | undefined
-  const data = streamingData || cachedData as Partial<UnifiedNewspaperData> | undefined
+  const data = showingCache 
+    ? (cachedData as Partial<UnifiedNewspaperData> | undefined)
+    : (streamingData || cachedData as Partial<UnifiedNewspaperData> | undefined)
   
   // Combined loading state
   const isLoading = isCacheLoading || isAILoading
@@ -105,18 +110,16 @@ export function NewspaperContent({
       if (response.ok) {
         const cacheResponse: CacheResponse = await response.json()
         setCachedData(cacheResponse.data)
-        console.log(`[CACHE] ✅ Loaded cached content for ${date} (updated: ${cacheResponse.updatedAt})`)
+        setShowingCache(true)
         return true
       } else if (response.status === 404) {
-        // No cache found - this is expected for new dates
-        console.log(`[CACHE] No cache found for ${date}, will generate`)
         return false
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Cache fetch failed')
       }
     } catch (err) {
-      console.error('[CACHE] Error fetching cache:', err)
+      console.error('[Cache]', err)
       return false
     } finally {
       setIsCacheLoading(false)
@@ -125,7 +128,8 @@ export function NewspaperContent({
 
   // Generate new content via AI
   const generateContent = useCallback((date: string) => {
-    setCachedData(null) // Clear cached data when generating new
+    setShowingCache(false)
+    setCachedData(null)
     submit({ selectedDates: [date] })
   }, [submit])
 
@@ -147,19 +151,14 @@ export function NewspaperContent({
     const isRefreshTriggered = forceRefresh > lastRefreshKeyRef.current
     
     if (isNewDate) {
-      // New date selected - check cache first
       lastLoadedDateRef.current = selectedDate
       lastRefreshKeyRef.current = forceRefresh
       
       fetchFromCache(selectedDate).then((cacheHit) => {
-        if (!cacheHit) {
-          generateContent(selectedDate)
-        }
+        if (!cacheHit) generateContent(selectedDate)
       })
     } else if (isRefreshTriggered) {
-      // Refresh button clicked - bypass cache, regenerate
       lastRefreshKeyRef.current = forceRefresh
-      console.log(`[REFRESH] Regenerating content for ${selectedDate} (bypassing cache)`)
       generateContent(selectedDate)
     }
   }, [selectedDate, forceRefresh, fetchFromCache, generateContent])
