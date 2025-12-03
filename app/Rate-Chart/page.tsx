@@ -47,11 +47,29 @@ export default function RateChartPage() {
   const [nextRefreshTime, setNextRefreshTime] = useState<number>(0)
   const [timeUntilRefresh, setTimeUntilRefresh] = useState('')
   const [isMounted, setIsMounted] = useState(false)
+  const [isRevealed, setIsRevealed] = useState(false) // Predictions revealed after 23:00
 
   // Mark as mounted on client side
   useEffect(() => {
     setIsMounted(true)
     setNextRefreshTime(Date.now() + 5 * 60 * 1000)
+  }, [])
+
+  // Check if predictions should be revealed (after 23:00 Vienna time OR during Winners Period)
+  useEffect(() => {
+    const checkRevealStatus = () => {
+      const now = new Date()
+      const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+      const currentHour = viennaTime.getHours()
+      
+      // Reveal after 23:00 OR during Winners Period (00:00-08:00)
+      const shouldReveal = currentHour >= 23 || currentHour < 8
+      setIsRevealed(shouldReveal)
+    }
+    
+    checkRevealStatus()
+    const interval = setInterval(checkRevealStatus, 1000)
+    return () => clearInterval(interval)
   }, [])
 
   // Fetch current Bitcoin price with 1-hour cache
@@ -561,20 +579,29 @@ export default function RateChartPage() {
           
           // Only include realistic Bitcoin prices (between $1k and $1M)
           if (price >= 1000 && price <= 1000000) {
+            // Round price to nearest $100 to prevent $1 sniping
+            price = Math.round(price / 100) * 100
+            
             // Calculate time bonus
             const hour = messageViennaTime.getHours()
             const isLateGuess = hour >= 12 // After noon
             
-            // Time bonus: 100% before 8 AM, 75% 8-12, 50% 12-18, 25% after 18
+            // Cutoff: No predictions after 23:00 (11 PM Vienna)
+            if (hour >= 23) {
+              console.log(`⏰ [RATE CHART] Prediction from ${message.username} at ${hour}:xx ignored (after 23:00 cutoff)`)
+              return // Skip this prediction
+            }
+            
+            // Time bonus: 100% before 8 AM, 50% 8-12, 25% 12-18, 0% after 18
             let timeBonus = 1.0
             if (hour < 8) {
               timeBonus = 1.0 // 100% - Early bird!
             } else if (hour < 12) {
-              timeBonus = 0.75 // 75% - Morning
+              timeBonus = 0.5 // 50% - Morning
             } else if (hour < 18) {
-              timeBonus = 0.5 // 50% - Afternoon (red zone starts)
+              timeBonus = 0.25 // 25% - Afternoon (red zone starts)
             } else {
-              timeBonus = 0.25 // 25% - Evening (deep red)
+              timeBonus = 0.0 // 0% - Evening (no bonus, but still valid until 23:00)
             }
             
             guesses.push({
@@ -660,17 +687,26 @@ export default function RateChartPage() {
           }
           
           if (price >= 1000 && price <= 1000000) {
+            // Round price to nearest $100 to prevent $1 sniping
+            price = Math.round(price / 100) * 100
+            
             const hour = messageViennaTime.getHours()
             
+            // Cutoff: No predictions after 23:00 (11 PM Vienna)
+            if (hour >= 23) {
+              return // Skip this prediction
+            }
+            
+            // Time bonus: 100% before 8 AM, 50% 8-12, 25% 12-18, 0% after 18
             let timeBonus = 1.0
             if (hour < 8) {
               timeBonus = 1.0
             } else if (hour < 12) {
-              timeBonus = 0.75
-            } else if (hour < 18) {
               timeBonus = 0.5
-            } else {
+            } else if (hour < 18) {
               timeBonus = 0.25
+            } else {
+              timeBonus = 0.0
             }
             
             guesses.push({
@@ -819,12 +855,12 @@ export default function RateChartPage() {
     
     if (timeBonus >= 1.0) {
       return <Badge variant="default" className="bg-green-600 text-white">🌅 {bonusPercent}% Early Bird</Badge>
-    } else if (timeBonus >= 0.75) {
-      return <Badge variant="default" className="bg-yellow-600 text-white">☀️ {bonusPercent}% Morning</Badge>
     } else if (timeBonus >= 0.5) {
+      return <Badge variant="default" className="bg-yellow-600 text-white">☀️ {bonusPercent}% Morning</Badge>
+    } else if (timeBonus >= 0.25) {
       return <Badge variant="default" className="bg-orange-600 text-white">🌤️ {bonusPercent}% Afternoon</Badge>
     } else {
-      return <Badge variant="destructive">🌙 {bonusPercent}% Late</Badge>
+      return <Badge variant="destructive">🌙 {bonusPercent}% No Bonus</Badge>
     }
   }
 
@@ -1039,22 +1075,30 @@ export default function RateChartPage() {
               <h3 className="font-semibold text-blue-600 flex items-center gap-2">
                 📖 So funktioniert&apos;s:
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-muted-foreground">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-muted-foreground">
                 <div>
                   <p className="font-medium text-foreground mb-1">🎯 Vorhersage abgeben:</p>
                   <p>Schreibe im Chat <code className="bg-muted px-1.5 py-0.5 rounded text-xs">//Preis</code> z.B. <code className="bg-muted px-1.5 py-0.5 rounded text-xs">//95k</code> oder <code className="bg-muted px-1.5 py-0.5 rounded text-xs">//95.000</code></p>
                 </div>
                 <div>
                   <p className="font-medium text-foreground mb-1">⏰ Zeitraum:</p>
-                  <p>Täglich von <strong>08:00 bis 00:00 Uhr</strong> (Wien). Um Mitternacht wird der Gewinner ermittelt!</p>
+                  <p>Täglich von <strong>00:00 bis 23:00 Uhr</strong> (Wien). <span className="text-red-600 font-medium">Nach 23:00 = keine Vorhersagen!</span></p>
                 </div>
                 <div>
-                  <p className="font-medium text-foreground mb-1">📜 Verlauf sichtbar:</p>
-                  <p>Alle Vorhersagen werden gespeichert! Klick auf einen User um seinen <strong>kompletten Verlauf</strong> zu sehen.</p>
+                  <p className="font-medium text-foreground mb-1">🎯 Rundung:</p>
+                  <p>Preise werden auf <strong>$100</strong> gerundet. Kein $1-Sniping möglich!</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">🔒 Geheime Wetten:</p>
+                  <p>Preise sind <strong>versteckt bis 23:00!</strong> Kein Sniping möglich - erst dann wird alles revealed.</p>
                 </div>
                 <div>
                   <p className="font-medium text-foreground mb-1">🏆 Gewinner:</p>
                   <p>Wer am nächsten am <strong>Mitternachtspreis</strong> liegt, gewinnt! Nur die <strong>letzte</strong> Vorhersage zählt.</p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">⏱️ Time Bonus:</p>
+                  <p>Frühe Vorhersagen = höherer Bonus! <strong>100% → 50% → 25% → 0%</strong></p>
                 </div>
               </div>
             </div>
@@ -1145,19 +1189,22 @@ export default function RateChartPage() {
 
         {/* Time Bonus System Explanation */}
         <div className="mb-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5">
-          <div className="flex items-center justify-center gap-6 text-xs">
+          <div className="flex items-center justify-center gap-4 text-xs flex-wrap">
             <span className="font-medium text-muted-foreground">⏰ Time Bonus:</span>
             <div className="flex items-center gap-1">
               <span className="text-green-600 font-semibold">🌅 &lt;8AM: 100%</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-yellow-600 font-semibold">☀️ 8-12: 75%</span>
+              <span className="text-yellow-600 font-semibold">☀️ 8-12: 50%</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-orange-600 font-semibold">🌤️ 12-18: 50%</span>
+              <span className="text-orange-600 font-semibold">🌤️ 12-18: 25%</span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-red-600 font-semibold">🌙 &gt;18: 25%</span>
+              <span className="text-red-600 font-semibold">🌙 18-23: 0%</span>
+            </div>
+            <div className="flex items-center gap-1 border-l border-red-300 pl-4">
+              <span className="text-red-700 font-bold">🚫 23:00+ = CLOSED</span>
             </div>
           </div>
         </div>
@@ -1239,7 +1286,7 @@ export default function RateChartPage() {
           <Card className="mb-6 border-2 border-blue-500 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/20 dark:to-cyan-950/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
-                🔮 Next Round Preview - Early Birds!
+                🔮 Next Round - Early Birds! (Preise hidden bis 23:00)
               </CardTitle>
               <p className="text-sm text-muted-foreground">
                 These predictions are for tomorrow&apos;s round (starts at 8 AM) • Currently {nextRoundLeaderboard.length} participants
@@ -1261,12 +1308,12 @@ export default function RateChartPage() {
                     <div className="flex-1">
                       <div className="font-semibold">{entry.username}</div>
                       <div className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })} (latest)
+                        {formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold text-blue-600">
-                        {formatPrice(entry.latestGuess)}
+                      <div className="text-lg font-bold text-muted-foreground/50">
+                        🔒 ???
                       </div>
                     </div>
                   </div>
@@ -1302,8 +1349,10 @@ export default function RateChartPage() {
                     })
                   })()}
                 </>
-              ) : (
+              ) : isRevealed ? (
                 <>Live Leaderboard (Closest to ${currentBitcoinPrice.toLocaleString()})</>
+              ) : (
+                <>🔒 Teilnehmer - Preise werden um 23:00 revealed!</>
               )}
             </CardTitle>
             {isPastMidnight && midnightPrice !== null && (
@@ -1329,15 +1378,21 @@ export default function RateChartPage() {
                         'bg-muted/30'
                       }`}
                     >
-                      {/* Rank */}
+                      {/* Rank - only show when revealed */}
                       <div className="flex-shrink-0 w-12 text-center">
-                        {index === 0 && <div className="text-3xl">🥇</div>}
-                        {index === 1 && <div className="text-3xl">🥈</div>}
-                        {index === 2 && <div className="text-3xl">🥉</div>}
-                        {index > 2 && (
-                          <div className="text-xl font-bold text-muted-foreground">
-                            #{index + 1}
-                          </div>
+                        {isRevealed ? (
+                          <>
+                            {index === 0 && <div className="text-3xl">🥇</div>}
+                            {index === 1 && <div className="text-3xl">🥈</div>}
+                            {index === 2 && <div className="text-3xl">🥉</div>}
+                            {index > 2 && (
+                              <div className="text-xl font-bold text-muted-foreground">
+                                #{index + 1}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-2xl">✅</div>
                         )}
                       </div>
 
@@ -1355,18 +1410,18 @@ export default function RateChartPage() {
                       
                       <div className="flex-1 min-w-0">
                         <button
-                          onClick={() => setSelectedUser(selectedUser === entry.username ? null : entry.username)}
-                          className="font-semibold truncate hover:text-primary transition-colors cursor-pointer text-left"
+                          onClick={() => isRevealed && setSelectedUser(selectedUser === entry.username ? null : entry.username)}
+                          className={`font-semibold truncate transition-colors text-left ${isRevealed ? 'hover:text-primary cursor-pointer' : ''}`}
                         >
                           {entry.username}
-                          {entry.guessCount > 1 && (
+                          {isRevealed && entry.guessCount > 1 && (
                             <span className="ml-2 text-xs text-orange-600 font-normal">
                               ⚠️ {entry.guessCount - 1}x geändert - click to {selectedUser === entry.username ? 'hide' : 'show'} history
                             </span>
                           )}
                         </button>
                       <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
-                        {entry.guessCount > 1 && (
+                        {isRevealed && entry.guessCount > 1 && (
                           <>
                             <span className="text-orange-600 font-medium">{entry.guessCount} Vorhersagen (nur letzte zählt!)</span>
                             <span>•</span>
@@ -1374,24 +1429,37 @@ export default function RateChartPage() {
                         )}
                         <span className="flex items-center gap-1">
                           <CalendarIcon className="h-3 w-3" />
-                          {formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })} (letzte)
+                          {formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })} {isRevealed ? '(letzte)' : ''}
                         </span>
                       </div>
                       </div>
 
-                      {/* Latest Guess */}
+                      {/* Latest Guess - Hidden until revealed */}
                       <div className="text-right">
-                        <div className="text-2xl font-bold text-blue-600">
-                          {formatPrice(entry.latestGuess)}
-                        </div>
-                        <div className="mt-1">
-                          {getPriceDiffBadge(entry.latestGuess)}
-                        </div>
+                        {isRevealed ? (
+                          <>
+                            <div className="text-2xl font-bold text-blue-600">
+                              {formatPrice(entry.latestGuess)}
+                            </div>
+                            <div className="mt-1">
+                              {getPriceDiffBadge(entry.latestGuess)}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="text-2xl font-bold text-muted-foreground/50">
+                              🔒 ???
+                            </div>
+                            <Badge variant="outline" className="text-xs">
+                              Reveal @ 23:00
+                            </Badge>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Show history when user is selected */}
-                    {entry.guesses.length > 1 && selectedUser === entry.username && (
+                    {/* Show history when user is selected - only if revealed */}
+                    {isRevealed && entry.guesses.length > 1 && selectedUser === entry.username && (
                       <div className="mt-2 ml-16 mr-4 mb-4 p-4 border-2 border-orange-300 rounded-lg bg-orange-50 dark:bg-orange-950/20">
                         <h4 className="text-sm font-semibold mb-3 text-orange-600 flex items-center gap-2">
                           📜 Verlauf von {entry.username} - {entry.guesses.length} Vorhersagen (nur ✅ letzte zählt!):
@@ -1443,7 +1511,8 @@ export default function RateChartPage() {
           </CardContent>
         </Card>
 
-        {/* All Predictions Timeline - Minimized */}
+        {/* All Predictions Timeline - Only shown when revealed */}
+        {isRevealed && (
         <details className="group mt-8">
           <summary className="cursor-pointer list-none">
             <Card className="hover:shadow-md transition-shadow">
@@ -1498,6 +1567,7 @@ export default function RateChartPage() {
             </CardContent>
           </Card>
         </details>
+        )}
       </div>
     </div>
   )
