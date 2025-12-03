@@ -6,10 +6,11 @@
  * LOCAL: Renders featured articles, secondary articles, events, and "more articles" grid.
  * Uses streaming AI responses via useObject hook from @ai-sdk/react.
  * Layout is stable - containers have fixed min-heights to prevent shifts during streaming.
+ * Now checks Supabase cache first before triggering AI generation.
  * 
  * GLOBAL: Central component of the newspaper page. Receives selectedDate from parent,
- * triggers API calls to /newspaper/api/summarize, and notifies parent of loading/data
- * state changes for sidebar synchronization.
+ * first checks cache at /newspaper/api/cache, only triggers AI generation on cache miss
+ * or explicit refresh. Notifies parent of loading/data state changes for sidebar sync.
  * 
  * EXPORTS: NewspaperContent (React component)
  * 
@@ -17,11 +18,12 @@
  * - selectedDate: string | null - The date to generate content for (YYYY-MM-DD)
  * - onLoadingChange: (loading: boolean) => void - Callback when loading state changes
  * - onDataChange: (data) => void - Callback when data updates (for sidebar sync)
+ * - forceRefresh?: boolean - When true, bypasses cache and regenerates content
  */
 
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import Link from 'next/link'
 import { UnifiedNewspaperSchema, type UnifiedNewspaperData } from '../lib/types'
@@ -31,6 +33,14 @@ interface NewspaperContentProps {
   selectedDate: string | null
   onLoadingChange?: (isLoading: boolean) => void
   onDataChange?: (data: Partial<UnifiedNewspaperData> | undefined) => void
+  forceRefresh?: number // Increment to force regeneration (bypasses cache)
+}
+
+interface CacheResponse {
+  data: UnifiedNewspaperData
+  messageCount: number
+  uniqueUsers: number
+  updatedAt: string
 }
 
 /**
@@ -53,22 +63,71 @@ function StreamingCursor({ show }: { show: boolean }) {
 export function NewspaperContent({ 
   selectedDate, 
   onLoadingChange, 
-  onDataChange 
+  onDataChange,
+  forceRefresh = 0
 }: NewspaperContentProps) {
-  // Track last generated date to prevent duplicate API calls
-  const lastGeneratedDateRef = useRef<string | null>(null)
+  // Track last loaded date and refresh key to prevent duplicate fetches
+  const lastLoadedDateRef = useRef<string | null>(null)
+  const lastRefreshKeyRef = useRef<number>(0)
   
+  // Cache state
+  const [cachedData, setCachedData] = useState<UnifiedNewspaperData | null>(null)
+  const [isCacheLoading, setIsCacheLoading] = useState(false)
+  const [cacheError, setCacheError] = useState<string | null>(null)
+  
+  // AI streaming state
   const { 
     object: newspaperData, 
     submit, 
-    isLoading,
-    error
+    isLoading: isAILoading,
+    error: aiError
   } = useObject({
     api: '/newspaper/api/summarize',
     schema: UnifiedNewspaperSchema,
   })
 
-  const data = newspaperData as Partial<UnifiedNewspaperData> | undefined
+  // Combined data: prefer streaming data when available, fall back to cache
+  const streamingData = newspaperData as Partial<UnifiedNewspaperData> | undefined
+  const data = streamingData || cachedData as Partial<UnifiedNewspaperData> | undefined
+  
+  // Combined loading state
+  const isLoading = isCacheLoading || isAILoading
+  const error = aiError || (cacheError ? new Error(cacheError) : null)
+
+  // Fetch from cache
+  const fetchFromCache = useCallback(async (date: string): Promise<boolean> => {
+    setIsCacheLoading(true)
+    setCacheError(null)
+    
+    try {
+      const response = await fetch(`/newspaper/api/cache?date=${date}`)
+      
+      if (response.ok) {
+        const cacheResponse: CacheResponse = await response.json()
+        setCachedData(cacheResponse.data)
+        console.log(`[CACHE] ✅ Loaded cached content for ${date} (updated: ${cacheResponse.updatedAt})`)
+        return true
+      } else if (response.status === 404) {
+        // No cache found - this is expected for new dates
+        console.log(`[CACHE] No cache found for ${date}, will generate`)
+        return false
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Cache fetch failed')
+      }
+    } catch (err) {
+      console.error('[CACHE] Error fetching cache:', err)
+      return false
+    } finally {
+      setIsCacheLoading(false)
+    }
+  }, [])
+
+  // Generate new content via AI
+  const generateContent = useCallback((date: string) => {
+    setCachedData(null) // Clear cached data when generating new
+    submit({ selectedDates: [date] })
+  }, [submit])
 
   // Notify parent of loading state changes
   useEffect(() => {
@@ -80,18 +139,35 @@ export function NewspaperContent({
     onDataChange?.(data)
   }, [data, onDataChange])
 
-  // Generate content when date changes (only for new dates)
+  // Load content when date changes: check cache first, generate if not found
   useEffect(() => {
-    if (selectedDate && selectedDate !== lastGeneratedDateRef.current) {
-      lastGeneratedDateRef.current = selectedDate
-      submit({ selectedDates: [selectedDate] })
+    if (!selectedDate) return
+    
+    const isNewDate = selectedDate !== lastLoadedDateRef.current
+    const isRefreshTriggered = forceRefresh > lastRefreshKeyRef.current
+    
+    if (isNewDate) {
+      // New date selected - check cache first
+      lastLoadedDateRef.current = selectedDate
+      lastRefreshKeyRef.current = forceRefresh
+      
+      fetchFromCache(selectedDate).then((cacheHit) => {
+        if (!cacheHit) {
+          generateContent(selectedDate)
+        }
+      })
+    } else if (isRefreshTriggered) {
+      // Refresh button clicked - bypass cache, regenerate
+      lastRefreshKeyRef.current = forceRefresh
+      console.log(`[REFRESH] Regenerating content for ${selectedDate} (bypassing cache)`)
+      generateContent(selectedDate)
     }
-  }, [selectedDate, submit])
+  }, [selectedDate, forceRefresh, fetchFromCache, generateContent])
 
-  // Manual regeneration handler
+  // Manual regeneration handler - always bypasses cache
   const handleRegenerate = () => {
     if (selectedDate) {
-      submit({ selectedDates: [selectedDate] })
+      generateContent(selectedDate)
     }
   }
 

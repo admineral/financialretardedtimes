@@ -248,10 +248,10 @@ export default function NewspaperPage() {
           <main className="lg:col-span-7">
             {/* AI-Generated Newspaper Content */}
             <NewspaperContent 
-              key={refreshKey}
               selectedDate={selectedDate}
               onLoadingChange={handleLoadingChange}
               onDataChange={handleDataChange}
+              forceRefresh={refreshKey}
             />
           </main>
 

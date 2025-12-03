@@ -1,10 +1,11 @@
 /**
  * route.ts (summarize API)
  * 
- * AI-powered chat summarization endpoint using OpenAI GPT-4.1-nano.
+ * AI-powered chat summarization endpoint using OpenAI GPT-5.
  * 
  * LOCAL: Handles POST requests to generate newspaper-style content from chat messages.
  * Fetches messages from Supabase, adds BTC market context, and streams AI responses.
+ * Automatically caches completed responses in Supabase for future requests.
  * 
  * GLOBAL: Primary API endpoint for the newspaper feature. Called by NewspaperContent
  * component via useObject hook. Returns streaming JSON matching UnifiedNewspaperSchema.
@@ -28,6 +29,42 @@ import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { UnifiedNewspaperSchema, UNIFIED_PROMPT, type BTCContext } from '../../lib/schemas'
+import type { UnifiedNewspaperData } from '../../lib/types'
+
+/**
+ * Save generated newspaper content to cache.
+ * Called after streaming completes successfully.
+ */
+async function saveToCache(
+  date: string,
+  data: UnifiedNewspaperData,
+  messageCount: number,
+  uniqueUsers: number
+): Promise<void> {
+  try {
+    const supabase = await createClient()
+    
+    const { error } = await supabase
+      .from('newspaper_cache')
+      .upsert({
+        cache_date: date,
+        data: data,
+        message_count: messageCount,
+        unique_users: uniqueUsers,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'cache_date'
+      })
+    
+    if (error) {
+      console.error('[CACHE] Error saving to cache:', error)
+    } else {
+      console.log(`[CACHE] ✅ Saved newspaper content for ${date} to cache`)
+    }
+  } catch (error) {
+    console.error('[CACHE] Error saving to cache:', error)
+  }
+}
 
 /**
  * Fetch current Bitcoin market data from CoinGecko API.
@@ -230,10 +267,15 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[SUMMARIZE API] ═══════════════════════════════════════`)
     
-    // Stream AI response
+    // Determine the cache date (use first selected date or today)
+    const cacheDate = selectedDates && selectedDates.length > 0 
+      ? selectedDates[0] 
+      : today
+    
+    // Stream AI response using GPT-5.1
     // maxOutputTokens set high to ensure full schema completion (shortNews, moreArticles at end)
     const result = streamObject({
-      model: openai('gpt-4.1-nano'),
+      model: openai('gpt-5.1'),
       schema: UnifiedNewspaperSchema,
       system: UNIFIED_PROMPT,
       maxOutputTokens: 8192,
@@ -244,6 +286,12 @@ ${btcContextStr}
 Chat-Protokoll (${messages.length} Nachrichten von ${uniqueUsers} Usern):
 
 ${formattedChat}`,
+      onFinish: async ({ object }) => {
+        // Save completed response to cache
+        if (object) {
+          await saveToCache(cacheDate, object as UnifiedNewspaperData, messages.length, uniqueUsers)
+        }
+      },
       onError: (error) => {
         console.error('[SUMMARIZE API] Stream error:', error)
       }
