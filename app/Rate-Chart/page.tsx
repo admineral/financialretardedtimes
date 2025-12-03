@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { TrophyIcon, TrendingUpIcon, UserIcon, CalendarIcon, RefreshCwIcon } from 'lucide-react'
+import { TrophyIcon, TrendingUpIcon, UserIcon, CalendarIcon, RefreshCwIcon, Loader2Icon } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatDistanceToNow, format } from 'date-fns'
 import { ChatMessage } from '../Test/types'
 
@@ -831,58 +832,138 @@ export default function RateChartPage() {
     return (
       <div className="min-h-screen bg-background p-6">
         <div className="max-w-7xl mx-auto">
-          <Card className="mb-6">
-            <CardHeader>
+          {/* Header Skeleton */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-3">
                 <TrendingUpIcon className="h-8 w-8 text-yellow-500" />
                 <h1 className="text-4xl font-bold">Bitcoin Price Prediction Board</h1>
+                <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+              
+              {/* Countdown Skeleton */}
+              <Card className="bg-blue-500/10 border-blue-500/30">
+                <CardContent className="py-3 px-4">
+                  <div className="text-center">
+                    <Skeleton className="h-3 w-32 mx-auto mb-2" />
+                    <Skeleton className="h-8 w-24 mx-auto" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-96" />
+            </div>
+          </div>
+
+          {/* Loading Status Banner */}
+          <Card className="mb-6 border-blue-500/50 bg-blue-500/10">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-center gap-3">
+                <Loader2Icon className="h-5 w-5 animate-spin text-blue-600" />
+                <span className="text-blue-600 font-medium">{loadingStatus}</span>
+                {loadedCount > 0 && (
+                  <Badge variant="outline" className="border-blue-500 text-blue-600">
+                    {loadedCount.toLocaleString()} messages
+                  </Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Explanation Box Skeleton */}
+          <Card className="mb-6 border-blue-500/30 bg-blue-500/5">
+            <CardContent className="py-4">
+              <div className="space-y-3">
+                <Skeleton className="h-5 w-40" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="space-y-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-full" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Stats Skeleton */}
+          <Card className="mb-6">
+            <CardContent className="py-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="w-10 h-10 rounded-full" />
+                    <div className="space-y-2">
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-6 w-20" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Time Bonus Skeleton */}
+          <div className="mb-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5">
+            <div className="flex items-center justify-center gap-6">
+              <Skeleton className="h-4 w-24" />
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-4 w-20" />
+              ))}
+            </div>
+          </div>
+
+          {/* Leaderboard Skeleton */}
+          <Card className="mb-6">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <TrophyIcon className="h-5 w-5 text-yellow-500" />
+                <Skeleton className="h-6 w-64" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col items-center justify-center py-16 space-y-6">
-                {/* Animated Spinner */}
-                <div className="relative">
-                  <div className="w-24 h-24 border-8 border-blue-200 dark:border-blue-900 rounded-full"></div>
-                  <div className="w-24 h-24 border-8 border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
-                </div>
-                
-                {/* Status Text */}
-                <div className="text-center space-y-2">
-                  <h3 className="text-2xl font-semibold">{loadingStatus}</h3>
-                  {loadedCount > 0 && loadingStatus.includes('Loading') && (
-                    <p className="text-sm text-muted-foreground">
-                      📊 Scanning messages for Bitcoin price predictions...
-                    </p>
-                  )}
-                  {loadingStatus.includes('Filtering') && (
-                    <p className="text-sm text-muted-foreground">
-                      🔍 Analyzing {loadedCount.toLocaleString()} messages...
-                    </p>
-                  )}
-                </div>
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-4 p-4 rounded-lg border ${
+                      i === 1 ? 'bg-yellow-50/50 dark:bg-yellow-950/10 border-yellow-300/50' :
+                      i === 2 ? 'bg-gray-50/50 dark:bg-gray-800/10 border-gray-300/50' :
+                      i === 3 ? 'bg-orange-50/50 dark:bg-orange-950/10 border-orange-300/50' :
+                      'bg-muted/20'
+                    }`}
+                  >
+                    {/* Rank */}
+                    <div className="flex-shrink-0 w-12 text-center">
+                      {i <= 3 ? (
+                        <div className="text-3xl opacity-30">
+                          {i === 1 && '🥇'}
+                          {i === 2 && '🥈'}
+                          {i === 3 && '🥉'}
+                        </div>
+                      ) : (
+                        <Skeleton className="h-6 w-8 mx-auto" />
+                      )}
+                    </div>
 
-                {/* Progress Indicators */}
-                <div className="flex gap-4 text-sm">
-                  <div className={`flex items-center gap-2 ${loadingStatus.includes('Loading') ? 'text-blue-600 font-semibold' : 'text-muted-foreground'}`}>
-                    {loadingStatus.includes('Loading') ? (
-                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <div className="w-4 h-4 text-green-600">✓</div>
-                    )}
-                    <span>Loading Messages</span>
+                    {/* Avatar */}
+                    <Skeleton className="h-12 w-12 rounded-full" />
+                    
+                    {/* Name & Info */}
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-5 w-32" />
+                      <Skeleton className="h-3 w-48" />
+                    </div>
+
+                    {/* Price */}
+                    <div className="text-right space-y-2">
+                      <Skeleton className="h-7 w-20 ml-auto" />
+                      <Skeleton className="h-5 w-24 ml-auto" />
+                    </div>
                   </div>
-                  
-                  <div className={`flex items-center gap-2 ${loadingStatus.includes('Filtering') ? 'text-blue-600 font-semibold' : 'text-muted-foreground'}`}>
-                    {loadingStatus.includes('Filtering') ? (
-                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : loadingStatus.includes('Complete') ? (
-                      <div className="w-4 h-4 text-green-600">✓</div>
-                    ) : (
-                      <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30" />
-                    )}
-                    <span>Filtering Predictions</span>
-                  </div>
-                </div>
+                ))}
               </div>
             </CardContent>
           </Card>
