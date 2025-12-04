@@ -656,14 +656,17 @@ export default function RateChartPage() {
   const resetTimestamp = useMemo<Date | null>(() => {
     if (!isMounted) return null
     
-    const now = new Date()
-    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+    // Use simulated time for test mode
+    const viennaTime = getSimulatedViennaTime()
     const currentHour = viennaTime.getHours()
+    
+    // Use test mode value if set, otherwise use real time check
+    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 8)
     
     let gameDayStart: Date
     let gameDayEnd: Date
     
-    if (currentHour < 8) {
+    if (isWinnersPeriod) {
       // Winners Period (00:00-08:00): Show YESTERDAY's complete game (00:00-23:59 yesterday)
       const yesterdayMidnight = new Date(viennaTime)
       yesterdayMidnight.setDate(yesterdayMidnight.getDate() - 1)
@@ -703,7 +706,7 @@ export default function RateChartPage() {
     })
     
     return reset
-  }, [messages, isMounted])
+  }, [messages, isMounted, isTestPastMidnight, testMode])
 
   useEffect(() => {
     if (resetTimestamp) {
@@ -718,20 +721,23 @@ export default function RateChartPage() {
     if (!isMounted) return []
     
     const guesses: PriceGuess[] = []
-    const now = new Date()
-    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+    // Use simulated time for test mode
+    const viennaTime = getSimulatedViennaTime()
     const currentHour = viennaTime.getHours()
     const currentMinute = viennaTime.getMinutes()
     
+    // Use test mode value if set, otherwise use real time check
+    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 8)
+    
     console.log(`[RATE-CHART] ════════════════════════════════════════════`)
-    console.log(`[RATE-CHART] 🕐 Current Vienna Time: ${viennaTime.toLocaleString('de-AT')}`)
+    console.log(`[RATE-CHART] 🕐 Current Vienna Time: ${viennaTime.toLocaleString('de-AT')}${testMode ? ' (SIMULATED)' : ''}`)
     console.log(`[RATE-CHART] 🕐 Current Hour: ${currentHour}, Minute: ${currentMinute}`)
     console.log(`[RATE-CHART] 📊 Total messages loaded: ${messages.length}`)
     
     let gameDayStart: Date
     let gameDayEnd: Date
     
-    if (currentHour < 8) {
+    if (isWinnersPeriod) {
       // Winners Period (00:00-08:00): Show YESTERDAY's complete game (00:00-23:59 yesterday)
       const yesterdayMidnight = new Date(viennaTime)
       yesterdayMidnight.setDate(yesterdayMidnight.getDate() - 1)
@@ -869,18 +875,22 @@ export default function RateChartPage() {
     console.log(`[RATE-CHART] ════════════════════════════════════════════`)
     
     return guesses
-  }, [messages, resetTimestamp, isMounted])
+  }, [messages, resetTimestamp, isMounted, isTestPastMidnight, testMode])
 
   // Next round predictions (only during Winners Period)
   const nextRoundGuesses = useMemo(() => {
     if (!isMounted) return []
     
     const guesses: PriceGuess[] = []
-    const now = new Date()
-    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+    // Use simulated time for test mode
+    const viennaTime = getSimulatedViennaTime()
     const currentHour = viennaTime.getHours()
     
-    if (currentHour >= 8) return []
+    // Use test mode value if set, otherwise use real time check
+    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 8)
+    
+    // Only show during Winners Period (00:00-08:00)
+    if (!isWinnersPeriod) return []
     
     const midnightToday = new Date(viennaTime)
     midnightToday.setHours(0, 0, 0, 0)
@@ -942,7 +952,7 @@ export default function RateChartPage() {
     })
     
     return guesses
-  }, [messages, isMounted])
+  }, [messages, isMounted, isTestPastMidnight, testMode])
 
   // Group by username and create leaderboard
   const leaderboard = useMemo(() => {
