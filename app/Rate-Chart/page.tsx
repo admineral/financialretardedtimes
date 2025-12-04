@@ -305,6 +305,11 @@ export default function RateChartPage() {
       try {
         const gameDate = getGameDate()
         
+        console.log(`[RATE-CHART] 🚀 fetchAllMessages called with forceRefresh=${forceRefresh}`)
+        
+        // Cache-busting timestamp for force refresh
+        const cacheBuster = forceRefresh ? `&_t=${Date.now()}` : ''
+        
         if (!forceRefresh) {
           setLoadingStatus('Checking cache...')
           console.log(`[RATE-CHART] 📦 Checking cache for date: ${gameDate}`)
@@ -328,6 +333,8 @@ export default function RateChartPage() {
             return
           }
           console.log(`[RATE-CHART] ❌ Cache miss or expired, fetching fresh data...`)
+        } else {
+          console.log(`[RATE-CHART] 🔄 Force refresh - skipping cache check`)
         }
         
         setIsLoading(true)
@@ -336,7 +343,7 @@ export default function RateChartPage() {
         // Fetch messages directly from database (not TradingView API)
         // This ensures we get ALL messages, not just recent ones
         console.log(`[RATE-CHART] 📥 Fetching messages from API for date: ${gameDate}`)
-        const response = await fetch(`/Rate-Chart/api/messages?date=${gameDate}`)
+        const response = await fetch(`/Rate-Chart/api/messages?date=${gameDate}${cacheBuster}`)
         const data = await response.json()
         
         console.log(`[RATE-CHART] 📥 API response:`, {
@@ -993,18 +1000,23 @@ export default function RateChartPage() {
                       setLoadingStatus('Syncing from TradingView...')
                       try {
                         // First, trigger sync to fetch new messages from TradingView
+                        console.log('[RATE-CHART] 🔄 Manual sync triggered...')
                         const syncResponse = await fetch('/api/cron/sync-chat?trigger=manual', {
                           method: 'POST'
                         })
                         const syncData = await syncResponse.json()
-                        console.log('[RATE-CHART] Sync result:', syncData)
+                        console.log('[RATE-CHART] ✅ Sync result:', syncData)
                         
-                        // Then reload messages from database
+                        // Then reload messages from database with force refresh
+                        setLoadingStatus('Reloading messages from database...')
                         if (fetchMessages) {
+                          console.log('[RATE-CHART] 🔄 Force refreshing messages...')
                           await fetchMessages(true)
+                          console.log('[RATE-CHART] ✅ Messages refreshed!')
                         }
                       } catch (error) {
-                        console.error('[RATE-CHART] Sync failed:', error)
+                        console.error('[RATE-CHART] ❌ Sync failed:', error)
+                        setLoadingStatus('Sync failed!')
                       } finally {
                         setIsRefreshing(false)
                         setLoadingStatus('Complete!')

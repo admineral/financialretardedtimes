@@ -48,10 +48,12 @@ export async function GET(request: NextRequest) {
     nextDate.setDate(nextDate.getDate() + 1)
     const nextDateStr = nextDate.toISOString().split('T')[0]
     
-    // Fetch from previous day 22:00 UTC to next day 01:00 UTC
-    // This covers all possible Vienna time scenarios
+    // Fetch from previous day 22:00 UTC to next day 08:00 UTC
+    // This covers all possible Vienna time scenarios including:
+    // - Messages from 00:00-08:00 Vienna (next day early birds for Winners Period display)
+    // Vienna is UTC+1 (winter) so 08:00 Vienna = 07:00 UTC
     const startOfRange = `${prevDateStr}T22:00:00.000Z`
-    const endOfRange = `${nextDateStr}T01:00:00.000Z`
+    const endOfRange = `${nextDateStr}T08:00:00.000Z`
     
     console.log(`[RATE-CHART MESSAGES] Fetching messages for Vienna date ${date}`)
     console.log(`[RATE-CHART MESSAGES] UTC Range: ${startOfRange} to ${endOfRange}`)
