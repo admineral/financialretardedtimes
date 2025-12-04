@@ -8,8 +8,8 @@ const profileCache = new Map<string, {
   expiry: number
 }>()
 
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
-const LOCALSTORAGE_CACHE_DURATION = 60 * 60 * 1000 // 1 hour for localStorage
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes for in-memory
+const LOCALSTORAGE_CACHE_DURATION = 24 * 60 * 60 * 1000 // 1 day for localStorage
 const PROFILE_CACHE_PREFIX = 'tv_profile_'
 
 // Clean up expired cache entries periodically

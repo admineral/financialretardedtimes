@@ -297,7 +297,9 @@ export default function NewspaperPage() {
           {/* Left Sidebar */}
           <NewspaperSidebar 
             data={newspaperData} 
-            isLoading={isLoading} 
+            isLoading={isLoading}
+            selectedDate={selectedDate}
+            selectedDates={selectedDates}
           />
 
           {/* Main Content */}

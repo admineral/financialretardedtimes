@@ -80,6 +80,16 @@ export const MoreArticleSchema = z.object({
 })
 
 /**
+ * Active chatter schema.
+ * Represents a user who participated in the chat with their activity stats.
+ */
+export const ActiveChatterSchema = z.object({
+  username: z.string(),
+  avatar: z.string().optional(),
+  messageCount: z.number()
+})
+
+/**
  * Unified newspaper schema.
  * Complete structure for AI-generated newspaper content.
  * Used by the summarize API and NewspaperContent component.
@@ -87,7 +97,8 @@ export const MoreArticleSchema = z.object({
 export const UnifiedNewspaperSchema = z.object({
   topContributors: z.array(z.object({
     username: z.string(),
-    initial: z.string().max(1)
+    initial: z.string().max(1),
+    avatar: z.string().optional()
   })).length(3),
   
   trendingTopics: z.array(z.string()).min(3).max(5),
@@ -99,7 +110,10 @@ export const UnifiedNewspaperSchema = z.object({
   
   shortNews: z.array(ShortNewsSchema).length(3),
   
-  moreArticles: z.array(MoreArticleSchema).min(3).max(4)
+  moreArticles: z.array(MoreArticleSchema).min(3).max(4),
+  
+  // Active chatters from the day (added by API, not AI-generated)
+  activeChatters: z.array(ActiveChatterSchema).optional()
 })
 
 // Inferred TypeScript types from Zod schemas
@@ -108,4 +122,5 @@ export type ArticleData = z.infer<typeof ArticleSchema>
 export type EventData = z.infer<typeof EventSchema>
 export type ShortNewsData = z.infer<typeof ShortNewsSchema>
 export type MoreArticleData = z.infer<typeof MoreArticleSchema>
+export type ActiveChatter = z.infer<typeof ActiveChatterSchema>
 

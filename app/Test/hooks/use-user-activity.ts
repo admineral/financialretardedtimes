@@ -16,6 +16,116 @@ interface ActivityPatterns {
   totalMessages: number
 }
 
+// Cache configuration
+const ACTIVITY_CACHE_PREFIX = 'user_activity_'
+const ACTIVITY_CACHE_DURATION = 24 * 60 * 60 * 1000 // 1 day in milliseconds
+
+// In-memory cache for faster subsequent accesses
+const activityMemoryCache = new Map<string, {
+  activities: ActivityData[]
+  patterns: ActivityPatterns
+  expiry: number
+}>()
+
+interface CachedActivityData {
+  activities: ActivityData[]
+  patterns: ActivityPatterns
+  timestamp: number
+  expiry: number
+}
+
+function getActivityCacheKey(username: string, roomId: string, days: number): string {
+  return `${ACTIVITY_CACHE_PREFIX}${roomId}_${username}_${days}d`
+}
+
+function getActivityFromCache(username: string, roomId: string, days: number): CachedActivityData | null {
+  const cacheKey = getActivityCacheKey(username, roomId, days)
+  const now = Date.now()
+  
+  // Check memory cache first (fastest)
+  const memCached = activityMemoryCache.get(cacheKey)
+  if (memCached && now < memCached.expiry) {
+    console.log(`✅ [ACTIVITY CACHE] Memory hit for ${username}`)
+    return {
+      activities: memCached.activities,
+      patterns: memCached.patterns,
+      timestamp: now,
+      expiry: memCached.expiry
+    }
+  }
+  
+  // Check localStorage
+  if (typeof window === 'undefined') return null
+  
+  try {
+    const cached = localStorage.getItem(cacheKey)
+    if (!cached) return null
+    
+    const entry: CachedActivityData = JSON.parse(cached)
+    
+    if (now < entry.expiry) {
+      console.log(`✅ [ACTIVITY CACHE] localStorage hit for ${username}`, {
+        totalMessages: entry.patterns.totalMessages,
+        age: Math.round((now - entry.timestamp) / 1000 / 60) + ' minutes'
+      })
+      
+      // Update memory cache
+      activityMemoryCache.set(cacheKey, {
+        activities: entry.activities,
+        patterns: entry.patterns,
+        expiry: entry.expiry
+      })
+      
+      return entry
+    }
+    
+    // Expired, remove it
+    console.log(`[ACTIVITY CACHE] Expired for ${username}, removing`)
+    localStorage.removeItem(cacheKey)
+    activityMemoryCache.delete(cacheKey)
+    return null
+  } catch (error) {
+    console.warn('[ACTIVITY CACHE] Failed to read:', error)
+    return null
+  }
+}
+
+function saveActivityToCache(
+  username: string, 
+  roomId: string, 
+  days: number, 
+  activities: ActivityData[], 
+  patterns: ActivityPatterns
+): void {
+  const cacheKey = getActivityCacheKey(username, roomId, days)
+  const now = Date.now()
+  const expiry = now + ACTIVITY_CACHE_DURATION
+  
+  // Save to memory cache
+  activityMemoryCache.set(cacheKey, { activities, patterns, expiry })
+  
+  // Save to localStorage
+  if (typeof window === 'undefined') return
+  
+  try {
+    const entry: CachedActivityData = {
+      activities,
+      patterns,
+      timestamp: now,
+      expiry
+    }
+    
+    console.log(`💾 [ACTIVITY CACHE] Saving for ${username}`, {
+      totalMessages: patterns.totalMessages,
+      days: activities.length
+    })
+    
+    localStorage.setItem(cacheKey, JSON.stringify(entry))
+  } catch (error) {
+    console.warn('[ACTIVITY CACHE] Failed to write:', error)
+  }
+}
+
 export function useUserActivity(username: string, roomId: string = 'bitcoin_de_DE', days: number = 30) {
   const [activities, setActivities] = useState<ActivityData[]>([])
   const [patterns, setPatterns] = useState<ActivityPatterns | null>(null)
@@ -53,6 +163,16 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
 
   const fetchActivity = useCallback(async () => {
     if (!username || !roomId) return
+
+    // Check client-side cache first (1 day TTL)
+    const cached = getActivityFromCache(username, roomId, days)
+    if (cached) {
+      setActivities(cached.activities)
+      setPatterns(cached.patterns)
+      setIsLoading(false)
+      setError(null)
+      return
+    }
 
     setIsLoading(true)
     setError(null)
@@ -92,6 +212,9 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
         
         setActivities(activityData)
         setPatterns(activityPatterns)
+        
+        // Save to client-side cache (1 day TTL)
+        saveActivityToCache(username, roomId, days, activityData, activityPatterns)
         
         console.log(`✅ [USE USER ACTIVITY] Loaded ${activityData.length} days for ${username} (${data.cachedCount || 0} cached, ${data.fetchedCount || 0} fetched)`)
       }

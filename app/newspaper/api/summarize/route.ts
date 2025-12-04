@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient()
     
     // Fetch chat messages
-    let messages: { username: string; text: string; time: string; is_moderator: boolean }[] = []
+    let messages: { username: string; text: string; time: string; is_moderator: boolean; user_pic?: string | null }[] = []
     
     // Track per-day statistics for logging
     const dayStats: { date: string; count: number; firstHour: string; lastHour: string }[] = []
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
         while (hasMore) {
           const { data: pageMessages, error: pageError } = await supabase
             .from('tv_chat_messages')
-            .select('username, text, time, is_moderator')
+            .select('username, text, time, is_moderator, user_pic')
             .gte('time', startOfDay)
             .lte('time', endOfDay)
             .order('time', { ascending: true })
@@ -267,7 +267,7 @@ export async function POST(request: NextRequest) {
       // Fetch recent messages (last 500)
       const { data: allMessages, error } = await supabase
         .from('tv_chat_messages')
-        .select('username, text, time, is_moderator')
+        .select('username, text, time, is_moderator, user_pic')
         .order('time', { ascending: false })
         .limit(500)
       
@@ -337,7 +337,11 @@ export async function POST(request: NextRequest) {
     console.log(`[SUMMARIZE]    🕐 Current time: ${nowStr}`)
     console.log(`[SUMMARIZE]    Mode: ${effectiveDayRange}-day summary (${selectedDates?.length || 1} days of data)`)
     console.log(`[SUMMARIZE]    📅 FIRST message: ${messages[0]?.time || 'N/A'}`)
+    console.log(`[SUMMARIZE]       Content: "${messages[0]?.text?.slice(0, 100) || 'N/A'}${(messages[0]?.text?.length || 0) > 100 ? '...' : ''}"`)
+    console.log(`[SUMMARIZE]       User: ${messages[0]?.username || 'N/A'}`)
     console.log(`[SUMMARIZE]    📅 LAST message:  ${messages[messages.length - 1]?.time || 'N/A'}`)
+    console.log(`[SUMMARIZE]       Content: "${messages[messages.length - 1]?.text?.slice(0, 100) || 'N/A'}${(messages[messages.length - 1]?.text?.length || 0) > 100 ? '...' : ''}"`)
+    console.log(`[SUMMARIZE]       User: ${messages[messages.length - 1]?.username || 'N/A'}`)
     console.log(`[SUMMARIZE]    Total messages: ${messages.length}`)
     console.log(`[SUMMARIZE]    Unique users: ${uniqueUsers}`)
     if (dayStats.length > 0) {
@@ -347,6 +351,26 @@ export async function POST(request: NextRequest) {
       })
     }
     console.log(`[SUMMARIZE] ════════════════════════════════════════════`)
+    
+    // Build username -> avatar map and message counts from messages
+    const userAvatarMap = new Map<string, string>()
+    const userMessageCounts = new Map<string, number>()
+    for (const msg of messages) {
+      if (msg.user_pic && !userAvatarMap.has(msg.username)) {
+        userAvatarMap.set(msg.username, msg.user_pic)
+      }
+      userMessageCounts.set(msg.username, (userMessageCounts.get(msg.username) || 0) + 1)
+    }
+    
+    // Build active chatters list (sorted by message count, top 10)
+    const activeChatters = Array.from(userMessageCounts.entries())
+      .map(([username, messageCount]) => ({
+        username,
+        avatar: userAvatarMap.get(username),
+        messageCount
+      }))
+      .sort((a, b) => b.messageCount - a.messageCount)
+      .slice(0, 10)
     
     // Stream AI response using GPT-5.1
     const result = streamObject({
@@ -363,7 +387,17 @@ Chat-Protokoll (${messages.length} Nachrichten von ${uniqueUsers} Usern):
 ${formattedChat}`,
       onFinish: async ({ object, error: finishError }) => {
         if (object) {
-          await saveToCache(cacheDate, effectiveDayRange, object as UnifiedNewspaperData, messages.length, uniqueUsers)
+          // Enrich topContributors with avatars and add activeChatters
+          const enrichedData = {
+            ...object,
+            topContributors: (object as UnifiedNewspaperData).topContributors.map(contributor => ({
+              ...contributor,
+              avatar: userAvatarMap.get(contributor.username) || undefined
+            })),
+            activeChatters
+          } as UnifiedNewspaperData
+          
+          await saveToCache(cacheDate, effectiveDayRange, enrichedData, messages.length, uniqueUsers)
         } else if (finishError) {
           console.error(`[SUMMARIZE] ❌ Schema error:`, String(finishError))
         }
