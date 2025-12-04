@@ -118,3 +118,4 @@ COMMENT ON COLUMN prediction_daily_results.winner_total_points IS 'Total points 
 COMMENT ON COLUMN prediction_leaderboard.total_bonus_points IS 'Sum of all time bonus points earned';
 
 
+

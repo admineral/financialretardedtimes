@@ -202,10 +202,10 @@ export default function RateChartPage() {
     checkTestMode()
   }, [])
 
-  // Fetch current Bitcoin price with 1-hour cache
+  // Fetch current Bitcoin price with 5-minute cache
   useEffect(() => {
     const CACHE_KEY = 'btc_price_cache'
-    const CACHE_DURATION = 60 * 60 * 1000
+    const CACHE_DURATION = 5 * 60 * 1000
     
     const fetchBitcoinPriceFunc = async (forceRefresh = false) => {
       try {
