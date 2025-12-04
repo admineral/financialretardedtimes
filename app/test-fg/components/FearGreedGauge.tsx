@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useEffect, useState, useCallback } from 'react'
-import { TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, RefreshCw, Clock } from 'lucide-react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import { cn } from '@/lib/utils'
@@ -25,6 +25,20 @@ export interface FearGreedData {
   trend: 'rising' | 'falling' | 'stable'
   insight: string
   topDrivers: string[]
+}
+
+/**
+ * Cache info for displaying date/time
+ */
+interface CacheInfo {
+  updatedAt: string
+  isFromToday: boolean
+  isStale: boolean
+  dateRange?: {
+    oldestDate: string
+    newestDate: string
+    todayMessageCount: number
+  }
 }
 
 // Schema for streaming validation
@@ -127,11 +141,48 @@ interface FearGreedWidgetProps {
  * Self-contained component that fetches and displays Fear & Greed indices
  * for Today, 3 Days, and 7 Days. Uses cache when available.
  */
+/**
+ * Format time ago in German
+ */
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  
+  if (diffMins < 1) return 'gerade eben'
+  if (diffMins < 60) return `vor ${diffMins}m`
+  if (diffHours < 24) return `vor ${diffHours}h ${diffMins % 60}m`
+  return `vor ${diffDays}d ${diffHours % 24}h`
+}
+
+/**
+ * Check if date is from today
+ */
+function isFromToday(dateString: string): boolean {
+  const date = new Date(dateString)
+  const today = new Date()
+  return date.toDateString() === today.toDateString()
+}
+
+/**
+ * Check if cache is stale (older than 4 hours)
+ */
+function isCacheStale(dateString: string): boolean {
+  const cacheTime = new Date(dateString).getTime()
+  const now = Date.now()
+  const fourHoursMs = 4 * 60 * 60 * 1000
+  return (now - cacheTime) >= fourHoursMs
+}
+
 export function FearGreedWidget({ 
   autoStart = false, 
   className,
 }: FearGreedWidgetProps) {
   const [cachedData, setCachedData] = useState<FearGreedData | null>(null)
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
   const [isLoadingCache, setIsLoadingCache] = useState(false)
   const [hasFetched, setHasFetched] = useState(false)
   
@@ -145,29 +196,66 @@ export function FearGreedWidget({
   const isLoading = isLoadingCache || isLoadingAI
   const hasData = data?.today || data?.last3Days || data?.last7Days
 
-  // Save to cache when streaming completes
+  // Update cache info when streaming completes (cache is auto-saved by analyze route)
   useEffect(() => {
     if (streamingData?.today && streamingData?.last3Days && streamingData?.last7Days && 
         streamingData?.trend && streamingData?.insight && streamingData?.topDrivers && !isLoadingAI) {
-      fetch('/test-fg/api/cache', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: streamingData })
-      }).catch(console.error)
+      const now = new Date().toISOString()
+      // Update local cache info - actual cache is saved by analyze route
+      setCacheInfo({
+        updatedAt: now,
+        isFromToday: true,
+        isStale: false,
+        // dateRange will be available on next cache fetch
+      })
+      
+      // Fetch updated cache to get dateRange info
+      setTimeout(() => {
+        fetch('/test-fg/api/cache')
+          .then(res => res.json())
+          .then(result => {
+            if (result.cached && result.dateRange) {
+              setCacheInfo(prev => prev ? { ...prev, dateRange: result.dateRange } : null)
+            }
+          })
+          .catch(console.error)
+      }, 500) // Small delay to ensure cache is written
     }
   }, [streamingData, isLoadingAI])
 
   // Check cache on mount
-  const checkCache = useCallback(async () => {
+  const checkCache = useCallback(async (): Promise<{ cached: boolean; needsRefresh: boolean }> => {
     setIsLoadingCache(true)
     try {
       const response = await fetch('/test-fg/api/cache')
       if (response.ok) {
         const result = await response.json()
-        if (result.cached && result.data) {
+        if (result.cached && result.data && result.updatedAt) {
+          const updatedAt = result.updatedAt
+          const fromToday = isFromToday(updatedAt)
+          const stale = isCacheStale(updatedAt)
+          
           setCachedData(result.data as FearGreedData)
+          setCacheInfo({
+            updatedAt,
+            isFromToday: fromToday,
+            isStale: stale,
+            dateRange: result.dateRange || undefined
+          })
           setHasFetched(true)
-          return true
+          
+          // Need refresh if not from today OR stale (older than 4 hours)
+          const needsRefresh = !fromToday || stale
+          
+          console.log(`[FearGreedWidget] Cache loaded:`, {
+            updatedAt,
+            fromToday,
+            stale,
+            needsRefresh,
+            dateRange: result.dateRange
+          })
+          
+          return { cached: true, needsRefresh }
         }
       }
     } catch (err) {
@@ -175,21 +263,26 @@ export function FearGreedWidget({
     } finally {
       setIsLoadingCache(false)
     }
-    return false
+    return { cached: false, needsRefresh: true }
   }, [])
 
   // Generate new data
   const generate = useCallback(() => {
     setCachedData(null)
+    setCacheInfo(null)
     setHasFetched(true)
     submit({})
   }, [submit])
 
-  // Auto-start: check cache first, then generate if needed
+  // Auto-start: check cache first, then generate if needed or stale
   useEffect(() => {
     if (autoStart && !hasFetched && !isLoading) {
-      checkCache().then(cached => {
-        if (!cached) {
+      checkCache().then(({ cached, needsRefresh }) => {
+        if (!cached || needsRefresh) {
+          // If we have stale cached data, show it while refreshing
+          if (cached && needsRefresh) {
+            console.log('[FearGreedWidget] Cache is stale or not from today, refreshing...')
+          }
           generate()
         }
       })
@@ -262,14 +355,28 @@ export function FearGreedWidget({
         <h4 className="font-headline text-sm font-bold uppercase tracking-wider">
           Fear & Greed
         </h4>
-        <button
-          onClick={generate}
-          disabled={isLoading}
-          className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
-          title="Neu analysieren"
-        >
-          <RefreshCw className={cn("w-3 h-3 text-muted-foreground", isLoading && "animate-spin")} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Cache info display */}
+          {cacheInfo && !isLoading && (
+            <span className="flex items-center gap-1 text-[9px] text-muted-foreground/70">
+              <Clock className="w-2.5 h-2.5" />
+              <span className={cn(
+                cacheInfo.isStale && "text-amber-600",
+                !cacheInfo.isFromToday && "text-red-400"
+              )}>
+                {formatTimeAgo(cacheInfo.updatedAt)}
+              </span>
+            </span>
+          )}
+          <button
+            onClick={generate}
+            disabled={isLoading}
+            className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
+            title="Neu analysieren"
+          >
+            <RefreshCw className={cn("w-3 h-3 text-muted-foreground", isLoading && "animate-spin")} />
+          </button>
+        </div>
       </div>
 
       {/* 3 Gauges */}
@@ -340,6 +447,20 @@ export function FearGreedWidget({
       {isLoading && hasData && (
         <div className="text-center text-[10px] text-muted-foreground mt-2">
           Aktualisiere...
+        </div>
+      )}
+
+      {/* Date range info */}
+      {cacheInfo?.dateRange && !isLoading && (
+        <div className="mt-3 pt-2 border-t border-foreground/10 text-center">
+          <span className="text-[9px] text-muted-foreground/60">
+            Daten: {cacheInfo.dateRange.oldestDate} → {cacheInfo.dateRange.newestDate}
+          </span>
+          {cacheInfo.dateRange.todayMessageCount === 0 && (
+            <span className="block text-[9px] text-amber-600 mt-0.5">
+              ⚠️ Keine Nachrichten von heute
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -47,6 +47,15 @@ interface FearGreedCacheData {
   topDrivers: string[]
 }
 
+/**
+ * Date range info for displaying in UI
+ */
+interface DateRangeInfo {
+  oldestDate: string
+  newestDate: string
+  todayMessageCount: number
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════
@@ -119,12 +128,16 @@ export async function GET() {
     
     console.log(`[FEAR-GREED CACHE] ✅ Cache hit for ${today}`)
     
+    // Extract date range info from full_data if available
+    const dateRangeInfo: DateRangeInfo | null = data.full_data?.dateRange || null
+    
     return Response.json({
       cached: true,
       data: cacheData,
       updatedAt: data.updated_at,
       messageCount: data.message_count,
-      uniqueUsers: data.unique_users
+      uniqueUsers: data.unique_users,
+      dateRange: dateRangeInfo
     })
     
   } catch (error) {
@@ -147,10 +160,11 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { data, messageCount, uniqueUsers }: { 
+    const { data, messageCount, uniqueUsers, dateRange }: { 
       data: FearGreedCacheData
       messageCount?: number
-      uniqueUsers?: number 
+      uniqueUsers?: number
+      dateRange?: DateRangeInfo
     } = body
     
     if (!data || !data.today || !data.last3Days || !data.last7Days) {
@@ -180,10 +194,11 @@ export async function POST(request: NextRequest) {
         trend: data.trend,
         insight: data.insight,
         top_drivers: data.topDrivers,
-        // Full data for backwards compatibility
+        // Full data for backwards compatibility + date range info
         full_data: {
           insight: data.insight,
-          topDrivers: data.topDrivers
+          topDrivers: data.topDrivers,
+          dateRange: dateRange || null
         },
         // Metadata
         message_count: messageCount || 0,

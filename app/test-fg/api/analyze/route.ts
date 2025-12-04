@@ -274,13 +274,20 @@ export async function POST(request: NextRequest) {
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - 7)
     
+    // Format dates for logging
+    const startDateStr = startDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
+    const endDateStr = endDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
+    
     // Fetch chat messages with pagination
     const allMessages: { username: string; text: string; time: string }[] = []
     const pageSize = 1000
     let offset = 0
     let hasMore = true
     
-    console.log(`[FEAR-GREED] 📊 Fetching last 7 days for multi-period analysis`)
+    console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
+    console.log(`[FEAR-GREED] 📊 Fetching messages for Fear & Greed analysis`)
+    console.log(`[FEAR-GREED] 📅 Date range: ${startDateStr} → ${endDateStr}`)
+    console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
     
     while (hasMore) {
       const { data: pageMessages, error } = await supabase
@@ -341,14 +348,31 @@ export async function POST(request: NextRequest) {
     const btcContext = await btcPromise
     const btcContextStr = btcContext ? formatBTCContext(btcContext) : ''
     
+    // Find actual date range from messages
+    const oldestMsgDate = allMessages.length > 0 ? new Date(allMessages[0].time) : startDate
+    const newestMsgDate = allMessages.length > 0 ? new Date(allMessages[allMessages.length - 1].time) : endDate
+    const oldestMsgStr = oldestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })
+    const newestMsgStr = newestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    
     // Log summary of what we're sending to the model
     console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
     console.log(`[FEAR-GREED] 🤖 Sending to model:`)
-    console.log(`[FEAR-GREED]    Today: ${todayMessages.length} messages`)
+    console.log(`[FEAR-GREED]    📅 Actual data range: ${oldestMsgStr} → ${newestMsgStr}`)
+    console.log(`[FEAR-GREED]    Today (${todayStr}): ${todayMessages.length} messages`)
     console.log(`[FEAR-GREED]    Last 3 days: ${last3DaysMessages.length} messages`)
     console.log(`[FEAR-GREED]    Last 7 days: ${allMessages.length} messages`)
     console.log(`[FEAR-GREED]    Unique users: ${uniqueUsers}`)
+    if (todayMessages.length === 0) {
+      console.log(`[FEAR-GREED]    ⚠️ WARNING: No messages from today!`)
+    }
     console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
+    
+    // Prepare date range info for cache
+    const dateRangeInfo = {
+      oldestDate: oldestMsgStr,
+      newestDate: newestMsgStr,
+      todayMessageCount: todayMessages.length
+    }
     
     // Stream AI response using GPT-5.1
     const result = streamObject({
@@ -371,6 +395,44 @@ ${formattedChat}`,
       onFinish: async ({ object, error: finishError }) => {
         if (object) {
           console.log(`[FEAR-GREED] ✅ Analysis complete: Today=${object.today?.index}, 3d=${object.last3Days?.index}, 7d=${object.last7Days?.index}`)
+          
+          // Auto-save to cache with date range info
+          try {
+            const cacheSupabase = await createClient()
+            const cacheDate = new Date().toISOString().split('T')[0]
+            
+            await cacheSupabase
+              .from('fear_greed_cache')
+              .upsert({
+                cache_date: cacheDate,
+                today_index: object.today.index,
+                today_classification: object.today.classification,
+                today_classification_de: object.today.classificationDE,
+                last_3_days_index: object.last3Days.index,
+                last_3_days_classification: object.last3Days.classification,
+                last_3_days_classification_de: object.last3Days.classificationDE,
+                last_7_days_index: object.last7Days.index,
+                last_7_days_classification: object.last7Days.classification,
+                last_7_days_classification_de: object.last7Days.classificationDE,
+                trend: object.trend,
+                insight: object.insight,
+                top_drivers: object.topDrivers,
+                full_data: {
+                  insight: object.insight,
+                  topDrivers: object.topDrivers,
+                  dateRange: dateRangeInfo
+                },
+                message_count: allMessages.length,
+                unique_users: uniqueUsers,
+                updated_at: new Date().toISOString()
+              }, {
+                onConflict: 'cache_date'
+              })
+            
+            console.log(`[FEAR-GREED] ✅ Auto-saved to cache with date range: ${dateRangeInfo.oldestDate} → ${dateRangeInfo.newestDate}`)
+          } catch (cacheError) {
+            console.error(`[FEAR-GREED] ⚠️ Failed to auto-save cache:`, cacheError)
+          }
         } else if (finishError) {
           console.error(`[FEAR-GREED] ❌ Schema error:`, String(finishError))
         }
