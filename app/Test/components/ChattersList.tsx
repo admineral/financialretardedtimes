@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle, memo, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -10,6 +10,7 @@ import { UserHoverCard } from './UserHoverCard'
 import { useChat } from '../hooks/use-chat-improved'
 import { UserIcon, ExternalLinkIcon } from 'lucide-react'
 import { format, subDays } from 'date-fns'
+import { ChatMessage } from '../types'
 
 interface ChatterInfo {
   username: string
@@ -34,6 +35,108 @@ interface ChattersListProps {
 export interface ChattersListRef {
   triggerRefresh: () => void
 }
+
+// Memoized individual chatter item to prevent re-renders
+interface ChatterItemProps {
+  chatter: ChatterInfo
+  messages: ChatMessage[]
+  fetchStatus: ChatterFetchStatus | undefined
+  onUserClick: (username: string) => void
+}
+
+const ChatterItem = memo(function ChatterItem({ 
+  chatter, 
+  messages, 
+  fetchStatus, 
+  onUserClick 
+}: ChatterItemProps) {
+  // Memoize user messages to prevent recalculation
+  const userMessages = useMemo(() => 
+    messages.filter(msg => msg.username === chatter.username),
+    [messages, chatter.username]
+  )
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onUserClick(chatter.username)
+  }, [onUserClick, chatter.username])
+
+  return (
+    <UserHoverCard 
+      username={chatter.username} 
+      userMessages={userMessages}
+      side="right"
+    >
+      <div 
+        className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
+        onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onUserClick(chatter.username)
+          }
+        }}
+      >
+        <Avatar className="h-8 w-8 border-2 border-primary/30 shadow-sm ring-1 ring-primary/20 hover:border-primary/50 hover:ring-2 hover:ring-primary/30 transition-all duration-200">
+          <AvatarImage 
+            src={chatter.avatar} 
+            alt={chatter.username}
+            className="rounded-full object-cover"
+          />
+          <AvatarFallback className="text-xs bg-muted/50 rounded-full">
+            {chatter.avatar ? (
+              chatter.username.slice(0, 2).toUpperCase()
+            ) : (
+              <UserIcon className="h-4 w-4 text-muted-foreground" />
+            )}
+          </AvatarFallback>
+        </Avatar>
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-sm truncate group-hover:text-primary transition-colors">
+              {chatter.username}
+            </span>
+            <ExternalLinkIcon className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-1.5">
+          {/* Priority 1: Show loading status during active fetch */}
+          {fetchStatus?.status === 'fetching' ? (
+            <div className="relative flex items-center justify-center w-5 h-5">
+              <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping absolute" />
+              <div className="h-2 w-2 rounded-full bg-blue-500" />
+            </div>
+          ) : fetchStatus?.status === 'error' ? (
+            /* Priority 2: Show error status */
+            <div className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-md ring-2 ring-red-300 animate-pulse" title="Fetch failed" />
+          ) : fetchStatus?.status === 'complete' ? (
+            /* Priority 3: Show completion status - green if fetched fresh, orange if mostly from cache */
+            <div 
+              className={`h-2.5 w-2.5 rounded-full shadow-md ring-2 ${
+                (fetchStatus.fetchedCount || 0) > 0
+                  ? 'bg-green-500 ring-green-300' 
+                  : 'bg-orange-500 ring-orange-300'
+              }`}
+              title={
+                (fetchStatus.fetchedCount || 0) > 0
+                  ? `Fetched ${fetchStatus.fetchedCount} days fresh, ${fetchStatus.cachedCount} from cache`
+                  : `All ${fetchStatus.cachedCount} days from database cache`
+              }
+            />
+          ) : null}
+          <Badge variant="outline" className="text-xs">
+            {chatter.messageCount}
+          </Badge>
+        </div>
+      </div>
+    </UserHoverCard>
+  )
+})
 
 export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(function ChattersList({ roomId, onRefreshStateChange }, ref) {
   const { messages, isLoading: isChatLoading } = useChat({ roomId })
@@ -429,11 +532,9 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
     })
   }, [chatters, onRefreshStateChange])
 
-  const handleUserClick = (username: string, event: React.MouseEvent) => {
-    // Prevent the hover card from interfering
-    event.stopPropagation()
+  const handleUserClick = useCallback((username: string) => {
     router.push(`/chat-archive?username=${encodeURIComponent(username)}&room=bitcoin_de_DE`)
-  }
+  }, [router])
 
   if (isChatLoading && messages.length === 0) {
     return (
@@ -497,78 +598,15 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
       
       <ScrollArea className="flex-1 h-full">
         <div className="space-y-2 pr-4">
-        {chatters.map((chatter) => {
-          const userMessages = messages.filter(msg => msg.username === chatter.username)
-          const fetchStatus = fetchStatuses.get(chatter.username)
-          
-          return (
-            <UserHoverCard 
-              key={chatter.username}
-              username={chatter.username} 
-              userMessages={userMessages}
-              side="right"
-            >
-              <div 
-                className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
-                onClick={(e) => handleUserClick(chatter.username, e)}
-              >
-                <Avatar className="h-8 w-8 border-2 border-primary/30 shadow-sm ring-1 ring-primary/20 hover:border-primary/50 hover:ring-2 hover:ring-primary/30 transition-all duration-200">
-                  <AvatarImage 
-                    src={chatter.avatar} 
-                    alt={chatter.username}
-                    className="rounded-full object-cover"
-                  />
-                  <AvatarFallback className="text-xs bg-muted/50 rounded-full">
-                    {chatter.avatar ? (
-                      chatter.username.slice(0, 2).toUpperCase()
-                    ) : (
-                      <UserIcon className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </AvatarFallback>
-                </Avatar>
-                
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-sm truncate group-hover:text-primary transition-colors">
-                      {chatter.username}
-                    </span>
-                    <ExternalLinkIcon className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-1.5">
-                  {/* Priority 1: Show loading status during active fetch */}
-                  {fetchStatus?.status === 'fetching' ? (
-                    <div className="relative flex items-center justify-center w-5 h-5">
-                      <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping absolute" />
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                    </div>
-                  ) : fetchStatus?.status === 'error' ? (
-                    /* Priority 2: Show error status */
-                    <div className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-md ring-2 ring-red-300 animate-pulse" title="Fetch failed" />
-                  ) : fetchStatus?.status === 'complete' ? (
-                    /* Priority 3: Show completion status - green if fetched fresh, orange if mostly from cache */
-                    <div 
-                      className={`h-2.5 w-2.5 rounded-full shadow-md ring-2 ${
-                        (fetchStatus.fetchedCount || 0) > 0
-                          ? 'bg-green-500 ring-green-300' 
-                          : 'bg-orange-500 ring-orange-300'
-                      }`}
-                      title={
-                        (fetchStatus.fetchedCount || 0) > 0
-                          ? `Fetched ${fetchStatus.fetchedCount} days fresh, ${fetchStatus.cachedCount} from cache`
-                          : `All ${fetchStatus.cachedCount} days from database cache`
-                      }
-                    />
-                  ) : null}
-                  <Badge variant="outline" className="text-xs">
-                    {chatter.messageCount}
-                  </Badge>
-                </div>
-              </div>
-            </UserHoverCard>
-          )
-        })}
+        {chatters.map((chatter) => (
+          <ChatterItem
+            key={chatter.username}
+            chatter={chatter}
+            messages={messages}
+            fetchStatus={fetchStatuses.get(chatter.username)}
+            onUserClick={handleUserClick}
+          />
+        ))}
         </div>
       </ScrollArea>
     </div>
