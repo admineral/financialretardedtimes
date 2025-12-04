@@ -23,7 +23,8 @@
 
 'use client'
 
-import { useMemo, useEffect, useState } from 'react'
+import { useMemo, useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from './ui/Skeleton'
@@ -42,11 +43,33 @@ interface NewspaperSidebarProps {
 const INITIAL_CHATTERS_COUNT = 5
 
 export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates }: NewspaperSidebarProps) {
+  const router = useRouter()
+  
   // Fetch active chatters directly from Supabase
   const [allChatters, setAllChatters] = useState<ActiveChatter[]>([])
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([])
   const [isLoadingChatters, setIsLoadingChatters] = useState(false)
   const [showAllChatters, setShowAllChatters] = useState(false)
+  const [clickedUser, setClickedUser] = useState<string | null>(null)
+  
+  // Reset clicked state when component mounts or dates change (e.g., after navigation back)
+  useEffect(() => {
+    setClickedUser(null)
+  }, [selectedDate, selectedDates])
+  
+  // Navigate to user profile in chat-archive with visual feedback
+  const handleUserClick = useCallback((username: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Show brief click feedback then navigate
+    setClickedUser(username)
+    
+    // Small delay to show the click effect before navigation
+    setTimeout(() => {
+      router.push(`/chat-archive?username=${encodeURIComponent(username)}&room=bitcoin_de_DE`)
+    }, 100)
+  }, [router])
 
   // Displayed chatters (limited or all)
   const activeChatters = showAllChatters ? allChatters : allChatters.slice(0, INITIAL_CHATTERS_COUNT)
@@ -182,29 +205,52 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
         </h3>
         <ul className="space-y-3 font-body text-sm">
           {enrichedContributors && enrichedContributors.length > 0 ? (
-            enrichedContributors.map((contributor, idx) => (
-              <UserHoverCard
-                key={idx}
-                username={contributor.username}
-                userMessages={messagesByUser.get(contributor.username) || []}
-                side="right"
-                align="start"
-              >
-                <li className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded-md px-1 py-0.5 -mx-1 transition-colors">
-                  <Avatar className="h-6 w-6 border border-foreground/20">
-                    <AvatarImage 
-                      src={contributor.avatar} 
-                      alt={contributor.username}
-                      className="rounded-full object-cover"
-                    />
-                    <AvatarFallback className="bg-muted text-xs font-semibold">
-                      {contributor.initial || contributor.username?.slice(0, 1).toUpperCase() || '?'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="truncate">{contributor.username || <Skeleton className="h-4 w-24" />}</span>
-                </li>
-              </UserHoverCard>
-            ))
+            enrichedContributors.map((contributor, idx) => {
+              const isClicked = clickedUser === contributor.username
+              return (
+                <UserHoverCard
+                  key={idx}
+                  username={contributor.username}
+                  userMessages={messagesByUser.get(contributor.username) || []}
+                  side="right"
+                  align="start"
+                  onClick={(e) => handleUserClick(contributor.username, e)}
+                >
+                  <li 
+                    className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 -mx-1 transition-all duration-150 ${
+                      isClicked 
+                        ? 'bg-primary/20 scale-95' 
+                        : 'hover:bg-muted/50 active:scale-95 active:bg-primary/10'
+                    }`}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleUserClick(contributor.username, e as unknown as React.MouseEvent)
+                      }
+                    }}
+                  >
+                    <Avatar className={`h-6 w-6 border border-foreground/20 ${isClicked ? 'opacity-70' : ''}`}>
+                      <AvatarImage 
+                        src={contributor.avatar} 
+                        alt={contributor.username}
+                        className="rounded-full object-cover"
+                      />
+                      <AvatarFallback className="bg-muted text-xs font-semibold">
+                        {contributor.initial || contributor.username?.slice(0, 1).toUpperCase() || '?'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className={`truncate flex-1 ${isClicked ? 'opacity-70' : ''}`}>
+                      {contributor.username || <Skeleton className="h-4 w-24" />}
+                    </span>
+                    {isClicked && (
+                      <div className="h-3 w-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </li>
+                </UserHoverCard>
+              )
+            })
           ) : (
             <>
               <li className="flex items-center gap-2">
@@ -259,32 +305,56 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
         <ul className="space-y-2 font-body text-sm">
           {!isLoadingChatters && activeChatters.length > 0 ? (
             <>
-              {activeChatters.map((chatter, idx) => (
-                <UserHoverCard
-                  key={idx}
-                  username={chatter.username}
-                  userMessages={messagesByUser.get(chatter.username) || []}
-                  side="right"
-                  align="start"
-                >
-                  <li className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded-md px-1 py-0.5 -mx-1 transition-colors">
-                    <Avatar className="h-5 w-5 border border-foreground/10">
-                      <AvatarImage 
-                        src={chatter.avatar} 
-                        alt={chatter.username}
-                        className="rounded-full object-cover"
-                      />
-                      <AvatarFallback className="bg-muted text-[10px] font-semibold">
-                        {chatter.username?.slice(0, 1).toUpperCase() || '?'}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="truncate flex-1 text-xs">{chatter.username}</span>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-                      {chatter.messageCount}
-                    </Badge>
-                  </li>
-                </UserHoverCard>
-              ))}
+              {activeChatters.map((chatter, idx) => {
+                const isClicked = clickedUser === chatter.username
+                return (
+                  <UserHoverCard
+                    key={idx}
+                    username={chatter.username}
+                    userMessages={messagesByUser.get(chatter.username) || []}
+                    side="right"
+                    align="start"
+                    onClick={(e) => handleUserClick(chatter.username, e)}
+                  >
+                    <li 
+                      className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 -mx-1 transition-all duration-150 ${
+                        isClicked 
+                          ? 'bg-primary/20 scale-95' 
+                          : 'hover:bg-muted/50 active:scale-95 active:bg-primary/10'
+                      }`}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          handleUserClick(chatter.username, e as unknown as React.MouseEvent)
+                        }
+                      }}
+                    >
+                      <Avatar className={`h-5 w-5 border border-foreground/10 ${isClicked ? 'opacity-70' : ''}`}>
+                        <AvatarImage 
+                          src={chatter.avatar} 
+                          alt={chatter.username}
+                          className="rounded-full object-cover"
+                        />
+                        <AvatarFallback className="bg-muted text-[10px] font-semibold">
+                          {chatter.username?.slice(0, 1).toUpperCase() || '?'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className={`truncate flex-1 text-xs ${isClicked ? 'opacity-70' : ''}`}>
+                        {chatter.username}
+                      </span>
+                      {isClicked ? (
+                        <div className="h-3 w-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                          {chatter.messageCount}
+                        </Badge>
+                      )}
+                    </li>
+                  </UserHoverCard>
+                )
+              })}
               {hasMoreChatters && (
                 <li>
                   <button

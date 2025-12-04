@@ -10,6 +10,7 @@ interface UserHoverCardProps {
   children: React.ReactNode
   side?: 'top' | 'right' | 'bottom' | 'left'
   align?: 'start' | 'center' | 'end'
+  onClick?: (e: React.MouseEvent) => void
 }
 
 export function UserHoverCard({ 
@@ -17,11 +18,12 @@ export function UserHoverCard({
   userMessages, 
   children, 
   side = 'right',
-  align = 'start'
+  align = 'start',
+  onClick
 }: UserHoverCardProps) {
   return (
     <HoverCard openDelay={300} closeDelay={100}>
-      <HoverCardTrigger asChild>
+      <HoverCardTrigger asChild onClick={onClick}>
         {children}
       </HoverCardTrigger>
       <HoverCardContent 

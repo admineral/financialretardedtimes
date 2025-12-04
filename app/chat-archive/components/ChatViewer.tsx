@@ -367,6 +367,7 @@ export function ChatViewer({ room, date, username, tradingViewUrl, onAutoLoad = 
                   alt="TradingView Chart"
                   width={400}
                   height={300}
+                  unoptimized
                   className="rounded-lg border shadow-sm max-w-full h-auto cursor-pointer hover:shadow-md transition-shadow"
                   onClick={() => window.open(part, '_blank')}
                   onError={() => {
@@ -393,6 +394,7 @@ export function ChatViewer({ room, date, username, tradingViewUrl, onAutoLoad = 
                     alt="TradingView Chart Snapshot"
                     width={400}
                     height={300}
+                    unoptimized
                     className="rounded-lg border shadow-sm max-w-full h-auto cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => window.open(part, '_blank')}
                     onError={() => {
@@ -438,6 +440,7 @@ export function ChatViewer({ room, date, username, tradingViewUrl, onAutoLoad = 
                     alt="TradingView Idea"
                     width={400}
                     height={300}
+                    unoptimized
                     className="rounded-lg border shadow-sm max-w-full h-auto cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => window.open(part, '_blank')}
                     onError={() => {

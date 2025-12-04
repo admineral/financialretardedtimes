@@ -557,20 +557,58 @@ function ChatArchiveContent() {
 // Wrapper to read URL params before initializing provider
 function ChatArchiveWrapper() {
   const [urlParams, setUrlParams] = useState<{room: string, username: string} | null>(null)
+  const [key, setKey] = useState(0) // Force remount when params change
   
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    const updateParams = () => {
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search)
+        const urlRoom = searchParams.get('room')
+        const urlUsername = searchParams.get('username')
+        
+        // Only proceed if we have both room and username from URL
+        if (urlRoom && urlUsername) {
+          setUrlParams(prev => {
+            // Check if params actually changed
+            if (prev?.room !== urlRoom || prev?.username !== urlUsername) {
+              setKey(k => k + 1) // Force remount of provider
+              return {
+                room: urlRoom,
+                username: urlUsername
+              }
+            }
+            return prev
+          })
+        }
+      }
+    }
+    
+    // Initial read
+    updateParams()
+    
+    // Listen for popstate (back/forward navigation)
+    window.addEventListener('popstate', updateParams)
+    
+    // Also check periodically for URL changes (handles programmatic navigation)
+    const interval = setInterval(() => {
       const searchParams = new URLSearchParams(window.location.search)
       const urlRoom = searchParams.get('room')
       const urlUsername = searchParams.get('username')
       
-      // Only proceed if we have both room and username from URL
       if (urlRoom && urlUsername) {
-        setUrlParams({
-          room: urlRoom,
-          username: urlUsername
+        setUrlParams(prev => {
+          if (prev?.room !== urlRoom || prev?.username !== urlUsername) {
+            setKey(k => k + 1)
+            return { room: urlRoom, username: urlUsername }
+          }
+          return prev
         })
       }
+    }, 100)
+    
+    return () => {
+      window.removeEventListener('popstate', updateParams)
+      clearInterval(interval)
     }
   }, [])
   
@@ -588,6 +626,7 @@ function ChatArchiveWrapper() {
   
   return (
     <ActivityProvider 
+      key={key}
       initialRoom={urlParams.room} 
       initialUsername={urlParams.username}
     >
