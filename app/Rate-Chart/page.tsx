@@ -496,6 +496,12 @@ export default function RateChartPage() {
               // Cache is stale - show it but revalidate in background
               console.log(`[RATE-CHART] 🔄 Cache stale, revalidating in background...`)
               setLoadingStatus('Updating in background...')
+              
+              // Also refresh BTC price when cache is stale
+              if (fetchBitcoinPrice) {
+                console.log(`[RATE-CHART] 💰 Cache stale, also refreshing BTC price...`)
+                fetchBitcoinPrice(true)
+              }
               // Don't return - continue to fetch fresh data
             }
           } else {
