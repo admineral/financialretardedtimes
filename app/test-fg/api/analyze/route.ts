@@ -319,15 +319,22 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Calculate date boundaries for period breakdown
+    // Calculate date boundaries for period breakdown (in Europe/Berlin timezone)
+    // Get today's date string in Berlin timezone (YYYY-MM-DD)
     const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const threeDaysAgo = new Date(todayStart)
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+    const berlinDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' }) // sv-SE gives YYYY-MM-DD
+    
+    // Create midnight Berlin time - use explicit offset
+    // Berlin is CET (UTC+1) in winter, CEST (UTC+2) in summer
+    // December = winter = UTC+1
+    const todayStartBerlin = new Date(`${berlinDateStr}T00:00:00+01:00`)
+    
+    const threeDaysAgoBerlin = new Date(todayStartBerlin)
+    threeDaysAgoBerlin.setDate(threeDaysAgoBerlin.getDate() - 3)
     
     // Count messages per period
-    const todayMessages = allMessages.filter(m => new Date(m.time) >= todayStart)
-    const last3DaysMessages = allMessages.filter(m => new Date(m.time) >= threeDaysAgo)
+    const todayMessages = allMessages.filter(m => new Date(m.time) >= todayStartBerlin)
+    const last3DaysMessages = allMessages.filter(m => new Date(m.time) >= threeDaysAgoBerlin)
     
     // Format messages for AI prompt
     const formattedChat = allMessages.map(msg => {
@@ -343,7 +350,7 @@ export async function POST(request: NextRequest) {
     
     // Calculate statistics
     const uniqueUsers = new Set(allMessages.map(m => m.username)).size
-    const todayStr = todayStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })
+    const todayStr = todayStartBerlin.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })
     
     // Wait for BTC data
     const btcContext = await btcPromise
@@ -356,15 +363,43 @@ export async function POST(request: NextRequest) {
     const newestMsgStr = newestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
     
     // Log summary of what we're sending to the model
+    const nowStr = new Date().toLocaleString('de-DE', { 
+      day: '2-digit', month: 'short', year: 'numeric', 
+      hour: '2-digit', minute: '2-digit', 
+      timeZone: 'Europe/Berlin' 
+    })
     console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
     console.log(`[FEAR-GREED] 🤖 Sending to model:`)
-    console.log(`[FEAR-GREED]    📅 Actual data range: ${oldestMsgStr} → ${newestMsgStr}`)
+    console.log(`[FEAR-GREED]    🕐 Current time (Berlin): ${nowStr}`)
+    console.log(`[FEAR-GREED]    🌅 Today starts at (Berlin midnight): ${todayStartBerlin.toISOString()}`)
+    console.log(`[FEAR-GREED]    📅 FIRST message: ${allMessages[0]?.time || 'N/A'} (${oldestMsgStr})`)
+    console.log(`[FEAR-GREED]    📅 LAST message:  ${allMessages[allMessages.length - 1]?.time || 'N/A'} (${newestMsgStr})`)
     console.log(`[FEAR-GREED]    Today (${todayStr}): ${todayMessages.length} messages`)
     console.log(`[FEAR-GREED]    Last 3 days: ${last3DaysMessages.length} messages`)
     console.log(`[FEAR-GREED]    Last 7 days: ${allMessages.length} messages`)
     console.log(`[FEAR-GREED]    Unique users: ${uniqueUsers}`)
     if (todayMessages.length === 0) {
       console.log(`[FEAR-GREED]    ⚠️ WARNING: No messages from today!`)
+    }
+    if (todayMessages.length > 0) {
+      const firstTodayMsg = todayMessages[0]
+      const lastTodayMsg = todayMessages[todayMessages.length - 1]
+      const firstBerlin = new Date(firstTodayMsg.time).toLocaleString('de-DE', { 
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' 
+      })
+      const lastBerlin = new Date(lastTodayMsg.time).toLocaleString('de-DE', { 
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' 
+      })
+      console.log(`[FEAR-GREED]    📅 Today's FIRST: ${firstTodayMsg.time} (Berlin: ${firstBerlin})`)
+      console.log(`[FEAR-GREED]    📅 Today's LAST:  ${lastTodayMsg.time} (Berlin: ${lastBerlin})`)
+    }
+    // Log the actual last message content so we can verify
+    const lastMsg = allMessages[allMessages.length - 1]
+    if (lastMsg) {
+      const lastMsgBerlin = new Date(lastMsg.time).toLocaleString('de-DE', { 
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' 
+      })
+      console.log(`[FEAR-GREED]    💬 LAST MSG: [${lastMsgBerlin}] ${lastMsg.username}: ${lastMsg.text.substring(0, 80)}${lastMsg.text.length > 80 ? '...' : ''}`)
     }
     console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
     

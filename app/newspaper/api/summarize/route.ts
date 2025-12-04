@@ -327,9 +327,17 @@ export async function POST(request: NextRequest) {
     
     // Log summary of what we're sending to the model
     const isMultiDay = effectiveDayRange > 1
+    const nowStr = new Date().toLocaleString('de-DE', { 
+      day: '2-digit', month: 'short', year: 'numeric', 
+      hour: '2-digit', minute: '2-digit', 
+      timeZone: 'Europe/Berlin' 
+    })
     console.log(`[SUMMARIZE] ════════════════════════════════════════════`)
     console.log(`[SUMMARIZE] 🤖 Sending to model:`)
+    console.log(`[SUMMARIZE]    🕐 Current time: ${nowStr}`)
     console.log(`[SUMMARIZE]    Mode: ${effectiveDayRange}-day summary (${selectedDates?.length || 1} days of data)`)
+    console.log(`[SUMMARIZE]    📅 FIRST message: ${messages[0]?.time || 'N/A'}`)
+    console.log(`[SUMMARIZE]    📅 LAST message:  ${messages[messages.length - 1]?.time || 'N/A'}`)
     console.log(`[SUMMARIZE]    Total messages: ${messages.length}`)
     console.log(`[SUMMARIZE]    Unique users: ${uniqueUsers}`)
     if (dayStats.length > 0) {
