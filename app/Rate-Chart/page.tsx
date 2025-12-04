@@ -220,11 +220,21 @@ export default function RateChartPage() {
       const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
       const currentHour = viennaTime.getHours()
       
+      console.log(`[RATE-CHART] 🗓️ getGameDate() called`)
+      console.log(`[RATE-CHART]    Vienna time: ${viennaTime.toLocaleString('de-AT')}`)
+      console.log(`[RATE-CHART]    Current hour: ${currentHour}`)
+      
       if (currentHour < 8) {
+        console.log(`[RATE-CHART]    Hour < 8 → Using YESTERDAY's date`)
         viennaTime.setDate(viennaTime.getDate() - 1)
+      } else {
+        console.log(`[RATE-CHART]    Hour >= 8 → Using TODAY's date`)
       }
       
-      return viennaTime.toISOString().split('T')[0]
+      const gameDate = viennaTime.toISOString().split('T')[0]
+      console.log(`[RATE-CHART]    Game date: ${gameDate}`)
+      
+      return gameDate
     }
     
     const fetchAllMessages = async (forceRefresh = false) => {
@@ -233,10 +243,19 @@ export default function RateChartPage() {
         
         if (!forceRefresh) {
           setLoadingStatus('Checking cache...')
+          console.log(`[RATE-CHART] 📦 Checking cache for date: ${gameDate}`)
           const cacheResponse = await fetch(`/Rate-Chart/api/cache?date=${gameDate}`)
           const cacheData = await cacheResponse.json()
           
+          console.log(`[RATE-CHART] 📦 Cache response:`, {
+            found: cacheData.found,
+            valid: cacheData.valid,
+            messageCount: cacheData.messageCount,
+            cacheAge: cacheData.cacheAge ? `${Math.round(cacheData.cacheAge / 1000)}s` : 'N/A'
+          })
+          
           if (cacheData.found && cacheData.valid) {
+            console.log(`[RATE-CHART] ✅ Using cached data: ${cacheData.messageCount} messages`)
             setMessages(cacheData.messages)
             setLoadedCount(cacheData.messageCount)
             setIsLoading(false)
@@ -244,6 +263,7 @@ export default function RateChartPage() {
             setNextRefreshTime(Date.now() + (CACHE_DURATION - cacheData.cacheAge))
             return
           }
+          console.log(`[RATE-CHART] ❌ Cache miss or expired, fetching fresh data...`)
         }
         
         setIsLoading(true)
@@ -251,14 +271,29 @@ export default function RateChartPage() {
         
         // Fetch messages directly from database (not TradingView API)
         // This ensures we get ALL messages, not just recent ones
+        console.log(`[RATE-CHART] 📥 Fetching messages from API for date: ${gameDate}`)
         const response = await fetch(`/Rate-Chart/api/messages?date=${gameDate}`)
         const data = await response.json()
+        
+        console.log(`[RATE-CHART] 📥 API response:`, {
+          success: data.success,
+          messageCount: data.count,
+          error: data.error
+        })
         
         if (!data.success) {
           throw new Error(data.error || 'Failed to fetch messages')
         }
         
         const allMessages: ChatMessage[] = data.messages || []
+        
+        // Log message time range
+        if (allMessages.length > 0) {
+          console.log(`[RATE-CHART] 📥 Message time range:`)
+          console.log(`[RATE-CHART]    First: ${allMessages[0].time}`)
+          console.log(`[RATE-CHART]    Last: ${allMessages[allMessages.length - 1].time}`)
+        }
+        
         setLoadedCount(allMessages.length)
         setLoadingStatus(`Loaded ${allMessages.length} messages from database`)
         
@@ -364,6 +399,12 @@ export default function RateChartPage() {
     const now = new Date()
     const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
     const currentHour = viennaTime.getHours()
+    const currentMinute = viennaTime.getMinutes()
+    
+    console.log(`[RATE-CHART] ════════════════════════════════════════════`)
+    console.log(`[RATE-CHART] 🕐 Current Vienna Time: ${viennaTime.toLocaleString('de-AT')}`)
+    console.log(`[RATE-CHART] 🕐 Current Hour: ${currentHour}, Minute: ${currentMinute}`)
+    console.log(`[RATE-CHART] 📊 Total messages loaded: ${messages.length}`)
     
     let gameDayStart: Date
     let gameDayEnd: Date
@@ -379,6 +420,9 @@ export default function RateChartPage() {
       
       gameDayStart = yesterdayVienna
       gameDayEnd = midnightToday
+      
+      console.log(`[RATE-CHART] 🏆 WINNERS PERIOD MODE (00:00-08:00)`)
+      console.log(`[RATE-CHART] 📅 Looking for YESTERDAY's game`)
     } else {
       // Active game period (08:00-23:59): Show TODAY's game (08:00 today to midnight)
       const today8AM = new Date(viennaTime)
@@ -390,19 +434,53 @@ export default function RateChartPage() {
       
       gameDayStart = today8AM
       gameDayEnd = midnightTomorrow
+      
+      console.log(`[RATE-CHART] 🎮 ACTIVE GAME MODE (08:00-23:59)`)
+      console.log(`[RATE-CHART] 📅 Looking for TODAY's game`)
     }
+    
+    console.log(`[RATE-CHART] 📅 Game window: ${gameDayStart.toLocaleString('de-AT')} → ${gameDayEnd.toLocaleString('de-AT')}`)
+    console.log(`[RATE-CHART] 📅 Game window (ISO): ${gameDayStart.toISOString()} → ${gameDayEnd.toISOString()}`)
     
     const priceRegex = /\/\/(\d+(?:[.,]\d+)*)\s*(k|K)?/g
     
-    messages.forEach((message) => {
+    // Log first few messages for debugging
+    if (messages.length > 0) {
+      console.log(`[RATE-CHART] 📝 First message time: ${messages[0].time}`)
+      console.log(`[RATE-CHART] 📝 Last message time: ${messages[messages.length - 1].time}`)
+    }
+    
+    let messagesInWindow = 0
+    let messagesWithPricePattern = 0
+    let validGuessesFound = 0
+    
+    messages.forEach((message, idx) => {
       const messageDate = new Date(message.time)
       const messageViennaTime = new Date(messageDate.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
       
-      if (messageViennaTime >= gameDayStart && messageViennaTime < gameDayEnd) {
+      const isInWindow = messageViennaTime >= gameDayStart && messageViennaTime < gameDayEnd
+      
+      if (isInWindow) {
+        messagesInWindow++
+        
+        // Log first few messages in window for debugging
+        if (messagesInWindow <= 3) {
+          console.log(`[RATE-CHART] ✅ Message in window [${messagesInWindow}]: ${message.username} at ${messageViennaTime.toLocaleString('de-AT')}: "${message.text.substring(0, 50)}..."`)
+        }
+      }
+      
+      if (isInWindow) {
         if (resetTimestamp && messageDate <= resetTimestamp) return
         
         const textWithoutQuotes = message.text.replace(/\[quote[^\]]*\][\s\S]*?\[\/quote\]/gi, '')
         const matches = [...textWithoutQuotes.matchAll(priceRegex)]
+        
+        if (matches.length > 0) {
+          messagesWithPricePattern++
+          if (messagesWithPricePattern <= 5) {
+            console.log(`[RATE-CHART] 💰 Found price pattern in: ${message.username}: "${message.text.substring(0, 80)}"`)
+          }
+        }
         
         matches.forEach((match) => {
           let cleanedNumber = match[1]
@@ -428,13 +506,21 @@ export default function RateChartPage() {
             price = Math.round(price / 100) * 100
             const hour = messageViennaTime.getHours()
             
-            if (hour >= 23) return
+            if (hour >= 23) {
+              console.log(`[RATE-CHART] ⏰ Skipping late guess (after 23:00): ${message.username} at ${hour}:00`)
+              return
+            }
             
             let timeBonus = 1.0
             if (hour < 8) timeBonus = 1.0
             else if (hour < 12) timeBonus = 0.5
             else if (hour < 18) timeBonus = 0.25
             else timeBonus = 0.0
+            
+            validGuessesFound++
+            if (validGuessesFound <= 5) {
+              console.log(`[RATE-CHART] ✅ Valid guess [${validGuessesFound}]: ${message.username} → $${price} at ${hour}:${messageViennaTime.getMinutes().toString().padStart(2, '0')}`)
+            }
             
             guesses.push({
               username: message.username,
@@ -450,6 +536,14 @@ export default function RateChartPage() {
         })
       }
     })
+    
+    console.log(`[RATE-CHART] ════════════════════════════════════════════`)
+    console.log(`[RATE-CHART] 📊 SUMMARY:`)
+    console.log(`[RATE-CHART]    Total messages: ${messages.length}`)
+    console.log(`[RATE-CHART]    Messages in game window: ${messagesInWindow}`)
+    console.log(`[RATE-CHART]    Messages with // pattern: ${messagesWithPricePattern}`)
+    console.log(`[RATE-CHART]    Valid guesses extracted: ${validGuessesFound}`)
+    console.log(`[RATE-CHART] ════════════════════════════════════════════`)
     
     return guesses
   }, [messages, resetTimestamp, isMounted])
@@ -531,6 +625,8 @@ export default function RateChartPage() {
   const leaderboard = useMemo(() => {
     if (!isMounted) return []
     
+    console.log(`[RATE-CHART] 🏆 Building leaderboard from ${priceGuesses.length} guesses`)
+    
     const userMap = new Map<string, LeaderboardEntry>()
     
     priceGuesses.forEach((guess) => {
@@ -562,11 +658,28 @@ export default function RateChartPage() {
     const isWinnersPeriod = currentHour >= 0 && currentHour < 8
     const referencePrice = isWinnersPeriod && midnightPrice !== null ? midnightPrice : currentBitcoinPrice
     
-    return Array.from(userMap.values()).sort((a, b) => {
+    console.log(`[RATE-CHART] 🏆 Leaderboard config:`)
+    console.log(`[RATE-CHART]    Is Winners Period: ${isWinnersPeriod}`)
+    console.log(`[RATE-CHART]    Reference price: $${referencePrice}`)
+    console.log(`[RATE-CHART]    Midnight price: ${midnightPrice !== null ? `$${midnightPrice}` : 'not loaded'}`)
+    console.log(`[RATE-CHART]    Current BTC price: $${currentBitcoinPrice}`)
+    console.log(`[RATE-CHART]    Unique participants: ${userMap.size}`)
+    
+    const sorted = Array.from(userMap.values()).sort((a, b) => {
       const aDiff = Math.abs(a.latestGuess - referencePrice)
       const bDiff = Math.abs(b.latestGuess - referencePrice)
       return aDiff - bDiff
     })
+    
+    if (sorted.length > 0) {
+      console.log(`[RATE-CHART] 🥇 Top 3 winners:`)
+      sorted.slice(0, 3).forEach((entry, i) => {
+        const diff = Math.abs(entry.latestGuess - referencePrice)
+        console.log(`[RATE-CHART]    ${i + 1}. ${entry.username}: $${entry.latestGuess} (off by $${diff})`)
+      })
+    }
+    
+    return sorted
   }, [priceGuesses, currentBitcoinPrice, midnightPrice, isMounted])
 
   const allGuessesSorted = useMemo(() => {
@@ -919,6 +1032,9 @@ export default function RateChartPage() {
                       <div className="text-xs text-zinc-500 mt-1">
                         Off by {formatPrice(Math.abs(leaderboard[1].latestGuess - (midnightPrice || currentBitcoinPrice)))}
                       </div>
+                      <div className="text-xs text-zinc-600 mt-2 tabular-nums">
+                        ⏰ {format(new Date(leaderboard[1].earliestTimestamp), 'HH:mm:ss')}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -939,6 +1055,9 @@ export default function RateChartPage() {
                         <div className="text-xs text-amber-400/70 mt-1">
                           Off by {formatPrice(Math.abs(leaderboard[0].latestGuess - (midnightPrice || currentBitcoinPrice)))}
                         </div>
+                        <div className="text-xs text-amber-500/50 mt-2 tabular-nums">
+                          ⏰ {format(new Date(leaderboard[0].earliestTimestamp), 'HH:mm:ss')}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -957,6 +1076,9 @@ export default function RateChartPage() {
                       <div className="text-2xl font-black text-orange-300 tabular-nums">{formatPrice(leaderboard[2].latestGuess)}</div>
                       <div className="text-xs text-zinc-500 mt-1">
                         Off by {formatPrice(Math.abs(leaderboard[2].latestGuess - (midnightPrice || currentBitcoinPrice)))}
+                      </div>
+                      <div className="text-xs text-zinc-600 mt-2 tabular-nums">
+                        ⏰ {format(new Date(leaderboard[2].earliestTimestamp), 'HH:mm:ss')}
                       </div>
                     </div>
                   </div>
