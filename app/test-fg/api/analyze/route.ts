@@ -275,8 +275,8 @@ export async function POST(request: NextRequest) {
     startDate.setDate(startDate.getDate() - 7)
     
     // Format dates for logging
-    const startDateStr = startDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
-    const endDateStr = endDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
+    const startDateStr = startDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Europe/Berlin' })
+    const endDateStr = endDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Europe/Berlin' })
     
     // Fetch chat messages with pagination
     const allMessages: { username: string; text: string; time: string }[] = []
@@ -335,14 +335,15 @@ export async function POST(request: NextRequest) {
         hour: '2-digit', 
         minute: '2-digit',
         day: '2-digit',
-        month: '2-digit'
+        month: '2-digit',
+        timeZone: 'Europe/Berlin'
       })
       return `[${time}] ${msg.username}: ${msg.text}`
     }).join('\n')
     
     // Calculate statistics
     const uniqueUsers = new Set(allMessages.map(m => m.username)).size
-    const todayStr = todayStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+    const todayStr = todayStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })
     
     // Wait for BTC data
     const btcContext = await btcPromise
@@ -351,8 +352,8 @@ export async function POST(request: NextRequest) {
     // Find actual date range from messages
     const oldestMsgDate = allMessages.length > 0 ? new Date(allMessages[0].time) : startDate
     const newestMsgDate = allMessages.length > 0 ? new Date(allMessages[allMessages.length - 1].time) : endDate
-    const oldestMsgStr = oldestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' })
-    const newestMsgStr = newestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    const oldestMsgStr = oldestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', timeZone: 'Europe/Berlin' })
+    const newestMsgStr = newestMsgDate.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
     
     // Log summary of what we're sending to the model
     console.log(`[FEAR-GREED] ════════════════════════════════════════════`)

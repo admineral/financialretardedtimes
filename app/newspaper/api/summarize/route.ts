@@ -249,8 +249,8 @@ export async function POST(request: NextRequest) {
           // Log per-day stats with first and last message hours
           const firstMsg = dayMessages[0]
           const lastMsg = dayMessages[dayMessages.length - 1]
-          const firstHour = new Date(firstMsg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-          const lastHour = new Date(lastMsg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+          const firstHour = new Date(firstMsg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+          const lastHour = new Date(lastMsg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
           
           dayStats.push({ date, count: dayMessages.length, firstHour, lastHour })
           console.log(`[SUMMARIZE]   📆 ${date}: ${dayMessages.length} msgs (${firstHour} - ${lastHour})`)
@@ -292,7 +292,8 @@ export async function POST(request: NextRequest) {
         hour: '2-digit', 
         minute: '2-digit',
         day: '2-digit',
-        month: '2-digit'
+        month: '2-digit',
+        timeZone: 'Europe/Berlin'
       })
       const modBadge = msg.is_moderator ? ' [MOD]' : ''
       return `[${time}] ${msg.username}${modBadge}: ${msg.text}`
