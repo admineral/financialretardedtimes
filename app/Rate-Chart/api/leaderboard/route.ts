@@ -298,4 +298,103 @@ export async function POST(request: NextRequest) {
   }
 }
 
-
+/**
+ * DELETE /api/Rate-Chart/leaderboard?date=YYYY-MM-DD
+ * Delete incorrect daily results to allow re-saving with correct data
+ * This also updates the leaderboard to remove points from deleted results
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const gameDate = searchParams.get('date')
+    
+    if (!gameDate) {
+      return NextResponse.json(
+        { error: 'Missing date parameter' },
+        { status: 400 }
+      )
+    }
+    
+    console.log(`[LEADERBOARD] 🗑️ Deleting results for ${gameDate}`)
+    
+    const supabase = await createClient()
+    
+    // First, fetch the existing results to know who to deduct points from
+    const { data: existingResults, error: fetchError } = await supabase
+      .from('prediction_daily_results')
+      .select('*')
+      .eq('game_date', gameDate)
+      .single()
+    
+    if (fetchError || !existingResults) {
+      console.log(`[LEADERBOARD] No results found for ${gameDate}`)
+      return NextResponse.json(
+        { error: `No results found for ${gameDate}` },
+        { status: 404 }
+      )
+    }
+    
+    // Deduct points from affected users
+    const usersToUpdate = [
+      { username: existingResults.winner_username, points: existingResults.winner_total_points || 3, place: 'first' },
+      existingResults.second_username ? { username: existingResults.second_username, points: existingResults.second_total_points || 2, place: 'second' } : null,
+      existingResults.third_username ? { username: existingResults.third_username, points: existingResults.third_total_points || 1, place: 'third' } : null
+    ].filter(Boolean) as { username: string; points: number; place: string }[]
+    
+    for (const user of usersToUpdate) {
+      const { data: leaderboardEntry } = await supabase
+        .from('prediction_leaderboard')
+        .select('*')
+        .eq('username', user.username)
+        .single()
+      
+      if (leaderboardEntry) {
+        const updates: Record<string, number> = {
+          total_points: Math.max(0, (leaderboardEntry.total_points || 0) - user.points),
+          games_played: Math.max(0, (leaderboardEntry.games_played || 0) - 1)
+        }
+        
+        if (user.place === 'first') {
+          updates.first_place_count = Math.max(0, (leaderboardEntry.first_place_count || 0) - 1)
+        } else if (user.place === 'second') {
+          updates.second_place_count = Math.max(0, (leaderboardEntry.second_place_count || 0) - 1)
+        } else if (user.place === 'third') {
+          updates.third_place_count = Math.max(0, (leaderboardEntry.third_place_count || 0) - 1)
+        }
+        
+        await supabase
+          .from('prediction_leaderboard')
+          .update(updates)
+          .eq('username', user.username)
+        
+        console.log(`[LEADERBOARD] Updated ${user.username}: -${user.points} points`)
+      }
+    }
+    
+    // Delete the daily results
+    const { error: deleteError } = await supabase
+      .from('prediction_daily_results')
+      .delete()
+      .eq('game_date', gameDate)
+    
+    if (deleteError) {
+      console.error('[LEADERBOARD] Error deleting results:', deleteError)
+      return NextResponse.json({ error: deleteError.message }, { status: 500 })
+    }
+    
+    console.log(`[LEADERBOARD] ✅ Results deleted for ${gameDate}`)
+    
+    return NextResponse.json({
+      success: true,
+      message: `Results for ${gameDate} deleted. Leaderboard points adjusted.`,
+      deletedResults: existingResults
+    })
+    
+  } catch (error) {
+    console.error('[LEADERBOARD] Unexpected error:', error)
+    return NextResponse.json(
+      { error: 'Failed to delete results' },
+      { status: 500 }
+    )
+  }
+}

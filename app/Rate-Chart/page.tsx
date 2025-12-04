@@ -63,14 +63,27 @@ export default function RateChartPage() {
     winner_username: string
     winner_avatar: string | null
     winner_prediction: number
+    winner_timestamp?: string
+    winner_time_bonus?: number
+    winner_total_points?: number
     second_username?: string
     second_avatar?: string | null
     second_prediction?: number
+    second_timestamp?: string
+    second_time_bonus?: number
+    second_total_points?: number
     third_username?: string
     third_avatar?: string | null
     third_prediction?: number
+    third_timestamp?: string
+    third_time_bonus?: number
+    third_total_points?: number
+    total_participants?: number
+    total_predictions?: number
   } | null>(null)
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true)
+  const [isYesterdayExpanded, setIsYesterdayExpanded] = useState(false)
+  const [isAllTimeExpanded, setIsAllTimeExpanded] = useState(false)
   
   // TEST MODE - Simulate different time periods (only visible if server env allows)
   const [testModeEnabled, setTestModeEnabled] = useState(false)
@@ -1666,6 +1679,8 @@ export default function RateChartPage() {
                                 )}
                               </button>
                               <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                <span className="tabular-nums">{format(new Date(entry.earliestTimestamp), 'HH:mm:ss')}</span>
+                                <span>•</span>
                                 <span>{formatDistanceToNow(new Date(entry.earliestTimestamp), { addSuffix: true })}</span>
                                 {isRevealed && (
                                   <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${timeBonus.bg} ${timeBonus.color}`}>
@@ -1750,10 +1765,21 @@ export default function RateChartPage() {
             <div className="lg:w-72 flex-shrink-0 space-y-4">
               {/* All-Time Leaderboard Widget */}
               <div className="p-4 bg-gradient-to-br from-amber-500/5 to-orange-500/5 border border-amber-500/20 rounded-2xl">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-lg">🏆</span>
-                  <div className="text-xs uppercase tracking-widest text-amber-400 font-bold">All-Time Leaders</div>
-                </div>
+                <button 
+                  onClick={() => setIsAllTimeExpanded(!isAllTimeExpanded)}
+                  className="w-full flex items-center justify-between mb-3 hover:opacity-80 transition-opacity"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🏆</span>
+                    <div className="text-xs uppercase tracking-widest text-amber-400 font-bold">All-Time Leaders</div>
+                    {allTimeLeaderboard.length > 0 && (
+                      <div className="text-[10px] text-zinc-500">
+                        ({allTimeLeaderboard.length} players)
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-zinc-500 text-sm">{isAllTimeExpanded ? '▼' : '▶'}</span>
+                </button>
                 
                 {isLeaderboardLoading ? (
                   <div className="flex items-center justify-center py-4">
@@ -1761,7 +1787,7 @@ export default function RateChartPage() {
                   </div>
                 ) : allTimeLeaderboard.length > 0 ? (
                   <div className="space-y-2">
-                    {allTimeLeaderboard.slice(0, 3).map((entry, index) => {
+                    {allTimeLeaderboard.slice(0, isAllTimeExpanded ? 10 : 3).map((entry, index) => {
                       const currentLeaderboardEntry = leaderboard.find(l => l.username === entry.username)
                       const avatarUrl = entry.avatar || currentLeaderboardEntry?.avatar
                       
@@ -1891,10 +1917,21 @@ export default function RateChartPage() {
 
               {/* Yesterday's Winners Widget */}
               <div className="p-4 bg-gradient-to-br from-purple-500/5 to-pink-500/5 border border-purple-500/20 rounded-2xl">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-lg">📅</span>
-                  <div className="text-xs uppercase tracking-widest text-purple-400 font-bold">Yesterday</div>
-                </div>
+                <button 
+                  onClick={() => setIsYesterdayExpanded(!isYesterdayExpanded)}
+                  className="w-full flex items-center justify-between mb-3 hover:opacity-80 transition-opacity"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📅</span>
+                    <div className="text-xs uppercase tracking-widest text-purple-400 font-bold">Yesterday</div>
+                    {yesterdayResults && (
+                      <div className="text-[10px] text-zinc-500">
+                        ({yesterdayResults.total_participants || 3} players)
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-zinc-500 text-sm">{isYesterdayExpanded ? '▼' : '▶'}</span>
+                </button>
                 
                 {isLeaderboardLoading ? (
                   <div className="flex items-center justify-center py-4">
@@ -1902,9 +1939,28 @@ export default function RateChartPage() {
                   </div>
                 ) : yesterdayResults ? (
                   <div className="space-y-2">
+                    {/* Helper function to get time label */}
                     {(() => {
+                      const getTimeLabel = (timestamp?: string) => {
+                        if (!timestamp) return ''
+                        const date = new Date(timestamp)
+                        const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+                        const hour = viennaTime.getHours()
+                        if (hour < 8) return '🌙 Early Bird'
+                        if (hour < 12) return '☀️ Morning'
+                        if (hour < 18) return '🌤️ Afternoon'
+                        return '🌆 Evening'
+                      }
+                      
+                      const formatTime = (timestamp?: string) => {
+                        if (!timestamp) return ''
+                        return format(new Date(timestamp), 'HH:mm:ss')
+                      }
+                      
                       const winnerFromLeaderboard = leaderboard.find(l => l.username === yesterdayResults.winner_username)
                       const winnerAvatar = yesterdayResults.winner_avatar || winnerFromLeaderboard?.avatar
+                      const winnerPts = yesterdayResults.winner_total_points || 3
+                      
                       return (
                         <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
                           <span className="text-base">🥇</span>
@@ -1920,14 +1976,38 @@ export default function RateChartPage() {
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">{yesterdayResults.winner_username}</div>
-                            <div className="text-[10px] text-zinc-500">${yesterdayResults.winner_prediction?.toLocaleString()}</div>
+                            <div className="text-[10px] text-zinc-500">
+                              ${yesterdayResults.winner_prediction?.toLocaleString()}
+                              {isYesterdayExpanded && yesterdayResults.winner_timestamp && (
+                                <span className="ml-1">• {formatTime(yesterdayResults.winner_timestamp)} {getTimeLabel(yesterdayResults.winner_timestamp)}</span>
+                              )}
+                            </div>
                           </div>
+                          <div className="text-sm font-bold text-amber-400">{winnerPts}pts</div>
                         </div>
                       )
                     })()}
                     {yesterdayResults.second_username && (() => {
+                      const getTimeLabel = (timestamp?: string) => {
+                        if (!timestamp) return ''
+                        const date = new Date(timestamp)
+                        const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+                        const hour = viennaTime.getHours()
+                        if (hour < 8) return '🌙 Early Bird'
+                        if (hour < 12) return '☀️ Morning'
+                        if (hour < 18) return '🌤️ Afternoon'
+                        return '🌆 Evening'
+                      }
+                      
+                      const formatTime = (timestamp?: string) => {
+                        if (!timestamp) return ''
+                        return format(new Date(timestamp), 'HH:mm:ss')
+                      }
+                      
                       const secondFromLeaderboard = leaderboard.find(l => l.username === yesterdayResults.second_username)
                       const secondAvatar = yesterdayResults.second_avatar || secondFromLeaderboard?.avatar
+                      const secondPts = yesterdayResults.second_total_points || 2
+                      
                       return (
                         <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-500/10 border border-zinc-500/30">
                           <span className="text-base">🥈</span>
@@ -1943,14 +2023,38 @@ export default function RateChartPage() {
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">{yesterdayResults.second_username}</div>
-                            <div className="text-[10px] text-zinc-500">${yesterdayResults.second_prediction?.toLocaleString()}</div>
+                            <div className="text-[10px] text-zinc-500">
+                              ${yesterdayResults.second_prediction?.toLocaleString()}
+                              {isYesterdayExpanded && yesterdayResults.second_timestamp && (
+                                <span className="ml-1">• {formatTime(yesterdayResults.second_timestamp)} {getTimeLabel(yesterdayResults.second_timestamp)}</span>
+                              )}
+                            </div>
                           </div>
+                          <div className="text-sm font-bold text-zinc-400">{secondPts}pts</div>
                         </div>
                       )
                     })()}
                     {yesterdayResults.third_username && (() => {
+                      const getTimeLabel = (timestamp?: string) => {
+                        if (!timestamp) return ''
+                        const date = new Date(timestamp)
+                        const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+                        const hour = viennaTime.getHours()
+                        if (hour < 8) return '🌙 Early Bird'
+                        if (hour < 12) return '☀️ Morning'
+                        if (hour < 18) return '🌤️ Afternoon'
+                        return '🌆 Evening'
+                      }
+                      
+                      const formatTime = (timestamp?: string) => {
+                        if (!timestamp) return ''
+                        return format(new Date(timestamp), 'HH:mm:ss')
+                      }
+                      
                       const thirdFromLeaderboard = leaderboard.find(l => l.username === yesterdayResults.third_username)
                       const thirdAvatar = yesterdayResults.third_avatar || thirdFromLeaderboard?.avatar
+                      const thirdPts = yesterdayResults.third_total_points || 1
+                      
                       return (
                         <div className="flex items-center gap-2 p-2 rounded-lg bg-orange-900/10 border border-orange-900/30">
                           <span className="text-base">🥉</span>
@@ -1966,8 +2070,14 @@ export default function RateChartPage() {
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">{yesterdayResults.third_username}</div>
-                            <div className="text-[10px] text-zinc-500">${yesterdayResults.third_prediction?.toLocaleString()}</div>
+                            <div className="text-[10px] text-zinc-500">
+                              ${yesterdayResults.third_prediction?.toLocaleString()}
+                              {isYesterdayExpanded && yesterdayResults.third_timestamp && (
+                                <span className="ml-1">• {formatTime(yesterdayResults.third_timestamp)} {getTimeLabel(yesterdayResults.third_timestamp)}</span>
+                              )}
+                            </div>
                           </div>
+                          <div className="text-sm font-bold text-orange-400">{thirdPts}pts</div>
                         </div>
                       )
                     })()}
@@ -1983,6 +2093,93 @@ export default function RateChartPage() {
                   <div className="text-[10px] text-zinc-600">
                     {yesterdayResults ? `$${yesterdayResults.midnight_price?.toLocaleString()} close` : 'Midnight close price'}
                   </div>
+                  
+                  {/* Fix Results Button - Only show during Winners Period if there's a mismatch */}
+                  {isPastMidnight && yesterdayResults && leaderboard.length >= 1 && midnightPrice !== null && 
+                   yesterdayResults.winner_username !== leaderboard[0]?.username && (
+                    <button
+                      onClick={async () => {
+                        const confirmDelete = confirm(
+                          `⚠️ The saved winner (${yesterdayResults.winner_username}) doesn't match the calculated winner (${leaderboard[0]?.username}).\n\n` +
+                          `This happens when results were saved with incorrect data.\n\n` +
+                          `Delete the incorrect record and save the correct winners?`
+                        )
+                        
+                        if (!confirmDelete) return
+                        
+                        try {
+                          // Delete the incorrect record
+                          const deleteResponse = await fetch(`/Rate-Chart/api/leaderboard?date=${yesterdayResults.game_date}`, {
+                            method: 'DELETE'
+                          })
+                          
+                          if (!deleteResponse.ok) {
+                            const err = await deleteResponse.json()
+                            alert('Failed to delete: ' + (err.error || 'Unknown error'))
+                            return
+                          }
+                          
+                          // Clear localStorage to allow re-save
+                          localStorage.removeItem(`winners_saved_${yesterdayResults.game_date}`)
+                          
+                          // Now save the correct results
+                          const now = new Date()
+                          const formatter = new Intl.DateTimeFormat('en-US', {
+                            timeZone: 'Europe/Vienna',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          })
+                          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+                          const yesterdayParts = formatter.formatToParts(yesterday)
+                          const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
+                          const gameDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
+                          
+                          const result = {
+                            game_date: gameDate,
+                            midnight_price: midnightPrice,
+                            winner_username: leaderboard[0].username,
+                            winner_avatar: leaderboard[0].avatar,
+                            winner_prediction: leaderboard[0].latestGuess,
+                            winner_difference: Math.abs(leaderboard[0].latestGuess - midnightPrice),
+                            winner_timestamp: leaderboard[0].earliestTimestamp,
+                            second_username: leaderboard[1]?.username,
+                            second_avatar: leaderboard[1]?.avatar,
+                            second_prediction: leaderboard[1]?.latestGuess,
+                            second_difference: leaderboard[1] ? Math.abs(leaderboard[1].latestGuess - midnightPrice) : undefined,
+                            second_timestamp: leaderboard[1]?.earliestTimestamp,
+                            third_username: leaderboard[2]?.username,
+                            third_avatar: leaderboard[2]?.avatar,
+                            third_prediction: leaderboard[2]?.latestGuess,
+                            third_difference: leaderboard[2] ? Math.abs(leaderboard[2].latestGuess - midnightPrice) : undefined,
+                            third_timestamp: leaderboard[2]?.earliestTimestamp,
+                            total_participants: leaderboard.length,
+                            total_predictions: priceGuesses.length
+                          }
+                          
+                          const saveResponse = await fetch('/Rate-Chart/api/leaderboard', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(result)
+                          })
+                          
+                          if (saveResponse.ok) {
+                            alert('✅ Fixed! Correct winners saved. Refreshing...')
+                            localStorage.setItem(`winners_saved_${gameDate}`, 'true')
+                            window.location.reload()
+                          } else {
+                            const err = await saveResponse.json()
+                            alert('Failed to save: ' + (err.error || 'Unknown error'))
+                          }
+                        } catch (error) {
+                          alert('Error: ' + error)
+                        }
+                      }}
+                      className="mt-2 px-3 py-1.5 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-[10px] hover:bg-red-500/30 transition-colors"
+                    >
+                      ⚠️ Fix Results (Wrong Winner Saved)
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
