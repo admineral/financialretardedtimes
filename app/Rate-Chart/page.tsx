@@ -432,21 +432,45 @@ export default function RateChartPage() {
     
     const getGameDate = () => {
       const now = new Date()
-      const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-      const currentHour = viennaTime.getHours()
+      
+      // Use Intl.DateTimeFormat.formatToParts for reliable Vienna timezone handling
+      // This avoids the bug where toISOString() converts back to UTC incorrectly
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Europe/Vienna',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false
+      })
+      
+      const parts = formatter.formatToParts(now)
+      const getPart = (type: string) => parts.find(p => p.type === type)?.value || ''
+      
+      const viennaHour = parseInt(getPart('hour'))
+      const viennaYear = getPart('year')
+      const viennaMonth = getPart('month')
+      const viennaDay = getPart('day')
       
       console.log(`[RATE-CHART] 🗓️ getGameDate() called`)
-      console.log(`[RATE-CHART]    Vienna time: ${viennaTime.toLocaleString('de-AT')}`)
-      console.log(`[RATE-CHART]    Current hour: ${currentHour}`)
+      console.log(`[RATE-CHART]    Vienna time: ${viennaDay}.${viennaMonth}.${viennaYear} ${viennaHour}:00`)
+      console.log(`[RATE-CHART]    Current hour: ${viennaHour}`)
       
-      if (currentHour < 8) {
+      // Today's Vienna date as YYYY-MM-DD
+      let gameDate = `${viennaYear}-${viennaMonth}-${viennaDay}`
+      
+      if (viennaHour < 8) {
+        // Winners Period - need yesterday's Vienna date
+        // Subtract 24 hours and format again to handle month/year boundaries correctly
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        const yesterdayParts = formatter.formatToParts(yesterday)
+        const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
+        gameDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
         console.log(`[RATE-CHART]    Hour < 8 → Using YESTERDAY's date`)
-        viennaTime.setDate(viennaTime.getDate() - 1)
       } else {
         console.log(`[RATE-CHART]    Hour >= 8 → Using TODAY's date`)
       }
       
-      const gameDate = viennaTime.toISOString().split('T')[0]
       console.log(`[RATE-CHART]    Game date: ${gameDate}`)
       
       return gameDate
@@ -1019,16 +1043,30 @@ export default function RateChartPage() {
       if (leaderboard.length < 1 || midnightPrice === null) return
       
       const now = new Date()
-      const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-      const currentHour = viennaTime.getHours()
+      
+      // Use Intl.DateTimeFormat.formatToParts for reliable Vienna timezone handling
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Europe/Vienna',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false
+      })
+      
+      const parts = formatter.formatToParts(now)
+      const getPart = (type: string) => parts.find(p => p.type === type)?.value || ''
+      const currentHour = parseInt(getPart('hour'))
       
       // Only during Winners Period (00:00-08:00 Vienna time)
       if (currentHour >= 8) return
       
       // Get game date (yesterday during winners period)
-      const yesterday = new Date(viennaTime)
-      yesterday.setDate(yesterday.getDate() - 1)
-      const gameDate = yesterday.toISOString().split('T')[0]
+      // Subtract 24 hours and format in Vienna timezone to get correct date
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      const yesterdayParts = formatter.formatToParts(yesterday)
+      const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
+      const gameDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
       
       // Check if we already saved (use localStorage to prevent duplicate saves per session)
       const savedKey = `winners_saved_${gameDate}`
@@ -1777,10 +1815,20 @@ export default function RateChartPage() {
                       <button
                         onClick={async () => {
                           const now = new Date()
-                          const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-                          const yesterday = new Date(viennaTime)
-                          yesterday.setDate(yesterday.getDate() - 1)
-                          const gameDate = yesterday.toISOString().split('T')[0]
+                          
+                          // Use Intl.DateTimeFormat.formatToParts for reliable Vienna timezone handling
+                          const formatter = new Intl.DateTimeFormat('en-US', {
+                            timeZone: 'Europe/Vienna',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          })
+                          
+                          // Get yesterday's Vienna date
+                          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+                          const yesterdayParts = formatter.formatToParts(yesterday)
+                          const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
+                          const gameDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
                           
                           const result = {
                             game_date: gameDate,

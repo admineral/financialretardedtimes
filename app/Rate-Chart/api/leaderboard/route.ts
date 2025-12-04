@@ -117,10 +117,20 @@ export async function GET(request: NextRequest) {
     
     // Fetch yesterday's full results
     const now = new Date()
-    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-    const yesterday = new Date(viennaTime)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayDate = yesterday.toISOString().split('T')[0]
+    
+    // Use Intl.DateTimeFormat.formatToParts for reliable Vienna timezone handling
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Vienna',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    })
+    
+    // Get yesterday's Vienna date
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const yesterdayParts = formatter.formatToParts(yesterday)
+    const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
+    const yesterdayDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
     
     const { data: yesterdayResults } = await supabase
       .from('prediction_daily_results')
@@ -167,14 +177,28 @@ export async function POST(request: NextRequest) {
     
     // Validate that the game date is not in the future or today (game must be finished)
     const now = new Date()
-    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-    const viennaHour = viennaTime.getHours()
-    const todayVienna = viennaTime.toISOString().split('T')[0]
+    
+    // Use Intl.DateTimeFormat.formatToParts for reliable Vienna timezone handling
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Vienna',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false
+    })
+    
+    const parts = formatter.formatToParts(now)
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value || ''
+    
+    const viennaHour = parseInt(getPart('hour'))
+    const todayVienna = `${getPart('year')}-${getPart('month')}-${getPart('day')}`
     
     // Game date should be yesterday or earlier (can only save after 08:00 Vienna time)
-    const yesterday = new Date(viennaTime)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = yesterday.toISOString().split('T')[0]
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const yesterdayParts = formatter.formatToParts(yesterday)
+    const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
+    const yesterdayStr = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
     
     // Only allow saving if:
     // 1. Game date is before today (past games)
