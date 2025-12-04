@@ -20,6 +20,7 @@ interface LeaderboardEntry {
   best_prediction_diff: number | null
   current_streak: number
   best_streak: number
+  total_bonus_points?: number
 }
 
 interface DailyResult {
@@ -42,6 +43,40 @@ interface DailyResult {
   third_timestamp?: string
   total_participants: number
   total_predictions: number
+}
+
+/**
+ * Calculate time bonus based on Vienna time of prediction
+ * 00:00-08:00 = 100% bonus (multiplier 1.0)
+ * 08:00-12:00 = 50% bonus (multiplier 0.5)
+ * 12:00-18:00 = 25% bonus (multiplier 0.25)
+ * 18:00-23:00 = 0% bonus (multiplier 0)
+ */
+function calculateTimeBonus(timestamp: string): number {
+  const date = new Date(timestamp)
+  // Convert to Vienna time
+  const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+  const hour = viennaTime.getHours()
+  
+  if (hour >= 0 && hour < 8) {
+    return 1.0 // 100% bonus
+  } else if (hour >= 8 && hour < 12) {
+    return 0.5 // 50% bonus
+  } else if (hour >= 12 && hour < 18) {
+    return 0.25 // 25% bonus
+  } else {
+    return 0 // No bonus (18:00-23:59)
+  }
+}
+
+/**
+ * Calculate total points with time bonus
+ * @param basePoints - Base points for placement (3, 2, or 1)
+ * @param timeBonus - Time bonus multiplier (0-1)
+ * @returns Total points (base * (1 + bonus))
+ */
+function calculateTotalPoints(basePoints: number, timeBonus: number): number {
+  return basePoints * (1 + timeBonus)
 }
 
 /**
@@ -131,6 +166,18 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    // Calculate time bonuses for each placement
+    const winnerTimeBonus = calculateTimeBonus(body.winner_timestamp)
+    const winnerTotalPoints = calculateTotalPoints(3, winnerTimeBonus)
+    
+    const secondTimeBonus = body.second_timestamp ? calculateTimeBonus(body.second_timestamp) : 0
+    const secondTotalPoints = body.second_timestamp ? calculateTotalPoints(2, secondTimeBonus) : 2
+    
+    const thirdTimeBonus = body.third_timestamp ? calculateTimeBonus(body.third_timestamp) : 0
+    const thirdTotalPoints = body.third_timestamp ? calculateTotalPoints(1, thirdTimeBonus) : 1
+    
+    console.log(`[LEADERBOARD] Time bonuses - Winner: ${winnerTimeBonus} (${winnerTotalPoints}pts), 2nd: ${secondTimeBonus} (${secondTotalPoints}pts), 3rd: ${thirdTimeBonus} (${thirdTotalPoints}pts)`)
+    
     // Insert the daily results (trigger will update leaderboard automatically)
     const { data, error } = await supabase
       .from('prediction_daily_results')
@@ -142,16 +189,22 @@ export async function POST(request: NextRequest) {
         winner_prediction: body.winner_prediction,
         winner_difference: body.winner_difference,
         winner_timestamp: body.winner_timestamp,
+        winner_time_bonus: winnerTimeBonus,
+        winner_total_points: winnerTotalPoints,
         second_username: body.second_username,
         second_avatar: body.second_avatar,
         second_prediction: body.second_prediction,
         second_difference: body.second_difference,
         second_timestamp: body.second_timestamp,
+        second_time_bonus: secondTimeBonus,
+        second_total_points: secondTotalPoints,
         third_username: body.third_username,
         third_avatar: body.third_avatar,
         third_prediction: body.third_prediction,
         third_difference: body.third_difference,
         third_timestamp: body.third_timestamp,
+        third_time_bonus: thirdTimeBonus,
+        third_total_points: thirdTotalPoints,
         total_participants: body.total_participants,
         total_predictions: body.total_predictions
       })

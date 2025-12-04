@@ -1240,14 +1240,17 @@ export default function RateChartPage() {
             
             <div className="mt-3 pt-3 border-t border-amber-500/10 text-center">
               <div className="text-[10px] text-zinc-600">
-                🥇 3pts • 🥈 2pts • 🥉 1pt
+                🥇 3pts • 🥈 2pts • 🥉 1pt + Time Bonus
               </div>
             </div>
           </div>
 
             {/* Time Bonus Widget */}
             <div className="flex-1 p-4 bg-zinc-900/30 border border-zinc-800 rounded-2xl">
-              <div className="text-xs uppercase tracking-widest text-zinc-500 mb-3">⏰ Time Bonus</div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs uppercase tracking-widest text-zinc-500">⏰ Time Bonus</div>
+                <div className="text-[10px] text-zinc-600">Früh tippen = mehr Punkte!</div>
+              </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
                   <div className="flex items-center gap-2">
@@ -1255,7 +1258,10 @@ export default function RateChartPage() {
                     <span className="text-xs text-emerald-400">Early Bird</span>
                   </div>
                   <div className="text-xs text-zinc-400">00:00 - 08:00</div>
-                  <div className="text-sm font-bold text-emerald-400">100%</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-emerald-400">+100%</span>
+                    <span className="text-[10px] text-emerald-500/60">(6/4/2pts)</span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
                   <div className="flex items-center gap-2">
@@ -1263,7 +1269,10 @@ export default function RateChartPage() {
                     <span className="text-xs text-amber-400">Morning</span>
                   </div>
                   <div className="text-xs text-zinc-400">08:00 - 12:00</div>
-                  <div className="text-sm font-bold text-amber-400">50%</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-amber-400">+50%</span>
+                    <span className="text-[10px] text-amber-500/60">(4.5/3/1.5pts)</span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
                   <div className="flex items-center gap-2">
@@ -1271,7 +1280,10 @@ export default function RateChartPage() {
                     <span className="text-xs text-orange-400">Afternoon</span>
                   </div>
                   <div className="text-xs text-zinc-400">12:00 - 18:00</div>
-                  <div className="text-sm font-bold text-orange-400">25%</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-orange-400">+25%</span>
+                    <span className="text-[10px] text-orange-500/60">(3.75/2.5/1.25pts)</span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
                   <div className="flex items-center gap-2">
@@ -1279,7 +1291,10 @@ export default function RateChartPage() {
                     <span className="text-xs text-red-400">Evening</span>
                   </div>
                   <div className="text-xs text-zinc-400">18:00 - 23:00</div>
-                  <div className="text-sm font-bold text-red-400">0%</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-red-400">+0%</span>
+                    <span className="text-[10px] text-red-500/60">(3/2/1pts)</span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between p-2 bg-zinc-800 border border-zinc-700 rounded-lg">
                   <div className="flex items-center gap-2">
