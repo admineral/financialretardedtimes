@@ -45,6 +45,17 @@ export default function RateChartPage() {
   const [isMounted, setIsMounted] = useState(false)
   const [isRevealed, setIsRevealed] = useState(false)
   const [currentTime, setCurrentTime] = useState<Date | null>(null)
+  
+  // All-time leaderboard state
+  const [allTimeLeaderboard, setAllTimeLeaderboard] = useState<{
+    username: string
+    avatar: string | null
+    total_points: number
+    first_place_count: number
+    second_place_count: number
+    third_place_count: number
+  }[]>([])
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true)
 
   // Mark as mounted on client side
   useEffect(() => {
@@ -72,6 +83,25 @@ export default function RateChartPage() {
     checkRevealStatus()
     const interval = setInterval(checkRevealStatus, 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  // Fetch all-time leaderboard
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        const response = await fetch('/Rate-Chart/api/leaderboard?limit=10')
+        if (response.ok) {
+          const data = await response.json()
+          setAllTimeLeaderboard(data.leaderboard || [])
+        }
+      } catch (error) {
+        console.error('[RATE-CHART] Failed to fetch leaderboard:', error)
+      } finally {
+        setIsLeaderboardLoading(false)
+      }
+    }
+    
+    fetchLeaderboard()
   }, [])
 
   // Fetch current Bitcoin price with 1-hour cache
@@ -763,6 +793,88 @@ export default function RateChartPage() {
     })
   }, [nextRoundGuesses, currentBitcoinPrice])
 
+  // Save winners to leaderboard at 08:00 Vienna time (end of winners period)
+  useEffect(() => {
+    const saveWinnersToLeaderboard = async () => {
+      // Only save if we have winners and midnight price
+      if (leaderboard.length < 1 || midnightPrice === null) return
+      
+      const now = new Date()
+      const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+      const currentHour = viennaTime.getHours()
+      const currentMinute = viennaTime.getMinutes()
+      
+      // Only trigger at exactly 08:00-08:01 Vienna time
+      if (currentHour !== 8 || currentMinute > 1) return
+      
+      // Get game date (yesterday if before 8am)
+      const getGameDateForSave = () => {
+        if (currentHour < 8) {
+          const yesterday = new Date(viennaTime)
+          yesterday.setDate(yesterday.getDate() - 1)
+          return yesterday.toISOString().split('T')[0]
+        }
+        return viennaTime.toISOString().split('T')[0]
+      }
+      
+      // Check if we already saved today (use localStorage to prevent duplicate saves)
+      const gameDate = getGameDateForSave()
+      const savedKey = `winners_saved_${gameDate}`
+      if (localStorage.getItem(savedKey)) return
+      
+      console.log('[RATE-CHART] 🏆 Saving winners to leaderboard...')
+      
+      try {
+        const result = {
+          game_date: gameDate,
+          midnight_price: midnightPrice,
+          winner_username: leaderboard[0].username,
+          winner_avatar: leaderboard[0].avatar,
+          winner_prediction: leaderboard[0].latestGuess,
+          winner_difference: Math.abs(leaderboard[0].latestGuess - midnightPrice),
+          winner_timestamp: leaderboard[0].earliestTimestamp,
+          second_username: leaderboard[1]?.username,
+          second_avatar: leaderboard[1]?.avatar,
+          second_prediction: leaderboard[1]?.latestGuess,
+          second_difference: leaderboard[1] ? Math.abs(leaderboard[1].latestGuess - midnightPrice) : undefined,
+          second_timestamp: leaderboard[1]?.earliestTimestamp,
+          third_username: leaderboard[2]?.username,
+          third_avatar: leaderboard[2]?.avatar,
+          third_prediction: leaderboard[2]?.latestGuess,
+          third_difference: leaderboard[2] ? Math.abs(leaderboard[2].latestGuess - midnightPrice) : undefined,
+          third_timestamp: leaderboard[2]?.earliestTimestamp,
+          total_participants: leaderboard.length,
+          total_predictions: priceGuesses.length
+        }
+        
+        const response = await fetch('/Rate-Chart/api/leaderboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(result)
+        })
+        
+        if (response.ok) {
+          localStorage.setItem(savedKey, 'true')
+          console.log('[RATE-CHART] ✅ Winners saved to leaderboard!')
+          // Refresh leaderboard
+          const leaderboardResponse = await fetch('/Rate-Chart/api/leaderboard?limit=10')
+          if (leaderboardResponse.ok) {
+            const data = await leaderboardResponse.json()
+            setAllTimeLeaderboard(data.leaderboard || [])
+          }
+        }
+      } catch (error) {
+        console.error('[RATE-CHART] Failed to save winners:', error)
+      }
+    }
+    
+    // Check every minute
+    const interval = setInterval(saveWinnersToLeaderboard, 60000)
+    saveWinnersToLeaderboard() // Also check immediately
+    
+    return () => clearInterval(interval)
+  }, [leaderboard, midnightPrice, priceGuesses.length])
+
   const formatPrice = (price: number) => {
     return `$${price.toLocaleString()}`
   }
@@ -1000,8 +1112,8 @@ export default function RateChartPage() {
                 </div>
               </div>
 
-              {/* Price Range */}
-              {!isPastMidnight && (
+              {/* Price Range - Only shown during reveal period (23:00-00:00) */}
+              {isRevealed && !isPastMidnight && (
                 <div className="p-5 bg-zinc-900/50 border border-zinc-800 rounded-2xl group hover:border-orange-500/50 transition-colors">
                   <div className="text-xs text-zinc-500 mb-2">PRICE RANGE</div>
                   <div className="text-lg font-bold text-orange-400 tabular-nums">
@@ -1016,30 +1128,166 @@ export default function RateChartPage() {
             </div>
           </div>
 
-          {/* Time Bonus Bar */}
-          <div className="mb-8 p-4 bg-zinc-900/30 border border-zinc-800 rounded-2xl">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="text-xs uppercase tracking-widest text-zinc-500">Time Bonus System</div>
-              <div className="flex items-center gap-3 flex-wrap text-xs">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
-                  <span>🌅</span>
-                  <span className="text-emerald-400">00-08: 100%</span>
+          {/* Time Bonus + All-Time Leaders Row */}
+          <div className="mb-8 flex flex-col lg:flex-row gap-4">
+            {/* All-Time Leaderboard Widget - Compact */}
+            <div className="lg:w-64 flex-shrink-0 p-4 bg-gradient-to-br from-amber-500/5 to-orange-500/5 border border-amber-500/20 rounded-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">🏆</span>
+              <div className="text-xs uppercase tracking-widest text-amber-400 font-bold">All-Time Leaders</div>
+            </div>
+            
+            {isLeaderboardLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="w-5 h-5 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+              </div>
+            ) : allTimeLeaderboard.length > 0 ? (
+              <div className="space-y-2">
+                {allTimeLeaderboard.slice(0, 3).map((entry, index) => (
+                  <div 
+                    key={entry.username}
+                    className={`flex items-center gap-2 p-2 rounded-lg ${
+                      index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
+                      index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
+                      'bg-orange-900/10 border border-orange-900/30'
+                    }`}
+                  >
+                    <span className="text-base">
+                      {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                    </span>
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={entry.avatar || undefined} alt={entry.username} />
+                      <AvatarFallback className="bg-zinc-700 text-[10px]">
+                        {entry.username.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium truncate">{entry.username}</div>
+                      <div className="text-[10px] text-zinc-500">
+                        {entry.first_place_count}🥇 {entry.second_place_count}🥈 {entry.third_place_count}🥉
+                      </div>
+                    </div>
+                    <div className="text-sm font-bold text-amber-400">{entry.total_points}pts</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-2">
+                <div className="text-zinc-500 text-xs">No results yet</div>
+                <div className="text-zinc-600 text-[10px] mt-1">First game ends tomorrow 08:00</div>
+                
+                {/* Manual save button for admins during winners period */}
+                {isPastMidnight && leaderboard.length >= 1 && midnightPrice !== null && (
+                  <button
+                    onClick={async () => {
+                      const now = new Date()
+                      const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+                      const yesterday = new Date(viennaTime)
+                      yesterday.setDate(yesterday.getDate() - 1)
+                      const gameDate = yesterday.toISOString().split('T')[0]
+                      
+                      const result = {
+                        game_date: gameDate,
+                        midnight_price: midnightPrice,
+                        winner_username: leaderboard[0].username,
+                        winner_avatar: leaderboard[0].avatar,
+                        winner_prediction: leaderboard[0].latestGuess,
+                        winner_difference: Math.abs(leaderboard[0].latestGuess - midnightPrice),
+                        winner_timestamp: leaderboard[0].earliestTimestamp,
+                        second_username: leaderboard[1]?.username,
+                        second_avatar: leaderboard[1]?.avatar,
+                        second_prediction: leaderboard[1]?.latestGuess,
+                        second_difference: leaderboard[1] ? Math.abs(leaderboard[1].latestGuess - midnightPrice) : undefined,
+                        second_timestamp: leaderboard[1]?.earliestTimestamp,
+                        third_username: leaderboard[2]?.username,
+                        third_avatar: leaderboard[2]?.avatar,
+                        third_prediction: leaderboard[2]?.latestGuess,
+                        third_difference: leaderboard[2] ? Math.abs(leaderboard[2].latestGuess - midnightPrice) : undefined,
+                        third_timestamp: leaderboard[2]?.earliestTimestamp,
+                        total_participants: leaderboard.length,
+                        total_predictions: priceGuesses.length
+                      }
+                      
+                      try {
+                        const response = await fetch('/Rate-Chart/api/leaderboard', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(result)
+                        })
+                        
+                        if (response.ok) {
+                          alert('Winners saved! Refreshing leaderboard...')
+                          const leaderboardResponse = await fetch('/Rate-Chart/api/leaderboard?limit=10')
+                          if (leaderboardResponse.ok) {
+                            const data = await leaderboardResponse.json()
+                            setAllTimeLeaderboard(data.leaderboard || [])
+                          }
+                        } else {
+                          const err = await response.json()
+                          alert('Error: ' + (err.error || err.message || 'Unknown error'))
+                        }
+                      } catch (error) {
+                        alert('Failed to save: ' + error)
+                      }
+                    }}
+                    className="mt-2 px-3 py-1.5 bg-amber-500/20 border border-amber-500/50 rounded-lg text-amber-400 text-[10px] hover:bg-amber-500/30 transition-colors"
+                  >
+                    💾 Save Winners
+                  </button>
+                )}
+              </div>
+            )}
+            
+            <div className="mt-3 pt-3 border-t border-amber-500/10 text-center">
+              <div className="text-[10px] text-zinc-600">
+                🥇 3pts • 🥈 2pts • 🥉 1pt
+              </div>
+            </div>
+          </div>
+
+            {/* Time Bonus Widget */}
+            <div className="flex-1 p-4 bg-zinc-900/30 border border-zinc-800 rounded-2xl">
+              <div className="text-xs uppercase tracking-widest text-zinc-500 mb-3">⏰ Time Bonus</div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span>🌅</span>
+                    <span className="text-xs text-emerald-400">Early Bird</span>
+                  </div>
+                  <div className="text-xs text-zinc-400">00:00 - 08:00</div>
+                  <div className="text-sm font-bold text-emerald-400">100%</div>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-full">
-                  <span>☀️</span>
-                  <span className="text-amber-400">08-12: 50%</span>
+                <div className="flex items-center justify-between p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span>☀️</span>
+                    <span className="text-xs text-amber-400">Morning</span>
+                  </div>
+                  <div className="text-xs text-zinc-400">08:00 - 12:00</div>
+                  <div className="text-sm font-bold text-amber-400">50%</div>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
-                  <span>🌤️</span>
-                  <span className="text-orange-400">12-18: 25%</span>
+                <div className="flex items-center justify-between p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span>🌤️</span>
+                    <span className="text-xs text-orange-400">Afternoon</span>
+                  </div>
+                  <div className="text-xs text-zinc-400">12:00 - 18:00</div>
+                  <div className="text-sm font-bold text-orange-400">25%</div>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-full">
-                  <span>🌙</span>
-                  <span className="text-red-400">18-23: 0%</span>
+                <div className="flex items-center justify-between p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span>🌙</span>
+                    <span className="text-xs text-red-400">Evening</span>
+                  </div>
+                  <div className="text-xs text-zinc-400">18:00 - 23:00</div>
+                  <div className="text-sm font-bold text-red-400">0%</div>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-full">
-                  <span>🚫</span>
-                  <span className="text-zinc-400">23:00+ CLOSED</span>
+                <div className="flex items-center justify-between p-2 bg-zinc-800 border border-zinc-700 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span>🚫</span>
+                    <span className="text-xs text-zinc-400">Closed</span>
+                  </div>
+                  <div className="text-xs text-zinc-500">23:00 - 00:00</div>
+                  <div className="text-sm font-bold text-zinc-500">—</div>
                 </div>
               </div>
             </div>
