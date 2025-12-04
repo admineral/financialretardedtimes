@@ -397,6 +397,7 @@ export function NewspaperContent({
             <Link 
               href={buildArticleUrl('featured', data.featuredArticle, selectedDate, dayRange)}
               className="text-primary font-headline hover:underline"
+              prefetch={false}
             >
               Weiterlesen →
             </Link>
@@ -477,6 +478,7 @@ export function NewspaperContent({
             <Link 
               href={buildArticleUrl('secondary', data.secondaryArticle, selectedDate, dayRange)}
               className="text-primary font-headline hover:underline"
+              prefetch={false}
             >
               Weiterlesen →
             </Link>
@@ -595,6 +597,7 @@ export function NewspaperContent({
                   <Link 
                     href={buildArticleUrl('more', article, selectedDate, dayRange)}
                     className="text-xs text-primary font-headline hover:underline mt-2 inline-block"
+                    prefetch={false}
                   >
                     Weiterlesen →
                   </Link>
