@@ -25,7 +25,7 @@
 
 'use client'
 
-import { useEffect, useState, use, Suspense } from 'react'
+import React, { useEffect, useRef, use, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
@@ -76,20 +76,6 @@ function getSentimentDisplay(sentiment: string) {
   }
 }
 
-/**
- * Skeleton for loading state - uses span to be valid inside p tags
- */
-function Skeleton({ className = '' }: { className?: string }) {
-  return <span className={`inline-block animate-pulse bg-muted/60 rounded ${className}`} />
-}
-
-/**
- * Streaming cursor
- */
-function StreamingCursor({ show }: { show: boolean }) {
-  if (!show) return null
-  return <span className="inline-block w-0.5 h-[1em] bg-primary/70 animate-pulse ml-0.5 align-middle" />
-}
 
 /**
  * Category badge styling
@@ -109,17 +95,20 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
   const resolvedParams = use(params)
   const searchParams = useSearchParams()
   
-  // Extract article data from URL params
+  // Extract article data from URL params - memoize to prevent re-renders
   const articleType = searchParams.get('type') || 'featured'
   const headline = searchParams.get('headline') || ''
   const summary = searchParams.get('summary') || ''
   const category = searchParams.get('category') || ''
   const author = searchParams.get('author') || ''
-  const contributors = searchParams.get('contributors')?.split(',').filter(Boolean) || []
-  const quoteParam = searchParams.get('quote')
-  const quote = quoteParam ? JSON.parse(decodeURIComponent(quoteParam)) : null
+  const contributorsParam = searchParams.get('contributors') || ''
+  const quoteParam = searchParams.get('quote') || ''
   const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0]
   const dayRange = parseInt(searchParams.get('dayRange') || '1', 10)
+  
+  // Parse these once and memoize
+  const contributors = contributorsParam ? contributorsParam.split(',').filter(Boolean) : []
+  const quote = quoteParam ? JSON.parse(decodeURIComponent(quoteParam)) : null
   
   // AI streaming state
   const { 
@@ -134,25 +123,25 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
   
   const data = articleData as Partial<ExpandedArticleData> | undefined
   
-  // Trigger article expansion on mount
-  const [hasSubmitted, setHasSubmitted] = useState(false)
+  // Use ref to ensure we only submit once
+  const hasSubmittedRef = useRef(false)
   
   useEffect(() => {
-    if (!hasSubmitted && headline && summary) {
-      setHasSubmitted(true)
+    if (!hasSubmittedRef.current && headline && summary) {
+      hasSubmittedRef.current = true
       submit({
         articleType,
         headline,
         summary,
         category,
         author,
-        contributors,
-        quote,
+        contributors: contributorsParam ? contributorsParam.split(',').filter(Boolean) : [],
+        quote: quoteParam ? JSON.parse(decodeURIComponent(quoteParam)) : null,
         selectedDate,
         dayRange
       })
     }
-  }, [hasSubmitted, headline, summary, articleType, category, author, contributors, quote, selectedDate, dayRange, submit])
+  }, []) // Empty deps - run only once on mount
   
   // Regenerate handler
   const handleRegenerate = () => {
@@ -231,15 +220,13 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
         </div>
 
         {/* Title */}
-        <h1 className="font-headline text-3xl sm:text-4xl md:text-5xl font-bold leading-tight mb-4">
-          {data?.title || headline || <Skeleton className="h-12 w-full" />}
-          <StreamingCursor show={isLoading && !data?.subtitle} />
+        <h1 className="font-headline text-3xl sm:text-4xl md:text-5xl font-bold leading-tight mb-4 min-h-[1.2em]">
+          {data?.title}
         </h1>
 
         {/* Subtitle */}
-        <p className="text-xl sm:text-2xl text-muted-foreground font-body mb-8">
-          {data?.subtitle || <Skeleton className="h-8 w-3/4" />}
-          <StreamingCursor show={isLoading && !!data?.subtitle && !data?.introduction} />
+        <p className="text-xl sm:text-2xl text-muted-foreground font-body mb-8 min-h-[1.5em]">
+          {data?.subtitle}
         </p>
 
         {/* Sentiment & Users Bar */}
@@ -277,56 +264,35 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
 
         {/* Introduction */}
         <div className="prose prose-lg dark:prose-invert max-w-none mb-8">
-          <p className="text-lg leading-relaxed font-body">
-            {data?.introduction || (
-              <>
-                <Skeleton className="h-5 w-full mb-2" />
-                <Skeleton className="h-5 w-full mb-2" />
-                <Skeleton className="h-5 w-2/3" />
-              </>
-            )}
-            <StreamingCursor show={isLoading && !!data?.introduction && (!data?.sections || data.sections.length === 0)} />
+          <p className="text-lg leading-relaxed font-body min-h-[3em]">
+            {data?.introduction}
           </p>
         </div>
 
         {/* Main Sections */}
         <div className="space-y-10">
-          {data?.sections && data.sections.length > 0 ? (
-            data.sections.map((section, idx) => (
-              <section key={idx} className="border-l-2 border-foreground/20 pl-6">
-                <h2 className="font-headline text-xl sm:text-2xl font-bold mb-4">
-                  {section.heading}
-                </h2>
-                <div className="prose dark:prose-invert max-w-none">
-                  <p className="font-body leading-relaxed whitespace-pre-line">
-                    {section.content}
+          {data?.sections?.map((section, idx) => (
+            <section key={idx} className="border-l-2 border-foreground/20 pl-6">
+              <h2 className="font-headline text-xl sm:text-2xl font-bold mb-4">
+                {section.heading}
+              </h2>
+              <div className="prose dark:prose-invert max-w-none">
+                <p className="font-body leading-relaxed whitespace-pre-line">
+                  {section.content}
+                </p>
+              </div>
+              {section.quote && (
+                <blockquote className="mt-4 pl-4 border-l-2 border-primary/50 italic">
+                  <p className="text-muted-foreground">
+                    „{section.quote.text}"
                   </p>
-                </div>
-                {section.quote && (
-                  <blockquote className="mt-4 pl-4 border-l-2 border-primary/50 italic">
-                    <p className="text-muted-foreground">
-                      „{section.quote.text}"
-                    </p>
-                    <cite className="text-sm font-semibold not-italic">
-                      — @{section.quote.from}
-                    </cite>
-                  </blockquote>
-                )}
-              </section>
-            ))
-          ) : isLoading ? (
-            <>
-              {[0, 1].map((idx) => (
-                <section key={idx} className="border-l-2 border-foreground/20 pl-6">
-                  <Skeleton className="h-7 w-1/3 mb-4" />
-                  <Skeleton className="h-5 w-full mb-2" />
-                  <Skeleton className="h-5 w-full mb-2" />
-                  <Skeleton className="h-5 w-full mb-2" />
-                  <Skeleton className="h-5 w-3/4" />
-                </section>
-              ))}
-            </>
-          ) : null}
+                  <cite className="text-sm font-semibold not-italic">
+                    — @{section.quote.from}
+                  </cite>
+                </blockquote>
+              )}
+            </section>
+          ))}
         </div>
 
         {/* Key Takeaways */}
