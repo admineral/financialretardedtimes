@@ -702,14 +702,22 @@ export default function RateChartPage() {
     const sorted = Array.from(userMap.values()).sort((a, b) => {
       const aDiff = Math.abs(a.latestGuess - referencePrice)
       const bDiff = Math.abs(b.latestGuess - referencePrice)
-      return aDiff - bDiff
+      
+      // Primary sort: closest to reference price
+      if (aDiff !== bDiff) {
+        return aDiff - bDiff
+      }
+      
+      // Tiebreaker: earliest timestamp wins (first to tip with same accuracy)
+      return new Date(a.earliestTimestamp).getTime() - new Date(b.earliestTimestamp).getTime()
     })
     
     if (sorted.length > 0) {
       console.log(`[RATE-CHART] 🥇 Top 3 winners:`)
       sorted.slice(0, 3).forEach((entry, i) => {
         const diff = Math.abs(entry.latestGuess - referencePrice)
-        console.log(`[RATE-CHART]    ${i + 1}. ${entry.username}: $${entry.latestGuess} (off by $${diff})`)
+        const tipTime = new Date(entry.earliestTimestamp).toLocaleTimeString('de-AT', { timeZone: 'Europe/Vienna' })
+        console.log(`[RATE-CHART]    ${i + 1}. ${entry.username}: $${entry.latestGuess} (off by $${diff}) @ ${tipTime}`)
       })
     }
     
@@ -1364,7 +1372,9 @@ export default function RateChartPage() {
                           </Avatar>
                           <div>
                             <div className="font-medium text-sm">{guess.username}</div>
-                            <div className="text-xs text-zinc-500">{formatDistanceToNow(new Date(guess.timestamp), { addSuffix: true })}</div>
+                            <div className="text-xs text-zinc-500">
+                              {format(new Date(guess.timestamp), 'HH:mm:ss')} • {formatDistanceToNow(new Date(guess.timestamp), { addSuffix: true })}
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
