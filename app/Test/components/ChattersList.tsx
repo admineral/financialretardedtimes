@@ -100,7 +100,6 @@ const ChatterItem = memo(function ChatterItem({
             <span className="font-medium text-sm truncate group-hover:text-primary transition-colors">
               {chatter.username}
             </span>
-            <ExternalLinkIcon className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
         </div>
         
@@ -132,6 +131,7 @@ const ChatterItem = memo(function ChatterItem({
           <Badge variant="outline" className="text-xs">
             {chatter.messageCount}
           </Badge>
+          <ExternalLinkIcon className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
         </div>
       </div>
     </UserHoverCard>
