@@ -43,7 +43,7 @@ const TODAY_CACHE_DURATION_MS = 5 * 60 * 1000
 /**
  * Check if cache is still valid
  * - If the most recent date in cache is today: cache is valid for 5 minutes
- * - If the most recent date is yesterday or older: cache is always valid (data won't change)
+ * - If the most recent date is older than today: cache is INVALID (new day started)
  */
 function isCacheValid(updatedAt: string, dates: DateStats[]): boolean {
   if (!dates || dates.length === 0) return false
@@ -51,19 +51,17 @@ function isCacheValid(updatedAt: string, dates: DateStats[]): boolean {
   const today = new Date().toISOString().split('T')[0]
   const mostRecentDateInCache = dates[0]?.date
   
-  // If cache contains today's data, check if it's fresh enough
-  if (mostRecentDateInCache === today) {
-    const cacheTime = new Date(updatedAt).getTime()
-    const now = Date.now()
-    return (now - cacheTime) < TODAY_CACHE_DURATION_MS
+  // If cache doesn't contain today's data, it's stale - a new day has started
+  // We need to refresh to check if there are messages for today
+  if (mostRecentDateInCache < today) {
+    console.log(`[AVAILABLE-DATES API] Cache stale: most recent date ${mostRecentDateInCache} < today ${today}`)
+    return false
   }
   
-  // Past data doesn't change - cache is always valid
-  // But we should still refresh once a day to pick up new days
+  // If cache contains today's data, check if it's fresh enough (5 minutes)
   const cacheTime = new Date(updatedAt).getTime()
   const now = Date.now()
-  const oneDayMs = 24 * 60 * 60 * 1000
-  return (now - cacheTime) < oneDayMs
+  return (now - cacheTime) < TODAY_CACHE_DURATION_MS
 }
 
 /**

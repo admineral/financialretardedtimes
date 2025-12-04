@@ -117,3 +117,4 @@ COMMENT ON COLUMN prediction_daily_results.winner_time_bonus IS 'Time bonus mult
 COMMENT ON COLUMN prediction_daily_results.winner_total_points IS 'Total points including time bonus (base_points * (1 + time_bonus))';
 COMMENT ON COLUMN prediction_leaderboard.total_bonus_points IS 'Sum of all time bonus points earned';
 
+

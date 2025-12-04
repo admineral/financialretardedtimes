@@ -190,6 +190,93 @@ async function fetchAllMessages(roomId: string): Promise<ChatMessage[]> {
 }
 
 /**
+ * SMART SYNC: Fetch messages until we hit ones we already have in DB
+ * This is more efficient than fetching all 100 messages every time
+ * It scrolls back through chat history until it finds existing messages
+ */
+async function smartFetchUntilExisting(
+  roomId: string, 
+  existingIds: Set<string>,
+  newestExistingTime: Date | null
+): Promise<{ messages: ChatMessage[], stoppedEarly: boolean }> {
+  console.log('[CRON] 🧠 Starting SMART SYNC for room:', roomId)
+  console.log(`[CRON] 🧠 Existing IDs in DB: ${existingIds.size}`)
+  console.log(`[CRON] 🧠 Newest existing time: ${newestExistingTime?.toISOString() || 'N/A'}`)
+  
+  const allMessages: ChatMessage[] = []
+  const seenIds = new Set<string>()
+  let offset = 0
+  const batchSize = 100
+  const maxIterations = 20 // Safety limit
+  let iterations = 0
+  let consecutiveExistingBatches = 0
+  
+  while (iterations < maxIterations) {
+    iterations++
+    
+    const messages = await fetchMessages(roomId, offset)
+    
+    if (messages.length === 0) {
+      console.log(`[CRON] 🧠 Empty batch at offset ${offset} - reached end`)
+      break
+    }
+    
+    let newInBatch = 0
+    let existingInBatch = 0
+    
+    for (const msg of messages) {
+      const msgId = msg.id || `${msg.username}-${msg.time}`
+      
+      // Skip if we've seen this in current fetch
+      if (seenIds.has(msgId)) continue
+      seenIds.add(msgId)
+      
+      // Check if message already exists in DB
+      if (existingIds.has(msgId)) {
+        existingInBatch++
+      } else {
+        newInBatch++
+        allMessages.push(msg)
+      }
+    }
+    
+    console.log(`[CRON] 🧠 Batch ${iterations}: offset=${offset}, fetched=${messages.length}, new=${newInBatch}, existing=${existingInBatch}`)
+    
+    // If most messages in this batch already exist, we've caught up
+    if (existingInBatch > 0 && newInBatch === 0) {
+      consecutiveExistingBatches++
+      if (consecutiveExistingBatches >= 2) {
+        console.log(`[CRON] 🧠 Found ${consecutiveExistingBatches} consecutive batches with all existing messages - stopping`)
+        return { messages: allMessages, stoppedEarly: true }
+      }
+    } else {
+      consecutiveExistingBatches = 0
+    }
+    
+    // If we found some existing messages in this batch, we're close to caught up
+    // Continue one more batch to be safe, but if >50% existing, we're done
+    if (existingInBatch > messages.length * 0.5) {
+      console.log(`[CRON] 🧠 >50% existing in batch - caught up with history`)
+      return { messages: allMessages, stoppedEarly: true }
+    }
+    
+    // If batch is not full, we've reached the end of chat history
+    if (messages.length < batchSize) {
+      console.log(`[CRON] 🧠 Partial batch (${messages.length}/${batchSize}) - reached end of history`)
+      break
+    }
+    
+    offset += batchSize
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  
+  console.log(`[CRON] 🧠 SMART SYNC complete: ${allMessages.length} new messages found`)
+  return { messages: allMessages, stoppedEarly: false }
+}
+
+/**
  * Cron endpoint for syncing chat messages
  * Called every 10 minutes by Vercel cron
  * 
@@ -275,15 +362,55 @@ export async function GET(request: NextRequest) {
         console.log(`[CRON]    - needs_initial_fetch: ${needsInitialFetch}`)
         
         let messages: ChatMessage[]
+        let usedSmartSync = false
+        
+        // Check if this is a hard refresh (skip smart sync)
+        const hardRefresh = searchParams.get('hard') === 'true'
         
         if (needsInitialFetch) {
           // Do initial full fetch
           console.log('[CRON] 🚀 Performing INITIAL FULL FETCH...')
           messages = await fetchAllMessages(roomId)
+        } else if (hardRefresh) {
+          // Hard refresh - fetch more aggressively
+          console.log('[CRON] 💪 HARD REFRESH - fetching up to 500 messages...')
+          messages = []
+          const seenIds = new Set<string>()
+          for (let offset = 0; offset < 500; offset += 100) {
+            const batch = await fetchMessages(roomId, offset)
+            if (batch.length === 0) break
+            for (const msg of batch) {
+              const msgId = msg.id || `${msg.username}-${msg.time}`
+              if (!seenIds.has(msgId)) {
+                seenIds.add(msgId)
+                messages.push(msg)
+              }
+            }
+            if (batch.length < 100) break
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
         } else {
-          // Just fetch latest 100 messages
-          console.log('[CRON] 📥 Fetching latest 100 messages...')
-          messages = await fetchMessages(roomId, 0)
+          // SMART SYNC: Only fetch until we hit existing messages
+          console.log('[CRON] 🧠 Using SMART SYNC...')
+          
+          // Get existing message IDs from DB (last 24 hours for efficiency)
+          const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+          const { data: recentMessages } = await supabase
+            .from('tv_chat_messages')
+            .select('id, time')
+            .eq('room_id', roomId)
+            .gte('time', oneDayAgo)
+            .order('time', { ascending: false })
+            .limit(1000)
+          
+          const existingIds = new Set((recentMessages || []).map(m => m.id))
+          const newestTime = recentMessages?.[0]?.time ? new Date(recentMessages[0].time) : null
+          
+          const result = await smartFetchUntilExisting(roomId, existingIds, newestTime)
+          messages = result.messages
+          usedSmartSync = true
+          
+          console.log(`[CRON] 🧠 Smart sync result: ${messages.length} new messages, stopped early: ${result.stoppedEarly}`)
         }
         
         console.log(`[CRON] 📥 Fetched ${messages.length} messages from TradingView`)

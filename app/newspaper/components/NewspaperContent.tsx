@@ -26,8 +26,62 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import Link from 'next/link'
-import { UnifiedNewspaperSchema, type UnifiedNewspaperData } from '../lib/types'
+import { UnifiedNewspaperSchema, type UnifiedNewspaperData, type ArticleData, type MoreArticleData } from '../lib/types'
 import { getCategoryStyle, getEventStyle } from './ui/helpers'
+
+/**
+ * Generate a URL-safe slug from a headline
+ */
+function generateSlug(headline: string): string {
+  return headline
+    .toLowerCase()
+    .replace(/[äöüß]/g, (char) => {
+      const map: Record<string, string> = { 'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss' }
+      return map[char] || char
+    })
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60)
+}
+
+/**
+ * Build article detail URL with all necessary params
+ */
+function buildArticleUrl(
+  type: 'featured' | 'secondary' | 'more' | 'event',
+  article: Partial<ArticleData> | Partial<MoreArticleData>,
+  selectedDate: string,
+  dayRange: number
+): string {
+  const headline = article.headline || ''
+  const slug = generateSlug(headline)
+  
+  const params = new URLSearchParams()
+  params.set('type', type)
+  params.set('headline', headline)
+  params.set('category', article.category || '')
+  params.set('date', selectedDate)
+  params.set('dayRange', String(dayRange))
+  
+  // Add type-specific fields
+  if ('summary' in article && article.summary) {
+    params.set('summary', article.summary)
+  }
+  if ('teaser' in article && article.teaser) {
+    params.set('summary', article.teaser) // Use teaser as summary for more articles
+  }
+  if ('author' in article && article.author) {
+    params.set('author', article.author)
+  }
+  if ('contributors' in article && article.contributors) {
+    params.set('contributors', article.contributors.join(','))
+  }
+  if ('quote' in article && article.quote) {
+    params.set('quote', encodeURIComponent(JSON.stringify(article.quote)))
+  }
+  
+  return `/newspaper/article/${slug}?${params.toString()}`
+}
 
 interface NewspaperContentProps {
   selectedDate: string | null
@@ -339,9 +393,16 @@ export function NewspaperContent({
         </div>
         
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm">
-          <Link href="/" className="text-primary font-headline hover:underline">
-            Weiterlesen →
-          </Link>
+          {data?.featuredArticle?.headline && data?.featuredArticle?.summary && selectedDate ? (
+            <Link 
+              href={buildArticleUrl('featured', data.featuredArticle, selectedDate, dayRange)}
+              className="text-primary font-headline hover:underline"
+            >
+              Weiterlesen →
+            </Link>
+          ) : (
+            <span className="text-muted-foreground font-headline">Weiterlesen →</span>
+          )}
         </div>
       </article>
 
@@ -408,6 +469,20 @@ export function NewspaperContent({
               <span className="px-2 py-1 bg-muted/40 rounded animate-pulse w-20 h-6" />
             </>
           ) : null}
+        </div>
+        
+        {/* Weiterlesen Link */}
+        <div className="text-sm">
+          {data?.secondaryArticle?.headline && data?.secondaryArticle?.summary && selectedDate ? (
+            <Link 
+              href={buildArticleUrl('secondary', data.secondaryArticle, selectedDate, dayRange)}
+              className="text-primary font-headline hover:underline"
+            >
+              Weiterlesen →
+            </Link>
+          ) : (
+            <span className="text-muted-foreground font-headline">Weiterlesen →</span>
+          )}
         </div>
       </article>
 
@@ -496,7 +571,7 @@ export function NewspaperContent({
             return (
               <article 
                 key={slotIdx} 
-                className={`pb-3 sm:pb-4 border-b border-foreground/10 min-h-[80px] transition-opacity duration-300 ${
+                className={`pb-3 sm:pb-4 border-b border-foreground/10 min-h-[100px] transition-opacity duration-300 ${
                   !article && !isLoading ? 'opacity-0 h-0 min-h-0 pb-0 border-0 overflow-hidden' : ''
                 }`}
               >
@@ -514,6 +589,16 @@ export function NewspaperContent({
                 <p className="text-xs sm:text-sm text-muted-foreground font-body mt-1 min-h-[1.2em]">
                   {article?.teaser || <InlineSkeleton width="w-3/4" />}
                 </p>
+                
+                {/* Weiterlesen Link */}
+                {article?.headline && article?.teaser && selectedDate && (
+                  <Link 
+                    href={buildArticleUrl('more', article, selectedDate, dayRange)}
+                    className="text-xs text-primary font-headline hover:underline mt-2 inline-block"
+                  >
+                    Weiterlesen →
+                  </Link>
+                )}
               </article>
             )
           })}

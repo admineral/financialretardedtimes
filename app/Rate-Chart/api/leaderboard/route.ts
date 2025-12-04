@@ -115,9 +115,25 @@ export async function GET(request: NextRequest) {
       .order('game_date', { ascending: false })
       .limit(7)
     
+    // Fetch yesterday's full results
+    const now = new Date()
+    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+    const yesterday = new Date(viennaTime)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayDate = yesterday.toISOString().split('T')[0]
+    
+    const { data: yesterdayResults } = await supabase
+      .from('prediction_daily_results')
+      .select('*')
+      .eq('game_date', yesterdayDate)
+      .single()
+    
+    console.log(`[LEADERBOARD] Yesterday (${yesterdayDate}) results:`, yesterdayResults ? 'found' : 'not found')
+    
     return NextResponse.json({
       leaderboard: leaderboard || [],
       recentWinners: recentResults || [],
+      yesterdayResults: yesterdayResults || null,
       lastUpdated: new Date().toISOString()
     })
     
@@ -145,6 +161,31 @@ export async function POST(request: NextRequest) {
     if (!body.game_date || !body.winner_username || !body.midnight_price) {
       return NextResponse.json(
         { error: 'Missing required fields: game_date, winner_username, midnight_price' },
+        { status: 400 }
+      )
+    }
+    
+    // Validate that the game date is not in the future or today (game must be finished)
+    const now = new Date()
+    const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+    const viennaHour = viennaTime.getHours()
+    const todayVienna = viennaTime.toISOString().split('T')[0]
+    
+    // Game date should be yesterday or earlier (can only save after 08:00 Vienna time)
+    const yesterday = new Date(viennaTime)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = yesterday.toISOString().split('T')[0]
+    
+    // Only allow saving if:
+    // 1. Game date is before today (past games)
+    // 2. OR it's between 00:00-08:00 and game date is yesterday (winners period)
+    const isWinnersPeriod = viennaHour < 8
+    const isValidGameDate = body.game_date < todayVienna || (isWinnersPeriod && body.game_date === yesterdayStr)
+    
+    if (!isValidGameDate) {
+      console.log(`[LEADERBOARD] Invalid game date: ${body.game_date} (today: ${todayVienna}, winners period: ${isWinnersPeriod})`)
+      return NextResponse.json(
+        { error: `Cannot save results for ${body.game_date}. Can only save results for completed games (yesterday or earlier).` },
         { status: 400 }
       )
     }
@@ -232,4 +273,5 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
 
