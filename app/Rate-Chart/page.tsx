@@ -84,6 +84,9 @@ export default function RateChartPage() {
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true)
   const [isYesterdayExpanded, setIsYesterdayExpanded] = useState(false)
   const [isAllTimeExpanded, setIsAllTimeExpanded] = useState(false)
+  const [allTimeLimit, setAllTimeLimit] = useState(10)
+  const [isLoadingMoreAllTime, setIsLoadingMoreAllTime] = useState(false)
+  const [yesterdayShowCount, setYesterdayShowCount] = useState(10)
   
   // TEST MODE - Simulate different time periods (only visible if server env allows)
   const [testModeEnabled, setTestModeEnabled] = useState(false)
@@ -176,10 +179,10 @@ export default function RateChartPage() {
   }, [isTestRevealed])
 
   // Fetch leaderboard function (can be called on refresh)
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = async (limit: number = 10) => {
     try {
-      console.log('[RATE-CHART] 🏆 Fetching leaderboard...')
-      const response = await fetch(`/Rate-Chart/api/leaderboard?limit=10&_t=${Date.now()}`)
+      console.log(`[RATE-CHART] 🏆 Fetching leaderboard (limit: ${limit})...`)
+      const response = await fetch(`/Rate-Chart/api/leaderboard?limit=${limit}&_t=${Date.now()}`)
       if (response.ok) {
         const data = await response.json()
         setAllTimeLeaderboard(data.leaderboard || [])
@@ -191,6 +194,15 @@ export default function RateChartPage() {
     } finally {
       setIsLeaderboardLoading(false)
     }
+  }
+  
+  // Load all all-time leaders
+  const loadMoreAllTime = async () => {
+    setIsLoadingMoreAllTime(true)
+    const newLimit = 100 // Load all players
+    await fetchLeaderboard(newLimit)
+    setAllTimeLimit(newLimit)
+    setIsLoadingMoreAllTime(false)
   }
 
   // Initial leaderboard fetch
@@ -1787,7 +1799,7 @@ export default function RateChartPage() {
                   </div>
                 ) : allTimeLeaderboard.length > 0 ? (
                   <div className="space-y-2">
-                    {allTimeLeaderboard.slice(0, isAllTimeExpanded ? 10 : 3).map((entry, index) => {
+                    {allTimeLeaderboard.slice(0, allTimeLimit).map((entry, index) => {
                       const currentLeaderboardEntry = leaderboard.find(l => l.username === entry.username)
                       const avatarUrl = entry.avatar || currentLeaderboardEntry?.avatar
                       
@@ -1797,16 +1809,18 @@ export default function RateChartPage() {
                           className={`flex items-center gap-2 p-2 rounded-lg ${
                             index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
                             index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
-                            'bg-orange-900/10 border border-orange-900/30'
+                            index === 2 ? 'bg-orange-900/10 border border-orange-900/30' :
+                            'bg-zinc-800/50 border border-zinc-700/50'
                           }`}
                         >
-                          <span className="text-base">
-                            {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                          <span className="text-base w-6 text-center">
+                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
                           </span>
                           <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
                             index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
                             index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
-                            'border-orange-700/50 ring-orange-700/30'
+                            index === 2 ? 'border-orange-700/50 ring-orange-700/30' :
+                            'border-zinc-600/50 ring-zinc-600/30'
                           }`}>
                             <AvatarImage 
                               src={avatarUrl || undefined} 
@@ -1816,7 +1830,8 @@ export default function RateChartPage() {
                             <AvatarFallback className={`text-[10px] rounded-full ${
                               index === 0 ? 'bg-amber-900/50 text-amber-200' :
                               index === 1 ? 'bg-zinc-600 text-zinc-200' :
-                              'bg-orange-900/50 text-orange-200'
+                              index === 2 ? 'bg-orange-900/50 text-orange-200' :
+                              'bg-zinc-700 text-zinc-300'
                             }`}>
                               {entry.username.slice(0, 2).toUpperCase()}
                             </AvatarFallback>
@@ -1827,10 +1842,35 @@ export default function RateChartPage() {
                               {entry.first_place_count}🥇 {entry.second_place_count}🥈 {entry.third_place_count}🥉
                             </div>
                           </div>
-                          <div className="text-sm font-bold text-amber-400">{entry.total_points}pts</div>
+                          <div className={`flex items-center justify-center min-w-8 h-8 px-2 rounded-full text-xs font-bold ${
+                            index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
+                            index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
+                            index === 2 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
+                            'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/50'
+                          }`}>
+                            {entry.total_points % 1 === 0 ? entry.total_points : entry.total_points.toFixed(1)}
+                          </div>
                         </div>
                       )
                     })}
+                    
+                    {/* Load All Button */}
+                    {allTimeLeaderboard.length >= allTimeLimit && (
+                      <button
+                        onClick={loadMoreAllTime}
+                        disabled={isLoadingMoreAllTime}
+                        className="w-full py-2 text-center text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {isLoadingMoreAllTime ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <div className="w-3 h-3 border border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                            Loading...
+                          </span>
+                        ) : (
+                          <span>📊 Show all players...</span>
+                        )}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-2">
@@ -1917,170 +1957,107 @@ export default function RateChartPage() {
 
               {/* Yesterday's Winners Widget */}
               <div className="p-4 bg-gradient-to-br from-purple-500/5 to-pink-500/5 border border-purple-500/20 rounded-2xl">
-                <button 
-                  onClick={() => setIsYesterdayExpanded(!isYesterdayExpanded)}
-                  className="w-full flex items-center justify-between mb-3 hover:opacity-80 transition-opacity"
-                >
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-lg">📅</span>
                     <div className="text-xs uppercase tracking-widest text-purple-400 font-bold">Yesterday</div>
-                    {yesterdayResults && (
+                    {(yesterdayResults?.total_participants || leaderboard.length) > 0 && (
                       <div className="text-[10px] text-zinc-500">
-                        ({yesterdayResults.total_participants || 3} players)
+                        ({yesterdayResults?.total_participants || leaderboard.length} players)
                       </div>
                     )}
                   </div>
-                  <span className="text-zinc-500 text-sm">{isYesterdayExpanded ? '▼' : '▶'}</span>
-                </button>
+                </div>
                 
                 {isLeaderboardLoading ? (
                   <div className="flex items-center justify-center py-4">
                     <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
                   </div>
-                ) : yesterdayResults ? (
+                ) : (yesterdayResults || leaderboard.length > 0) ? (
                   <div className="space-y-2">
-                    {/* Helper function to get time label */}
-                    {(() => {
-                      const getTimeLabel = (timestamp?: string) => {
-                        if (!timestamp) return ''
-                        const date = new Date(timestamp)
-                        const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-                        const hour = viennaTime.getHours()
-                        if (hour < 8) return '🌙 Early Bird'
-                        if (hour < 12) return '☀️ Morning'
-                        if (hour < 18) return '🌤️ Afternoon'
-                        return '🌆 Evening'
-                      }
+                    {/* Show all participants from leaderboard (which is calculated from DB messages) */}
+                    {leaderboard.slice(0, yesterdayShowCount).map((entry, index) => {
+                      // Calculate points with time bonus for all participants
+                      const timeBonus = entry.guesses[0]?.timeBonus || 0
+                      let basePoints = 0
+                      if (index === 0) basePoints = 3
+                      else if (index === 1) basePoints = 2
+                      else if (index === 2) basePoints = 1
+                      // No points for #4 and below
                       
-                      const formatTime = (timestamp?: string) => {
-                        if (!timestamp) return ''
-                        return format(new Date(timestamp), 'HH:mm:ss')
-                      }
-                      
-                      const winnerFromLeaderboard = leaderboard.find(l => l.username === yesterdayResults.winner_username)
-                      const winnerAvatar = yesterdayResults.winner_avatar || winnerFromLeaderboard?.avatar
-                      const winnerPts = yesterdayResults.winner_total_points || 3
+                      // Use saved points for top 3 if available, otherwise calculate
+                      let pts = basePoints * (1 + timeBonus)
+                      if (index === 0 && yesterdayResults?.winner_total_points) pts = yesterdayResults.winner_total_points
+                      else if (index === 1 && yesterdayResults?.second_total_points) pts = yesterdayResults.second_total_points
+                      else if (index === 2 && yesterdayResults?.third_total_points) pts = yesterdayResults.third_total_points
                       
                       return (
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                          <span className="text-base">🥇</span>
-                          <Avatar className="h-6 w-6 border-2 border-amber-500/50 shadow-sm ring-1 ring-amber-500/30">
+                        <div 
+                          key={entry.username}
+                          className={`flex items-center gap-2 p-2 rounded-lg ${
+                            index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
+                            index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
+                            index === 2 ? 'bg-orange-900/10 border border-orange-900/30' :
+                            'bg-zinc-800/50 border border-zinc-700/50'
+                          }`}
+                        >
+                          <span className="text-base w-6 text-center">
+                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                          </span>
+                          <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
+                            index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
+                            index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
+                            index === 2 ? 'border-orange-700/50 ring-orange-700/30' :
+                            'border-zinc-600/50 ring-zinc-600/30'
+                          }`}>
                             <AvatarImage 
-                              src={winnerAvatar || undefined} 
-                              alt={yesterdayResults.winner_username}
+                              src={entry.avatar || undefined} 
+                              alt={entry.username}
                               className="rounded-full object-cover"
                             />
-                            <AvatarFallback className="bg-amber-900/50 text-amber-200 text-[10px] rounded-full">
-                              {yesterdayResults.winner_username.slice(0, 2).toUpperCase()}
+                            <AvatarFallback className={`text-[10px] rounded-full ${
+                              index === 0 ? 'bg-amber-900/50 text-amber-200' :
+                              index === 1 ? 'bg-zinc-600 text-zinc-200' :
+                              index === 2 ? 'bg-orange-900/50 text-orange-200' :
+                              'bg-zinc-700 text-zinc-300'
+                            }`}>
+                              {entry.username.slice(0, 2).toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{yesterdayResults.winner_username}</div>
+                            <div className="text-xs font-medium truncate">{entry.username}</div>
                             <div className="text-[10px] text-zinc-500">
-                              ${yesterdayResults.winner_prediction?.toLocaleString()}
-                              {isYesterdayExpanded && yesterdayResults.winner_timestamp && (
-                                <span className="ml-1">• {formatTime(yesterdayResults.winner_timestamp)} {getTimeLabel(yesterdayResults.winner_timestamp)}</span>
-                              )}
+                              ${entry.latestGuess?.toLocaleString()} • {format(new Date(entry.earliestTimestamp), 'HH:mm:ss')}
                             </div>
                           </div>
-                          <div className="text-sm font-bold text-amber-400">{winnerPts}pts</div>
-                        </div>
-                      )
-                    })()}
-                    {yesterdayResults.second_username && (() => {
-                      const getTimeLabel = (timestamp?: string) => {
-                        if (!timestamp) return ''
-                        const date = new Date(timestamp)
-                        const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-                        const hour = viennaTime.getHours()
-                        if (hour < 8) return '🌙 Early Bird'
-                        if (hour < 12) return '☀️ Morning'
-                        if (hour < 18) return '🌤️ Afternoon'
-                        return '🌆 Evening'
-                      }
-                      
-                      const formatTime = (timestamp?: string) => {
-                        if (!timestamp) return ''
-                        return format(new Date(timestamp), 'HH:mm:ss')
-                      }
-                      
-                      const secondFromLeaderboard = leaderboard.find(l => l.username === yesterdayResults.second_username)
-                      const secondAvatar = yesterdayResults.second_avatar || secondFromLeaderboard?.avatar
-                      const secondPts = yesterdayResults.second_total_points || 2
-                      
-                      return (
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-500/10 border border-zinc-500/30">
-                          <span className="text-base">🥈</span>
-                          <Avatar className="h-6 w-6 border-2 border-zinc-400/50 shadow-sm ring-1 ring-zinc-400/30">
-                            <AvatarImage 
-                              src={secondAvatar || undefined} 
-                              alt={yesterdayResults.second_username}
-                              className="rounded-full object-cover"
-                            />
-                            <AvatarFallback className="bg-zinc-600 text-zinc-200 text-[10px] rounded-full">
-                              {yesterdayResults.second_username.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{yesterdayResults.second_username}</div>
-                            <div className="text-[10px] text-zinc-500">
-                              ${yesterdayResults.second_prediction?.toLocaleString()}
-                              {isYesterdayExpanded && yesterdayResults.second_timestamp && (
-                                <span className="ml-1">• {formatTime(yesterdayResults.second_timestamp)} {getTimeLabel(yesterdayResults.second_timestamp)}</span>
-                              )}
-                            </div>
+                          {/* Points badge for everyone */}
+                          <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+                            index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
+                            index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
+                            index === 2 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
+                            'bg-zinc-800/50 text-zinc-500 ring-1 ring-zinc-700/50'
+                          }`}>
+                            {pts > 0 ? `+${pts % 1 === 0 ? pts : pts.toFixed(1)}` : '0'}
                           </div>
-                          <div className="text-sm font-bold text-zinc-400">{secondPts}pts</div>
                         </div>
                       )
-                    })()}
-                    {yesterdayResults.third_username && (() => {
-                      const getTimeLabel = (timestamp?: string) => {
-                        if (!timestamp) return ''
-                        const date = new Date(timestamp)
-                        const viennaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-                        const hour = viennaTime.getHours()
-                        if (hour < 8) return '🌙 Early Bird'
-                        if (hour < 12) return '☀️ Morning'
-                        if (hour < 18) return '🌤️ Afternoon'
-                        return '🌆 Evening'
-                      }
-                      
-                      const formatTime = (timestamp?: string) => {
-                        if (!timestamp) return ''
-                        return format(new Date(timestamp), 'HH:mm:ss')
-                      }
-                      
-                      const thirdFromLeaderboard = leaderboard.find(l => l.username === yesterdayResults.third_username)
-                      const thirdAvatar = yesterdayResults.third_avatar || thirdFromLeaderboard?.avatar
-                      const thirdPts = yesterdayResults.third_total_points || 1
-                      
-                      return (
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-orange-900/10 border border-orange-900/30">
-                          <span className="text-base">🥉</span>
-                          <Avatar className="h-6 w-6 border-2 border-orange-700/50 shadow-sm ring-1 ring-orange-700/30">
-                            <AvatarImage 
-                              src={thirdAvatar || undefined} 
-                              alt={yesterdayResults.third_username}
-                              className="rounded-full object-cover"
-                            />
-                            <AvatarFallback className="bg-orange-900/50 text-orange-200 text-[10px] rounded-full">
-                              {yesterdayResults.third_username.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{yesterdayResults.third_username}</div>
-                            <div className="text-[10px] text-zinc-500">
-                              ${yesterdayResults.third_prediction?.toLocaleString()}
-                              {isYesterdayExpanded && yesterdayResults.third_timestamp && (
-                                <span className="ml-1">• {formatTime(yesterdayResults.third_timestamp)} {getTimeLabel(yesterdayResults.third_timestamp)}</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-sm font-bold text-orange-400">{thirdPts}pts</div>
-                        </div>
-                      )
-                    })()}
+                    })}
+                    
+                    {/* Show All / Show Less buttons */}
+                    {leaderboard.length > 10 && (
+                      <button
+                        onClick={() => setYesterdayShowCount(
+                          yesterdayShowCount <= 10 ? leaderboard.length : 10
+                        )}
+                        className="w-full py-2 text-center text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                      >
+                        {yesterdayShowCount <= 10 ? (
+                          <span>📊 Show all {leaderboard.length} participants...</span>
+                        ) : (
+                          <span>▲ Show top 10</span>
+                        )}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-4">
