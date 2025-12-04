@@ -33,6 +33,7 @@ export default function RateChartPage() {
   const [currentBitcoinPrice, setCurrentBitcoinPrice] = useState(120000)
   const [isPriceLoading, setIsPriceLoading] = useState(true)
   const [midnightPrice, setMidnightPrice] = useState<number | null>(null)
+  const [midnightPriceTime, setMidnightPriceTime] = useState<Date | null>(null)
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
   const [timeUntilMidnight, setTimeUntilMidnight] = useState('')
   const [isPastMidnight, setIsPastMidnight] = useState(false)
@@ -122,29 +123,62 @@ export default function RateChartPage() {
   }, [])
 
   // Fetch midnight price for yesterday (only during Winners Period)
+  // Midnight Vienna = 23:00 UTC (winter) or 22:00 UTC (summer)
   useEffect(() => {
     const fetchMidnightPrice = async () => {
       const now = new Date()
       const viennaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
       const currentHour = viennaTime.getHours()
       
+      // Only fetch during Winners Period (00:00-08:00 Vienna)
       if (currentHour >= 8) return
       
       try {
+        console.log('[RATE-CHART] 🕛 Fetching midnight close price...')
+        
+        // Get hourly data for the last 48 hours to find exact midnight Vienna time
         const response = await fetch(
-          `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2&interval=daily`
+          `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2`
         )
         const data = await response.json()
         
-        if (data.prices && data.prices.length >= 2) {
-          const yesterdayPrice = data.prices[data.prices.length - 2]
-          const price = Math.round(yesterdayPrice[1])
+        if (data.prices && data.prices.length > 0) {
+          // Find the price closest to midnight Vienna time (00:00 today Vienna)
+          const midnightVienna = new Date(viennaTime)
+          midnightVienna.setHours(0, 0, 0, 0)
+          const midnightUTC = midnightVienna.getTime()
+          
+          console.log(`[RATE-CHART] 🕛 Looking for price at: ${midnightVienna.toISOString()} (Vienna midnight)`)
+          console.log(`[RATE-CHART] 🕛 Available data points: ${data.prices.length}`)
+          
+          // Find the closest price to midnight Vienna
+          let closestPrice = data.prices[0]
+          let closestDiff = Math.abs(data.prices[0][0] - midnightUTC)
+          
+          for (const pricePoint of data.prices) {
+            const diff = Math.abs(pricePoint[0] - midnightUTC)
+            if (diff < closestDiff) {
+              closestDiff = diff
+              closestPrice = pricePoint
+            }
+          }
+          
+          const priceTime = new Date(closestPrice[0])
+          const price = Math.round(closestPrice[1])
+          
+          console.log(`[RATE-CHART] 🕛 Closest price found:`)
+          console.log(`[RATE-CHART]    Time: ${priceTime.toISOString()} (${priceTime.toLocaleString('de-AT', { timeZone: 'Europe/Vienna' })} Vienna)`)
+          console.log(`[RATE-CHART]    Price: $${price.toLocaleString()}`)
+          console.log(`[RATE-CHART]    Diff from midnight: ${Math.round(closestDiff / 60000)} minutes`)
+          
           setMidnightPrice(price)
+          setMidnightPriceTime(priceTime)
         } else {
+          console.log('[RATE-CHART] ⚠️ No price data, using current price')
           setMidnightPrice(currentBitcoinPrice)
         }
       } catch (error) {
-        console.error('Error fetching midnight price:', error)
+        console.error('[RATE-CHART] ❌ Error fetching midnight price:', error)
         setMidnightPrice(currentBitcoinPrice)
       }
     }
@@ -1013,7 +1047,13 @@ export default function RateChartPage() {
                   </span>
                 </h2>
                 <p className="text-zinc-500 text-sm">
-                  Closest predictions to the midnight price of ${midnightPrice?.toLocaleString()}
+                  Closest predictions to the midnight close price of{' '}
+                  <span className="text-amber-400 font-bold">${midnightPrice?.toLocaleString()}</span>
+                  {midnightPriceTime && (
+                    <span className="text-zinc-600 ml-1">
+                      ({format(midnightPriceTime, 'HH:mm')} Vienna)
+                    </span>
+                  )}
                 </p>
               </div>
 
