@@ -34,35 +34,61 @@ import { streamObject } from 'ai'
 import { z } from 'zod'
 
 /**
+ * Schema for chart/image references
+ */
+const ChartImageSchema = z.object({
+  url: z.string().describe('Die vollständige URL zum Chart/Bild (TradingView S3 oder Snapshot URL)'),
+  caption: z.string().describe('Kurze Beschreibung was der Chart zeigt'),
+  author: z.string().optional().describe('Username der den Chart geteilt hat')
+})
+
+/**
+ * Schema for quotes with styling info
+ */
+const StyledQuoteSchema = z.object({
+  text: z.string().describe('Der Zitattext'),
+  from: z.string().describe('Username des Zitierten'),
+  context: z.string().optional().describe('Kurzer Kontext zum Zitat, z.B. "zur Frage ob BTC 100K erreicht"'),
+  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'humor']).optional().describe('Stimmung des Zitats')
+})
+
+/**
  * Schema for expanded article content
  */
 const ExpandedArticleSchema = z.object({
-  title: z.string().describe('Der Artikel-Titel (kann vom Original abweichen)'),
-  subtitle: z.string().describe('Ein prägnanter Untertitel'),
+  title: z.string().describe('Kurzer, prägnanter Titel'),
+  subtitle: z.string().describe('Ein Satz Untertitel'),
   
-  introduction: z.string().describe('Einleitender Absatz, 2-3 Sätze, der den Kontext setzt'),
+  // Header/Hero Image
+  headerImage: ChartImageSchema.optional().describe('Hauptbild - nur wenn Chart im Chat geteilt wurde'),
+  
+  introduction: z.string().describe('KURZ! Max 2 Sätze Einleitung'),
+  
+  // Featured quote at the top
+  featuredQuote: StyledQuoteSchema.optional().describe('Das beste Zitat - wird prominent angezeigt'),
   
   sections: z.array(z.object({
-    heading: z.string().describe('Überschrift des Abschnitts'),
-    content: z.string().describe('Der Inhalt des Abschnitts, 2-4 Absätze'),
-    quote: z.object({
-      text: z.string(),
-      from: z.string()
-    }).optional().describe('Optionales Zitat aus dem Chat')
-  })).min(2).max(4).describe('Die Hauptabschnitte des Artikels'),
+    heading: z.string().describe('Kurze Überschrift'),
+    content: z.string().describe('KURZ! Max 3-4 Sätze pro Abschnitt'),
+    quote: StyledQuoteSchema.optional().describe('Ein gutes Zitat'),
+    inlineImage: ChartImageSchema.optional().describe('Chart falls relevant')
+  })).min(2).max(3).describe('2-3 kurze Abschnitte'),
   
-  keyTakeaways: z.array(z.string()).min(2).max(4).describe('Die wichtigsten Erkenntnisse als Bullet Points'),
+  keyTakeaways: z.array(z.string()).min(2).max(3).describe('2-3 kurze Bullet Points'),
   
-  conclusion: z.string().describe('Abschließender Absatz mit Fazit'),
+  conclusion: z.string().describe('KURZ! Max 2 Sätze Fazit'),
   
-  relatedTopics: z.array(z.string()).min(2).max(4).describe('Verwandte Themen die im Chat diskutiert wurden'),
+  relatedTopics: z.array(z.string()).min(2).max(3).describe('2-3 verwandte Themen'),
   
-  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).describe('Allgemeine Stimmung im Chat zu diesem Thema'),
+  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).describe('Stimmung'),
   
   mentionedUsers: z.array(z.object({
     username: z.string(),
-    role: z.string().describe('z.B. "Hauptanalyst", "Kritiker", "Moderator"')
-  })).min(1).max(6).describe('Beteiligte User mit ihrer Rolle in der Diskussion')
+    role: z.string().describe('Rolle: Analyst, Kritiker, etc.')
+  })).min(1).max(4).describe('Beteiligte User'),
+  
+  // Additional images gallery
+  chartGallery: z.array(ChartImageSchema).max(2).optional().describe('Max 2 weitere Charts')
 })
 
 export type ExpandedArticleData = z.infer<typeof ExpandedArticleSchema>
@@ -72,30 +98,67 @@ export type ExpandedArticleData = z.infer<typeof ExpandedArticleSchema>
  */
 const EXPAND_ARTICLE_PROMPT = `Du bist Redakteur der "Financial Retarded Times" – einem Community-Marktbericht im Blog-Stil.
 
-AUFGABE: Erweitere die kurze Zusammenfassung zu einem vollständigen Artikel. Du hast Zugriff auf den Original-Chat, aus dem die Zusammenfassung erstellt wurde.
+AUFGABE: Erweitere die kurze Zusammenfassung zu einem KURZEN, prägnanten Artikel. Du hast Zugriff auf den Original-Chat.
 
 ═══════════════════════════════════════════════════════════════════════
-STIL-RICHTLINIEN
+⚠️ WICHTIG: HALTE DICH KURZ!
 ═══════════════════════════════════════════════════════════════════════
 
-STRUKTUR:
-• Einleitung: Setze den Kontext, warum dieses Thema relevant ist
-• 2-4 Hauptabschnitte: Vertiefe verschiedene Aspekte des Themas
-• Jeder Abschnitt kann ein prägnantes Zitat aus dem Chat enthalten
-• Key Takeaways: Die wichtigsten Punkte auf einen Blick
-• Fazit: Was bedeutet das für die Community?
+• Einleitung: MAX 2 Sätze
+• Jede Section: MAX 3-4 Sätze pro content
+• Fazit: MAX 2 Sätze
+• Lieber prägnant als ausschweifend!
+• Qualität > Quantität
+
+═══════════════════════════════════════════════════════════════════════
+STRUKTUR
+═══════════════════════════════════════════════════════════════════════
+
+• Einleitung: 1-2 Sätze Kontext
+• 2-3 kurze Abschnitte: Je ein Aspekt, ein gutes Zitat
+• Key Takeaways: 2-3 Bullet Points
+• Fazit: 1-2 Sätze
 
 TON & HALTUNG:
-• Analytisch, aber zugänglich – keine trockene Wissenschaft
-• Neutral bei Meinungsverschiedenheiten – beide Seiten darstellen
-• Trocken statt aufgeregt – Humor durch Understatement
-• Konkrete Zahlen und Fakten wenn möglich
-• Unsicherheiten benennen: "könnte", "potenziell", "falls sich bestätigt"
+• Analytisch und knapp
+• Neutral bei Meinungsverschiedenheiten
+• Konkrete Zahlen wenn möglich
+• Kein Fülltext!
 
-ZITATE:
-• Nutze echte Zitate aus dem Chat
-• Zitate sollten die Diskussion bereichern, nicht nur füllen
-• Formatierung: *"Zitat hier"* – Username
+═══════════════════════════════════════════════════════════════════════
+ZITATE - WICHTIG!
+═══════════════════════════════════════════════════════════════════════
+
+• Nutze echte Zitate aus dem Chat - NICHT erfinden!
+• Jedes Zitat hat: text, from (username), optional context und sentiment
+• sentiment: "bullish" | "bearish" | "neutral" | "humor"
+• Das featuredQuote ist das beste Zitat - wird groß und prominent angezeigt
+• Zitate in sections ergänzen den Inhalt, nicht nur füllen
+
+═══════════════════════════════════════════════════════════════════════
+CHARTS & BILDER - EXTREM WICHTIG!!!
+═══════════════════════════════════════════════════════════════════════
+
+Oben findest du eine Liste "VERFÜGBARE CHARTS" mit S3-URLs.
+
+⚠️⚠️⚠️ KOPIERE DIE URLs BUCHSTABE FÜR BUCHSTABE! ⚠️⚠️⚠️
+
+Beispiel aus der Liste:
+  [10:30] kultr: https://s3.tradingview.com/snapshots/o/oJtjLzGE.png
+
+Dann schreibst du:
+  headerImage: {
+    url: "https://s3.tradingview.com/snapshots/o/oJtjLzGE.png",  ← EXAKT SO!
+    caption: "Chart von kultr",
+    author: "kultr"
+  }
+
+❌ NIEMALS URLs selbst konstruieren oder verändern!
+❌ NIEMALS "s3.tradingview.com/x/..." schreiben!
+❌ NIEMALS URLs abkürzen oder zusammenbauen!
+✅ NUR Copy-Paste der EXAKTEN URL aus der Liste!
+
+Wenn keine Charts in der Liste sind → headerImage, inlineImage, chartGallery weglassen!
 
 COMMUNITY-FOKUS:
 • Erwähne die beteiligten User und ihre Rollen
@@ -103,7 +166,7 @@ COMMUNITY-FOKUS:
 • Beef neutral berichten – beide Seiten zu Wort kommen lassen
 
 ❌ VERMEIDE:
-• Erfundene Zitate oder Fakten
+• Erfundene Zitate, Fakten oder URLs
 • Übertriebene Dramatisierung
 • Partei ergreifen bei Meinungsverschiedenheiten
 • Cringe-Phrasen wie "MEGA!", "EPISCH!", "DRAMA!"
@@ -116,9 +179,53 @@ OUTPUT
 Erstelle einen strukturierten Artikel der:
 1. Das Thema vertieft und Kontext liefert
 2. Verschiedene Perspektiven aus dem Chat einbezieht
-3. Mit echten Zitaten untermauert ist
-4. Klare Takeaways bietet
-5. Die Community-Dynamik einfängt`
+3. Mit echten Zitaten untermauert ist (mit sentiment!)
+4. Charts aus dem Chat einbindet (nur echte URLs!)
+5. Klare Takeaways bietet
+6. Die Community-Dynamik einfängt`
+
+/**
+ * Chat message with optional meta data
+ */
+interface ChatMessageWithMeta {
+  username: string
+  text: string
+  time: string
+  meta?: {
+    type?: string
+    url?: string
+    preview_url?: string
+  }
+}
+
+/**
+ * Extract chart URLs from message text and meta
+ * Only returns direct S3 URLs that we know will work
+ */
+function extractChartUrls(message: ChatMessageWithMeta): string[] {
+  const urls: string[] = []
+  
+  // Check meta data for direct S3 URLs (these are the most reliable)
+  if (message.meta?.url && message.meta.url.includes('s3.tradingview.com/')) {
+    urls.push(message.meta.url)
+  }
+  if (message.meta?.preview_url && message.meta.preview_url.includes('s3.tradingview.com/')) {
+    urls.push(message.meta.preview_url)
+  }
+  
+  // Extract direct S3 URLs from text (most reliable)
+  const urlRegex = /https?:\/\/[^\s]+/g
+  const textUrls = message.text.match(urlRegex) || []
+  
+  for (const url of textUrls) {
+    // ONLY include direct S3 snapshot URLs - these work reliably
+    if (url.includes('s3.tradingview.com/snapshots/') && !url.includes('_thumb')) {
+      urls.push(url)
+    }
+  }
+  
+  return [...new Set(urls)] // Remove duplicates
+}
 
 /**
  * Fetch chat messages for context
@@ -127,8 +234,12 @@ async function fetchChatContext(
   supabase: Awaited<ReturnType<typeof createClient>>,
   date: string,
   dayRange: number = 1
-): Promise<{ messages: { username: string; text: string; time: string }[]; uniqueUsers: number }> {
-  const messages: { username: string; text: string; time: string }[] = []
+): Promise<{ 
+  messages: ChatMessageWithMeta[]
+  uniqueUsers: number
+  chartUrls: { url: string; username: string; time: string }[]
+}> {
+  const messages: ChatMessageWithMeta[] = []
   
   // Calculate date range
   const dates: string[] = [date]
@@ -141,14 +252,14 @@ async function fetchChatContext(
     }
   }
   
-  // Fetch messages for all dates
+  // Fetch messages for all dates (including meta for chart URLs)
   for (const d of dates) {
     const startOfDay = `${d}T00:00:00.000Z`
     const endOfDay = `${d}T23:59:59.999Z`
     
     const { data, error } = await supabase
       .from('tv_chat_messages')
-      .select('username, text, time')
+      .select('username, text, time, meta')
       .gte('time', startOfDay)
       .lte('time', endOfDay)
       .order('time', { ascending: true })
@@ -164,7 +275,16 @@ async function fetchChatContext(
   
   const uniqueUsers = new Set(messages.map(m => m.username)).size
   
-  return { messages, uniqueUsers }
+  // Extract all chart URLs with their authors
+  const chartUrls: { url: string; username: string; time: string }[] = []
+  for (const msg of messages) {
+    const urls = extractChartUrls(msg)
+    for (const url of urls) {
+      chartUrls.push({ url, username: msg.username, time: msg.time })
+    }
+  }
+  
+  return { messages, uniqueUsers, chartUrls }
 }
 
 /**
@@ -208,7 +328,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient()
     
     // Fetch chat context
-    const { messages, uniqueUsers } = await fetchChatContext(supabase, selectedDate, dayRange)
+    const { messages, uniqueUsers, chartUrls } = await fetchChatContext(supabase, selectedDate, dayRange)
     
     if (messages.length === 0) {
       return new Response(
@@ -229,6 +349,13 @@ export async function POST(request: NextRequest) {
       return `[${time}] ${msg.username}: ${msg.text}`
     }).join('\n')
     
+    // Format chart URLs for AI - make it super clear these are the ONLY valid URLs
+    const formattedCharts = chartUrls.length > 0 
+      ? chartUrls.map((c, i) => {
+          return `CHART ${i + 1}:\n  URL: ${c.url}\n  Author: ${c.username}`
+        }).join('\n\n')
+      : 'KEINE CHARTS VERFÜGBAR - keine Bilder verwenden!'
+    
     // Build context string
     let articleContext = `
 ═══════════════════════════════════════════════════════════════════════
@@ -243,6 +370,15 @@ ${contributors && contributors.length > 0 ? `Beteiligte: ${contributors.join(', 
 ${quote ? `Zitat: "${quote.text}" – ${quote.from}` : ''}
 
 ═══════════════════════════════════════════════════════════════════════
+⚠️ VERFÜGBARE CHART-URLS ZUM KOPIEREN (${chartUrls.length} gefunden)
+═══════════════════════════════════════════════════════════════════════
+
+${formattedCharts}
+
+⚠️ WICHTIG: Kopiere die URLs EXAKT wie oben gezeigt!
+⚠️ Erfinde KEINE eigenen URLs - nur diese hier funktionieren!
+
+═══════════════════════════════════════════════════════════════════════
 ORIGINAL CHAT-PROTOKOLL (${messages.length} Nachrichten von ${uniqueUsers} Usern)
 ═══════════════════════════════════════════════════════════════════════
 
@@ -254,6 +390,7 @@ AUFGABE
 
 Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
 - Nutze echte Zitate aus dem Chat-Protokoll
+- Binde verfügbare Charts als Bilder ein (headerImage, inlineImage, chartGallery)
 - Vertiefe das Thema mit verschiedenen Perspektiven
 - Fange die Community-Dynamik ein
 - Bleibe neutral bei Meinungsverschiedenheiten
@@ -262,13 +399,20 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
     console.log(`[EXPAND-ARTICLE] 📝 Expanding: "${headline}"`)
     console.log(`[EXPAND-ARTICLE]    Type: ${articleType}, Category: ${category}`)
     console.log(`[EXPAND-ARTICLE]    Chat context: ${messages.length} messages from ${uniqueUsers} users`)
+    console.log(`[EXPAND-ARTICLE]    Direct S3 chart URLs: ${chartUrls.length}`)
+    if (chartUrls.length > 0) {
+      console.log(`[EXPAND-ARTICLE]    URLs (only s3.tradingview.com/snapshots/...):`)
+      chartUrls.slice(0, 5).forEach(c => console.log(`      ✅ ${c.url} (by ${c.username})`))
+    } else {
+      console.log(`[EXPAND-ARTICLE]    ⚠️ No direct S3 URLs found - article will have no images`)
+    }
     
     // Stream AI response
     const result = streamObject({
       model: openai('gpt-5.1'),
       schema: ExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 2048, // Reduced for shorter articles
       prompt: articleContext,
     })
     
