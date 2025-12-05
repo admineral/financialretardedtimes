@@ -199,14 +199,8 @@ export default function PredictionMarket({
       }
     }
     
-    const allBettors = localStorage.getItem('market_all_bettors')
-    if (allBettors) {
-      try {
-        setTopBettors(JSON.parse(allBettors))
-      } catch {
-        setTopBettors([])
-      }
-    }
+    // Don't load topBettors from localStorage - always get fresh from API
+    // localStorage data can be corrupted or out of sync
   }, [userId, gameDate])
 
   const initializeLocalCredits = () => {
@@ -273,7 +267,11 @@ export default function PredictionMarket({
         }
         if (data.userBets) setUserBets(data.userBets)
         if (data.pools) setMarketPools(data.pools)
-        if (data.topBettors) setTopBettors(data.topBettors)
+        if (data.topBettors) {
+          setTopBettors(data.topBettors)
+          // Sync API data to localStorage to keep topBettors in sync
+          localStorage.setItem('market_all_bettors', JSON.stringify(data.topBettors))
+        }
         
         try {
           const creditsRes = await fetch(`/Rate-Chart/api/market/credits?userId=${userId}&history=true&historyLimit=20`)
@@ -299,6 +297,27 @@ export default function PredictionMarket({
     const interval = setInterval(fetchMarketData, 30000)
     return () => clearInterval(interval)
   }, [fetchMarketData])
+
+  // Clear corrupted localStorage on mount and force API refresh
+  useEffect(() => {
+    // Clear potentially corrupted localStorage to force fresh data from API
+    const storedBettors = localStorage.getItem('market_all_bettors')
+    if (storedBettors) {
+      try {
+        const bettors = JSON.parse(storedBettors)
+        // Check for corrupted data (values that look like decimals instead of integers)
+        const hasCorruptedData = bettors.some((b: { total_credits: number }) => 
+          b.total_credits > 0 && b.total_credits < 100
+        )
+        if (hasCorruptedData) {
+          console.log('[MARKET] Clearing corrupted localStorage data...')
+          localStorage.removeItem('market_all_bettors')
+        }
+      } catch {
+        localStorage.removeItem('market_all_bettors')
+      }
+    }
+  }, [])
 
   const calculateDynamicOdds = (username: string): number => {
     const pool = marketPools.find(p => p.target_username === username)
@@ -613,6 +632,26 @@ export default function PredictionMarket({
       
       localStorage.setItem(`market_bets_${gameDate}`, JSON.stringify(resolvedBets))
       setUserBets(resolvedBets)
+      
+      // Update topBettors with new credits after resolution
+      const bettors = JSON.parse(localStorage.getItem('market_all_bettors') || '[]')
+      const myIndex = bettors.findIndex((b: { user_identifier: string }) => b.user_identifier === userId)
+      if (myIndex >= 0) {
+        bettors[myIndex].total_credits = newCredits.total_credits
+        bettors[myIndex].total_bets_won = newCredits.total_bets_won
+        bettors[myIndex].best_streak = newCredits.best_streak
+      } else {
+        bettors.push({
+          user_identifier: userId,
+          display_name: newCredits.display_name,
+          total_credits: newCredits.total_credits,
+          total_bets_won: newCredits.total_bets_won,
+          best_streak: newCredits.best_streak
+        })
+      }
+      const sortedBettors = bettors.sort((a: { total_credits: number }, b: { total_credits: number }) => b.total_credits - a.total_credits)
+      localStorage.setItem('market_all_bettors', JSON.stringify(sortedBettors))
+      setTopBettors(sortedBettors)
       
       localStorage.setItem(resolvedKey, 'true')
     }
@@ -1127,12 +1166,71 @@ export default function PredictionMarket({
 
               {/* Top Bettors */}
               <div className="glass-card p-5 rounded-xl">
-                <h3 className="font-bold mb-4 flex items-center gap-2">
-                  <Trophy className="w-5 h-5 text-amber-400" />
-                  <span>Top Wetteiferer</span>
-                </h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                    <span>Top Wetteiferer</span>
+                  </h3>
+                  <button
+                    onClick={async () => {
+                      try {
+                        // First sync local user data to Supabase
+                        if (userCredits && userId) {
+                          console.log('[MARKET] Syncing local user to Supabase...')
+                          const syncRes = await fetch('/Rate-Chart/api/market/sync-user', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              userId,
+                              displayName: userCredits.display_name,
+                              totalCredits: userCredits.total_credits,
+                              availableCredits: userCredits.available_credits,
+                              totalBetsPlaced: userCredits.total_bets_placed,
+                              totalBetsWon: userCredits.total_bets_won,
+                              totalCreditsWon: userCredits.total_credits_won,
+                              totalCreditsLost: userCredits.total_credits_lost,
+                              bestWin: userCredits.best_win,
+                              currentStreak: userCredits.current_streak,
+                              bestStreak: userCredits.best_streak,
+                              bets: userBets.map(b => ({
+                                gameDate,
+                                targetUsername: b.target_username,
+                                betType: b.bet_type,
+                                betAmount: b.bet_amount,
+                                odds: b.odds,
+                                potentialPayout: b.potential_payout,
+                                status: b.status
+                              }))
+                            })
+                          })
+                          const syncData = await syncRes.json()
+                          console.log('[MARKET] Sync result:', syncData)
+                        }
+                        
+                        // Then recalculate all credits
+                        const res = await fetch('/Rate-Chart/api/market/recalculate', { method: 'POST' })
+                        const data = await res.json()
+                        console.log('[MARKET] Recalculate result:', data)
+                        
+                        if (data.success && data.updated_leaderboard) {
+                          setTopBettors(data.updated_leaderboard)
+                          localStorage.setItem('market_all_bettors', JSON.stringify(data.updated_leaderboard))
+                        }
+                        fetchMarketData()
+                      } catch (err) {
+                        console.error('[MARKET] Sync error:', err)
+                      }
+                    }}
+                    className="p-1.5 hover:bg-primary/10 rounded-lg text-muted-foreground hover:text-primary transition-all hover:rotate-180 duration-500"
+                    title="Sync credits to server"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
                 <div className="space-y-2">
-                  {topBettors.slice(0, 5).map((bettor, index) => (
+                  {topBettors.slice(0, 10).map((bettor, index) => (
                     <div key={bettor.user_identifier} className="flex items-center gap-3 p-2 rounded-lg hover:bg-card/50 transition-colors">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
                         index === 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :

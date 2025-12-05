@@ -13,6 +13,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import Link from 'next/link'
 import { Quote, ChevronRight, Sparkles, MessageCircle, Users, Zap } from 'lucide-react'
@@ -125,12 +126,18 @@ function ChartImageDisplay({
 }) {
   const imageUrl = getChartImageUrl(url)
   const [isOpen, setIsOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   
   const floatClasses = {
     left: 'float-left mr-6 mb-4',
     right: 'float-right ml-6 mb-4',
     none: 'mx-auto mb-6'
   }
+  
+  // Ensure we only use portal on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -145,6 +152,48 @@ function ChartImageDisplay({
       document.body.style.overflow = ''
     }
   }, [isOpen])
+  
+  const modalContent = isOpen && mounted ? (
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 backdrop-blur-md"
+      onClick={() => setIsOpen(false)}
+    >
+      <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={() => setIsOpen(false)}
+          className="absolute -top-12 right-0 text-muted-foreground hover:text-primary transition-colors flex items-center gap-2 text-sm"
+        >
+          <span>Schließen</span>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt={caption || 'Chart'}
+          className="max-w-full max-h-[85vh] object-contain rounded-sm border border-primary/30 shadow-2xl"
+        />
+        {(caption || author) && (
+          <div className="mt-4 text-center text-sm text-muted-foreground">
+            {caption}
+            {author && <span className="ml-2 font-medium text-primary">@{author}</span>}
+          </div>
+        )}
+        <a 
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          In TradingView öffnen
+        </a>
+      </div>
+    </div>
+  ) : null
   
   return (
     <>
@@ -171,48 +220,8 @@ function ChartImageDisplay({
         )}
       </figure>
       
-      {/* Lightbox Modal */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 backdrop-blur-md"
-          onClick={() => setIsOpen(false)}
-        >
-          <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="absolute -top-12 right-0 text-muted-foreground hover:text-primary transition-colors flex items-center gap-2 text-sm"
-            >
-              <span>Schließen</span>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt={caption || 'Chart'}
-              className="max-w-full max-h-[85vh] object-contain rounded-sm border border-primary/30 shadow-2xl"
-            />
-            {(caption || author) && (
-              <div className="mt-4 text-center text-sm text-muted-foreground">
-                {caption}
-                {author && <span className="ml-2 font-medium text-primary">@{author}</span>}
-              </div>
-            )}
-            <a 
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              In TradingView öffnen
-            </a>
-          </div>
-        </div>
-      )}
+      {/* Lightbox Modal - Rendered via Portal to escape container constraints */}
+      {mounted && modalContent && createPortal(modalContent, document.body)}
     </>
   )
 }
