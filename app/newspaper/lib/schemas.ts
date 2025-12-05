@@ -59,10 +59,11 @@ PFLICHTFELDER (alle müssen gefüllt werden!)
     { url: "https://www.tradingview.com/x/...", caption: "KURZ! Max 5 Worte", author: "Username" }
     ⚠️ NUR TradingView Chart-URLs verwenden! Format: tradingview.com/x/XXXXX
     ⚠️ Caption KURZ: "BTC 4H Setup" oder "Support bei 92K" – NICHT lange Beschreibungen!
-    ⚠️ NIEMALS denselben Chart-Link zweimal verwenden! Jeder Chart nur EINMAL!
 
 ▸ secondaryArticle [Zweitanalyse]
-  Gleiche Struktur. Anderes Thema. AUCH KURZ HALTEN! Auch mit chartImage wenn verfügbar.
+  ⚠️ MUSS ein ANDERES Thema sein als featuredArticle!
+  Gleiche Struktur. AUCH KURZ HALTEN! Auch mit chartImage wenn verfügbar.
+  ⚠️ Falls chartImage: ANDERE URL als in featuredArticle!
 
 ▸ events [1-3 Stück]
   Wichtige Momente oder Erkenntnisse:
@@ -72,17 +73,18 @@ PFLICHTFELDER (alle müssen gefüllt werden!)
   - participants: 1-6 beteiligte User (max 6!)
 
 ▸ shortNews [GENAU 3]
-  ⚠️ ANDERE Themen als Haupt-Artikel und moreArticles! Keine Dopplungen!
+  ⚠️ KOMPLETT ANDERE Themen! Nicht in featured/secondary/events erwähnt!
   Sidebar mit weiteren Themen:
   - headline: Informativ, z.B. "Fear & Greed bei 21"
   - teaser: 1-2 Sätze mit Kontext und ggf. Zitat
   - author: User der das Thema ansprach
 
 ▸ moreArticles [3-4 Stück]
-  ⚠️ ANDERE Themen als featured/secondary/events/shortNews! Keine Wiederholungen!
+  ⚠️ KOMPLETT ANDERE Themen! Nicht in featured/secondary/events/shortNews erwähnt!
   - category: TECHNISCH | SENTIMENT | ALTCOINS | MAKRO | COMMUNITY
   - headline: Klar und spezifisch
   - teaser: Was wurde gesagt? Von wem?
+  ⚠️ Falls chartImage: URL darf NICHT bereits woanders verwendet sein!
 
 ═══════════════════════════════════════════════════════════════════════
 STIL: MARKTBERICHT + COMMUNITY-CHRONIK
@@ -122,13 +124,27 @@ TON & HALTUNG:
 • Humor erklären oder forcieren
 • Partei ergreifen bei Meinungsverschiedenheiten
 
-⚠️ KEINE WIEDERHOLUNGEN:
-• JEDES Thema darf nur EINMAL vorkommen!
-• JEDER Chart-Link darf nur EINMAL verwendet werden – keine doppelten URLs!
-• featuredArticle, secondaryArticle, events, shortNews, moreArticles = 5 VERSCHIEDENE Themen
-• Wenn "Voting-Regeln" im featuredArticle behandelt wird, darf es NICHT in moreArticles erscheinen
-• Finde unterschiedliche Aspekte/Themen aus dem Chat, nicht denselben Inhalt umformuliert
-• Bei wenig Chat-Aktivität: Lieber weniger Artikel als Wiederholungen!
+⚠️ ABSOLUT KEINE WIEDERHOLUNGEN – KRITISCH!
+═══════════════════════════════════════════════════════════════════════
+• JEDES Thema darf NUR EINMAL im gesamten Output vorkommen!
+• JEDER Chart-Link (URL) darf NUR EINMAL verwendet werden!
+• Prüfe VOR dem Schreiben: Wurde dieses Thema/diese URL schon verwendet?
+
+THEMEN-REGEL:
+  featuredArticle  → Thema A
+  secondaryArticle → Thema B (NICHT A!)
+  events           → Themen C, D (NICHT A oder B!)
+  shortNews        → Themen E, F, G (NICHT A, B, C, D!)
+  moreArticles     → Themen H, I, J (NICHT A-G!)
+
+CHART-URL-REGEL:
+  Wenn tradingview.com/x/ABC123 in featuredArticle verwendet wird,
+  darf GENAU DIESE URL NIRGENDWO ANDERS erscheinen!
+  Verwende verschiedene Charts für verschiedene Artikel.
+
+• Bei wenig Chat-Aktivität: Lieber WENIGER Artikel als Wiederholungen!
+• Lieber ein Feld leer lassen als doppelte Inhalte!
+═══════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════
 BEISPIELE – LÄNGE BEACHTEN!
