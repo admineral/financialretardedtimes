@@ -1769,6 +1769,9 @@ export default function RateChartPage() {
                   {leaderboard.map((entry, index) => {
                     const priceDiff = getPriceDiff(entry.latestGuess)
                     const timeBonus = getTimeBonusLabel(entry.guesses[0]?.timeBonus || 0)
+                    // Calculate odds based on position - early submitters get better odds
+                    const odds = Math.max(1.5, Math.min(12, 1.5 + index * 0.6))
+                    const probability = Math.round((1 / odds) * 100)
                     
                     return (
                       <div key={entry.username}>
@@ -1840,7 +1843,44 @@ export default function RateChartPage() {
                               </div>
                             </div>
 
-                            {/* Price */}
+                            {/* Prediction Market Odds - Polymarket Style */}
+                            {!isPastMidnight && (
+                              <div className="hidden sm:flex items-center gap-2 mr-2">
+                                {/* Hot indicator for top 3 */}
+                                {index < 3 && (
+                                  <span className="text-orange-500 animate-pulse text-sm">🔥</span>
+                                )}
+                                {/* Probability bar */}
+                                <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                                    style={{ width: `${probability}%` }}
+                                  />
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setViewMode('market')
+                                    track('ratechart_quick_bet', { username: entry.username, type: 'yes', odds })
+                                  }}
+                                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/30 hover:border-emerald-500/60 hover:scale-105 transition-all"
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setViewMode('market')
+                                    track('ratechart_quick_bet', { username: entry.username, type: 'no', odds })
+                                  }}
+                                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30 hover:border-red-500/60 hover:scale-105 transition-all"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Price or Odds indicator */}
                             <div className="text-right">
                               {isRevealed ? (
                                 <>
@@ -1851,8 +1891,13 @@ export default function RateChartPage() {
                                 </>
                               ) : (
                                 <div className="flex flex-col items-end gap-0.5">
-                                  <div className="text-xl font-bold text-zinc-600">🔒 ???</div>
-                                  <div className="text-[10px] text-zinc-600">Reveal @ 23:00</div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-right">
+                                      <div className="text-lg font-black text-amber-400 tabular-nums">{probability}%</div>
+                                      <div className="text-[10px] text-zinc-500">{odds.toFixed(1)}x odds</div>
+                                    </div>
+                                    <div className="text-xl font-bold text-zinc-600">🔒</div>
+                                  </div>
                                 </div>
                               )}
                             </div>
