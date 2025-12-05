@@ -97,6 +97,8 @@ export default function RateChartPage() {
   // TEST MODE - Simulate different time periods (only visible if server env allows)
   const [testModeEnabled, setTestModeEnabled] = useState(false)
   const [testMode, setTestMode] = useState<string | null>(null)
+  const [isResettingData, setIsResettingData] = useState(false)
+  const [resetMessage, setResetMessage] = useState<string | null>(null)
   const testModeOptions = [
     { value: null, label: '🔴 Live (Real Time)', hour: null },
     { value: 'morning', label: '☀️ Morning (10:00) - Hidden', hour: 10 },
@@ -208,6 +210,44 @@ export default function RateChartPage() {
       console.error('[RATE-CHART] Failed to fetch leaderboard:', error)
     } finally {
       setIsLeaderboardLoading(false)
+    }
+  }
+
+  // Reset all prediction market data (admin function)
+  const handleResetMarketData = async () => {
+    if (!confirm('⚠️ This will DELETE all prediction market data:\n\n• All users and credits\n• All bets\n• All transaction history\n\nThis cannot be undone. Continue?')) {
+      return
+    }
+    
+    setIsResettingData(true)
+    setResetMessage(null)
+    
+    try {
+      const response = await fetch('/Rate-Chart/api/admin/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'RESET_ALL_DATA' })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
+        // Clear localStorage market data
+        Object.keys(localStorage).filter(k => k.startsWith('market_')).forEach(k => localStorage.removeItem(k))
+        
+        setResetMessage('✅ All data reset! Refresh page to start fresh.')
+        
+        // Auto-refresh after 2 seconds
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+      } else {
+        setResetMessage(`❌ Error: ${data.error || 'Failed to reset'}`)
+      }
+    } catch (error) {
+      setResetMessage('❌ Failed to connect to server')
+    } finally {
+      setIsResettingData(false)
     }
   }
   
@@ -1531,6 +1571,18 @@ export default function RateChartPage() {
                 >
                   Exit Test Mode
                 </button>
+                <button
+                  onClick={handleResetMarketData}
+                  disabled={isResettingData}
+                  className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 disabled:opacity-50"
+                >
+                  {isResettingData ? '🗑️ Resetting...' : '🗑️ Reset Market Data'}
+                </button>
+                {resetMessage && (
+                  <span className={resetMessage.includes('✅') ? 'text-emerald-400' : 'text-red-400'}>
+                    {resetMessage}
+                  </span>
+                )}
               </div>
             </div>
           </div>
