@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { formatDistanceToNow, format } from 'date-fns'
+import { track } from '@vercel/analytics'
 import { ChatMessage } from '../Test/types'
 
 interface PriceGuess {
@@ -144,11 +145,14 @@ export default function RateChartPage() {
     return simulatedHour >= 0 && simulatedHour < 8
   }, [testMode, simulatedHour, isMounted, testModeEnabled])
 
-  // Mark as mounted on client side
+  // Mark as mounted on client side and track page view
   useEffect(() => {
     setIsMounted(true)
     setNextRefreshTime(Date.now() + 5 * 60 * 1000)
     setCurrentTime(new Date())
+    
+    // Track page view
+    track('ratechart_page_view', { source: 'direct' })
     
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date())
@@ -1287,6 +1291,7 @@ export default function RateChartPage() {
                 <button
                   onClick={async () => {
                     if (!isRefreshing && fetchMessages) {
+                      track('ratechart_refresh', { type: 'database' })
                       setIsRefreshing(true)
                       setLoadingStatus('Refreshing from database...')
                       try {
@@ -1322,6 +1327,7 @@ export default function RateChartPage() {
                 <button
                   onClick={async () => {
                     if (!isRefreshing) {
+                      track('ratechart_refresh', { type: 'tradingview_sync' })
                       setIsRefreshing(true)
                       setLoadingStatus('⚡ Syncing from TradingView...')
                       try {
@@ -1690,7 +1696,17 @@ export default function RateChartPage() {
                             {/* Info */}
                             <div className="flex-1 min-w-0">
                               <button
-                                onClick={() => isRevealed && setSelectedUser(selectedUser === entry.username ? null : entry.username)}
+                                onClick={() => {
+                                  if (isRevealed) {
+                                    const isExpanding = selectedUser !== entry.username
+                                    setSelectedUser(selectedUser === entry.username ? null : entry.username)
+                                    track('ratechart_user_select', { 
+                                      username: entry.username, 
+                                      action: isExpanding ? 'expand' : 'collapse',
+                                      guessCount: entry.guessCount 
+                                    })
+                                  }
+                                }}
                                 className={`font-bold text-left text-sm ${isRevealed ? 'hover:text-orange-400 cursor-pointer' : ''}`}
                               >
                                 {entry.username}
@@ -1788,7 +1804,11 @@ export default function RateChartPage() {
               {/* All-Time Leaderboard Widget */}
               <div className="p-4 bg-gradient-to-br from-amber-500/5 to-orange-500/5 border border-amber-500/20 rounded-2xl">
                 <button 
-                  onClick={() => setIsAllTimeExpanded(!isAllTimeExpanded)}
+                  onClick={() => {
+                    const newState = !isAllTimeExpanded
+                    setIsAllTimeExpanded(newState)
+                    track('ratechart_alltime_toggle', { expanded: newState, playerCount: allTimeLeaderboard.length })
+                  }}
                   className="w-full flex items-center justify-between mb-3 hover:opacity-80 transition-opacity"
                 >
                   <div className="flex items-center gap-2">
@@ -1867,7 +1887,10 @@ export default function RateChartPage() {
                     {/* Load All Button */}
                     {allTimeLeaderboard.length >= allTimeLimit && (
                       <button
-                        onClick={loadMoreAllTime}
+                        onClick={() => {
+                          track('ratechart_load_more_alltime', { currentCount: allTimeLeaderboard.length })
+                          loadMoreAllTime()
+                        }}
                         disabled={isLoadingMoreAllTime}
                         className="w-full py-2 text-center text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-50"
                       >
@@ -2053,9 +2076,14 @@ export default function RateChartPage() {
                       
                       {leaderboard.length > 10 && (
                         <button
-                          onClick={() => setYesterdayShowCount(
-                            yesterdayShowCount <= 10 ? leaderboard.length : 10
-                          )}
+                          onClick={() => {
+                            const isExpanding = yesterdayShowCount <= 10
+                            setYesterdayShowCount(isExpanding ? leaderboard.length : 10)
+                            track('ratechart_yesterday_toggle', { 
+                              action: isExpanding ? 'show_all' : 'show_top_10',
+                              totalParticipants: leaderboard.length
+                            })
+                          }}
                           className="w-full py-2 text-center text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
                         >
                           {yesterdayShowCount <= 10 ? (

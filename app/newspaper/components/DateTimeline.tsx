@@ -30,6 +30,7 @@
 
 import { useRef, useState, useEffect } from 'react'
 import Link from 'next/link'
+import { track } from '@vercel/analytics'
 import { 
   CalendarIcon, 
   ChevronLeftIcon, 
@@ -113,6 +114,8 @@ export function DateTimeline({
     } else {
       setScrollIndex(prev => Math.min(Math.max(0, availableDates.length - visibleCount), prev + 1))
     }
+    // Track timeline navigation
+    track('newspaper_timeline_scroll', { direction })
   }
   
   // Reset scroll index when dates change significantly
@@ -375,7 +378,10 @@ export function DateTimeline({
                 />
               ) : (
                 <button 
-                  onClick={() => setSearchOpen(true)}
+                  onClick={() => {
+                    setSearchOpen(true)
+                    track('newspaper_search_open')
+                  }}
                   className="p-1.5 hover:bg-muted rounded transition-colors"
                   aria-label="Search"
                 >
@@ -400,6 +406,7 @@ export function DateTimeline({
             {/* Rate-Chart Link */}
             <Link 
               href="/Rate-Chart"
+              onClick={() => track('newspaper_nav_link', { destination: 'rate-chart', source: 'timeline' })}
               className="flex items-center gap-1 px-2 py-1 text-[11px] font-headline hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground"
             >
               <BarChart3Icon className="h-3.5 w-3.5" />
@@ -409,6 +416,7 @@ export function DateTimeline({
             {/* Chat Link */}
             <Link 
               href="/Test"
+              onClick={() => track('newspaper_nav_link', { destination: 'chat', source: 'timeline' })}
               className="flex items-center gap-1 px-2 py-1 text-[11px] font-headline hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground"
             >
               <MessageSquareIcon className="h-3.5 w-3.5" />

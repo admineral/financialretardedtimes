@@ -27,6 +27,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { SparklesIcon } from 'lucide-react'
+import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
   NewspaperContent,
@@ -122,6 +123,13 @@ export default function NewspaperPage() {
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
 
   /**
+   * Track page view on mount
+   */
+  useEffect(() => {
+    track('newspaper_page_view', { source: 'direct' })
+  }, [])
+
+  /**
    * Fetch BTC market data from our API proxy
    * Refreshes every 60 seconds
    */
@@ -181,11 +189,22 @@ export default function NewspaperPage() {
     if (dayRange === 1) {
       setSelectedDates([date])
     }
+    // Track date selection
+    track('newspaper_date_select', { 
+      date,
+      dayRange,
+      source: 'timeline'
+    })
   }, [dayRange])
   
   const handleDayRangeChange = useCallback((days: DayRange, dates: string[]) => {
     setDayRange(days)
     setSelectedDates(dates)
+    // Track day range change
+    track('newspaper_day_range_change', { 
+      dayRange: days,
+      datesCount: dates.length
+    })
   }, [])
 
   const handleLoadingChange = useCallback((loading: boolean) => {
@@ -198,7 +217,12 @@ export default function NewspaperPage() {
   
   const handleRefresh = useCallback(() => {
     setRefreshKey(k => k + 1)
-  }, [])
+    // Track manual refresh
+    track('newspaper_refresh', { 
+      selectedDate: selectedDate || 'none',
+      dayRange
+    })
+  }, [selectedDate, dayRange])
   
   const handleCacheInfoChange = useCallback((info: CacheInfo | null) => {
     setCacheInfo(info)
@@ -352,7 +376,10 @@ export default function NewspaperPage() {
                     placeholder="E-Mail Adresse" 
                     className="flex-1 px-3 py-1.5 text-xs font-body bg-background border border-foreground/20 focus:outline-none focus:border-primary/50"
                   />
-                  <button className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-headline tracking-wide hover:bg-primary/90 transition-colors">
+                  <button 
+                    onClick={() => track('newspaper_newsletter_click', { location: 'sidebar' })}
+                    className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-headline tracking-wide hover:bg-primary/90 transition-colors"
+                  >
                     OK
                   </button>
                 </div>
@@ -390,13 +417,13 @@ export default function NewspaperPage() {
           {/* Links Row */}
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-4 text-sm font-body">
             <span className="text-muted-foreground">Rubriken:</span>
-            <span className="hover:text-primary cursor-pointer transition-colors">Diskussionen</span>
-            <span className="hover:text-primary cursor-pointer transition-colors">Analysen</span>
-            <span className="hover:text-primary cursor-pointer transition-colors">Meinungen</span>
-            <span className="hover:text-primary cursor-pointer transition-colors">Highlights</span>
+            <span onClick={() => track('newspaper_nav_click', { section: 'diskussionen' })} className="hover:text-primary cursor-pointer transition-colors">Diskussionen</span>
+            <span onClick={() => track('newspaper_nav_click', { section: 'analysen' })} className="hover:text-primary cursor-pointer transition-colors">Analysen</span>
+            <span onClick={() => track('newspaper_nav_click', { section: 'meinungen' })} className="hover:text-primary cursor-pointer transition-colors">Meinungen</span>
+            <span onClick={() => track('newspaper_nav_click', { section: 'highlights' })} className="hover:text-primary cursor-pointer transition-colors">Highlights</span>
             <span className="text-foreground/30">|</span>
             <span className="text-muted-foreground">Community:</span>
-            <span className="hover:text-primary cursor-pointer transition-colors">Top Beitragende</span>
+            <span onClick={() => track('newspaper_nav_click', { section: 'top_beitragende' })} className="hover:text-primary cursor-pointer transition-colors">Top Beitragende</span>
           </div>
           
           {/* Copyright */}
