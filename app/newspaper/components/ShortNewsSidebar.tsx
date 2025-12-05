@@ -1,26 +1,17 @@
 /**
  * ShortNewsSidebar.tsx
  * 
- * Right sidebar section displaying brief news updates.
+ * REDESIGNED: Premium dark edition short news cards
  * 
- * LOCAL: Renders a list of 3 short news items with:
- * - Author username
- * - Headline (clickable)
- * - Brief teaser text
- * Uses fixed-height slots to prevent layout shifts during streaming.
- * 
- * GLOBAL: Part of the right sidebar, receives data from the parent page.
- * Provides quick snippets for users who want a fast overview.
- * 
- * EXPORTS: ShortNewsSidebar (React component)
- * 
- * PROPS:
- * - data: Partial<UnifiedNewspaperData> | undefined - Shared newspaper data
- * - isLoading: boolean - Whether content is currently loading
+ * Features:
+ * - Compact news cards with gold accents
+ * - Elegant typography
+ * - Smooth loading animations
  */
 
 'use client'
 
+import { Newspaper } from 'lucide-react'
 import type { UnifiedNewspaperData } from '../lib/types'
 
 interface ShortNewsSidebarProps {
@@ -28,55 +19,62 @@ interface ShortNewsSidebarProps {
   isLoading: boolean
 }
 
-/**
- * Inline skeleton that maintains the same height as text
- */
-function InlineSkeleton({ width = 'w-24' }: { width?: string }) {
-  return (
-    <span className={`inline-block animate-pulse bg-muted/60 rounded h-[1em] ${width} align-middle`} />
-  )
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-primary/10 rounded ${className}`} />
 }
 
 export function ShortNewsSidebar({ data, isLoading }: ShortNewsSidebarProps) {
   return (
-    <div className="hidden lg:block mb-6">
+    <div className="glass-card p-5 rounded-sm hidden lg:block">
       {/* Section Header */}
-      <div className="flex items-center justify-between mb-4 pb-2 border-b border-foreground/20">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-wider">
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-primary/20">
+        <Newspaper className="w-4 h-4 text-primary/70" />
+        <h3 className="font-headline text-sm font-bold uppercase tracking-wider gold-text">
           Kurzmeldungen
         </h3>
       </div>
       
-      {/* Always render 3 fixed slots to prevent layout shifts */}
-      {[0, 1, 2].map((slotIdx) => {
-        const news = data?.shortNews?.[slotIdx]
-        
-        return (
-          <article 
-            key={slotIdx} 
-            className={`mb-4 pb-4 border-b border-foreground/10 min-h-[80px] transition-opacity duration-300 ${
-              !news && !isLoading ? 'opacity-0 h-0 min-h-0 pb-0 mb-0 border-0 overflow-hidden' : ''
-            }`}
-          >
-            {/* Author */}
-            <div className="flex items-center gap-2 mb-1 min-h-[16px]">
-              <span className="text-xs text-muted-foreground">
-                {news?.author ? `@${news.author}` : <InlineSkeleton width="w-20" />}
-              </span>
-            </div>
-            
-            {/* Headline */}
-            <h4 className="font-headline text-sm font-semibold leading-snug hover:text-primary/80 cursor-pointer min-h-[1.4em]">
-              {news?.headline || <InlineSkeleton width="w-full" />}
-            </h4>
-            
-            {/* Teaser */}
-            <p className="text-xs text-muted-foreground font-body mt-1 min-h-[2em]">
-              {news?.teaser || <><InlineSkeleton width="w-full" /> <InlineSkeleton width="w-3/4" /></>}
-            </p>
-          </article>
-        )
-      })}
+      {/* News Items */}
+      <div className="space-y-4">
+        {[0, 1, 2].map((slotIdx) => {
+          const news = data?.shortNews?.[slotIdx]
+          
+          if (!news && !isLoading) return null
+          
+          return (
+            <article 
+              key={slotIdx} 
+              className={`
+                stagger-item pb-4 border-b border-primary/10 last:border-0 last:pb-0
+                ${!news && !isLoading ? 'hidden' : ''}
+              `}
+              style={{ animationDelay: `${slotIdx * 100}ms` }}
+            >
+              {/* Author */}
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[11px] text-primary/70 font-mono">
+                  {news?.author ? `@${news.author}` : <Skeleton className="w-16 h-3" />}
+                </span>
+              </div>
+              
+              {/* Headline */}
+              <h4 className="font-headline text-sm font-semibold leading-snug text-foreground hover:text-primary/90 cursor-pointer transition-colors">
+                {news?.headline || <Skeleton className="w-full h-4" />}
+              </h4>
+              
+              {/* Teaser */}
+              <div className="text-xs text-muted-foreground font-body mt-1.5 leading-relaxed line-clamp-2">
+                {news?.teaser || (
+                  <>
+                    <Skeleton className="w-full h-3 mb-1" />
+                    <Skeleton className="w-3/4 h-3" />
+                  </>
+                )}
+              </div>
+            </article>
+          )
+        })}
+      </div>
     </div>
   )
 }

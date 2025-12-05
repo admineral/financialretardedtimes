@@ -17,6 +17,7 @@ interface BTCResponse {
   high24h: number
   low24h: number
   ath: number
+  cachedAt: number
 }
 
 // Cache the response for 30 seconds to reduce API calls
@@ -59,7 +60,8 @@ export async function GET() {
       change30d: data.market_data.price_change_percentage_30d,
       high24h: data.market_data.high_24h.usd,
       low24h: data.market_data.low_24h.usd,
-      ath: data.market_data.ath.usd
+      ath: data.market_data.ath.usd,
+      cachedAt: now
     }
 
     // Update cache

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, formatDistanceToNow } from 'date-fns'
+import { Coins, ChevronDown, Gift, Target, Flame, Trophy, User, X, Check } from 'lucide-react'
 
 interface UserCredits {
   user_identifier: string
@@ -37,7 +38,6 @@ interface ActiveBet {
   game_date: string
 }
 
-// Generate unique user ID for localStorage
 function getUserId(): string {
   if (typeof window === 'undefined') return 'server'
   
@@ -65,12 +65,10 @@ export default function CreditsDisplay() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
 
-  // Initialize user ID
   useEffect(() => {
     setUserId(getUserId())
   }, [])
 
-  // Fetch credits and history
   const fetchCredits = useCallback(async (includeHistory = false) => {
     if (!userId) return
     
@@ -81,7 +79,6 @@ export default function CreditsDisplay() {
       
       if (response.ok && data.credits) {
         setCredits(data.credits)
-        // Save to localStorage for quick access
         localStorage.setItem('market_credits', JSON.stringify({
           available: data.credits.available_credits,
           total: data.credits.total_credits,
@@ -89,13 +86,10 @@ export default function CreditsDisplay() {
           timestamp: Date.now()
         }))
       } else {
-        // API error - use localStorage fallback
-        console.warn('[CREDITS] API returned error, using localStorage fallback')
         loadFromLocalStorage()
       }
       if (data.history) {
         setTransactions(data.history)
-        // Sync to localStorage so PredictionMarket can also see them
         localStorage.setItem('market_transactions', JSON.stringify(data.history.slice(0, 50)))
       }
       if (data.activeBets) setActiveBets(data.activeBets)
@@ -107,7 +101,6 @@ export default function CreditsDisplay() {
     }
   }, [userId])
 
-  // Load credits from localStorage (fallback when DB not available)
   const loadFromLocalStorage = () => {
     const cached = localStorage.getItem('market_credits')
     if (cached) {
@@ -134,7 +127,6 @@ export default function CreditsDisplay() {
     }
   }
 
-  // Generate a local nickname
   const generateLocalNickname = () => {
     const adjectives = ['Lucky', 'Swift', 'Bold', 'Crypto', 'Diamond', 'Golden', 'Mighty', 'Epic']
     const nouns = ['Trader', 'Whale', 'Bull', 'Wolf', 'Dragon', 'Hodler', 'Degen', 'Legend']
@@ -144,7 +136,6 @@ export default function CreditsDisplay() {
     return `${adj}${noun}${num}`
   }
 
-  // Initialize credits in localStorage for new users
   const initializeLocalCredits = () => {
     const nickname = generateLocalNickname()
     const newCredits = {
@@ -167,7 +158,6 @@ export default function CreditsDisplay() {
       display_name: nickname,
       timestamp: Date.now()
     }))
-    // Also add welcome transaction to localStorage
     const txns = [{
       id: `local_${Date.now()}`,
       transaction_type: 'initial_credits',
@@ -180,19 +170,16 @@ export default function CreditsDisplay() {
     setTransactions(txns)
   }
 
-  // Initial fetch (without history)
   useEffect(() => {
     fetchCredits(false)
   }, [fetchCredits])
 
-  // Fetch history when dropdown opens
   useEffect(() => {
     if (isOpen) {
       fetchCredits(true)
     }
   }, [isOpen, fetchCredits])
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -204,21 +191,18 @@ export default function CreditsDisplay() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Initialize nickname when credits load
   useEffect(() => {
     if (credits?.display_name) {
       setNickname(credits.display_name)
     }
   }, [credits?.display_name])
 
-  // Focus nickname input when editing starts
   useEffect(() => {
     if (isEditingNickname && nicknameInputRef.current) {
       nicknameInputRef.current.focus()
     }
   }, [isEditingNickname])
 
-  // Save nickname
   const handleSaveNickname = async () => {
     if (!userId || savingNickname) return
     
@@ -234,7 +218,6 @@ export default function CreditsDisplay() {
       return
     }
     
-    // Check for invalid characters
     if (!/^[a-zA-Z0-9_\-.\s]+$/.test(trimmedNickname)) {
       setNicknameError('Only letters, numbers, spaces, and _-. allowed')
       return
@@ -258,8 +241,7 @@ export default function CreditsDisplay() {
       
       if (response.ok && data.success) {
         setIsEditingNickname(false)
-        fetchCredits(false) // Refresh credits to get updated display_name
-        // Also update localStorage for quick access
+        fetchCredits(false)
         localStorage.setItem('market_nickname', trimmedNickname)
       } else {
         setNicknameError(data.error || 'Failed to save nickname')
@@ -271,14 +253,12 @@ export default function CreditsDisplay() {
     }
   }
 
-  // Cancel nickname editing
   const handleCancelNickname = () => {
     setNickname(credits?.display_name || '')
     setIsEditingNickname(false)
     setNicknameError(null)
   }
 
-  // Claim daily bonus
   const handleClaimBonus = async () => {
     if (!userId || claimingBonus) return
     
@@ -295,9 +275,8 @@ export default function CreditsDisplay() {
       const data = await response.json()
       
       if (response.ok && data.success) {
-        setBonusMessage(`+${data.bonusAmount} credits claimed!`)
+        setBonusMessage(`+${data.bonusAmount} credits!`)
         
-        // Save transaction to localStorage so it shows in both views
         const txns = JSON.parse(localStorage.getItem('market_transactions') || '[]')
         txns.unshift({
           id: `bonus_${Date.now()}`,
@@ -310,24 +289,23 @@ export default function CreditsDisplay() {
         localStorage.setItem('market_transactions', JSON.stringify(txns.slice(0, 50)))
         setTransactions(txns.slice(0, 20))
         
-        // Also update local credits cache
         const cached = JSON.parse(localStorage.getItem('market_credits') || '{}')
         cached.available = (cached.available || 0) + (data.bonusAmount || 100)
         cached.total = (cached.total || 0) + (data.bonusAmount || 100)
         cached.timestamp = Date.now()
         localStorage.setItem('market_credits', JSON.stringify(cached))
         
-        fetchCredits(true) // Refresh with history
+        fetchCredits(true)
         setTimeout(() => setBonusMessage(null), 3000)
       } else if (data.alreadyClaimed) {
-        setBonusMessage('Already claimed today!')
+        setBonusMessage('Schon abgeholt!')
         setTimeout(() => setBonusMessage(null), 3000)
       } else {
-        setBonusMessage(data.error || 'Failed to claim')
+        setBonusMessage(data.error || 'Fehler')
         setTimeout(() => setBonusMessage(null), 3000)
       }
     } catch (err) {
-      setBonusMessage('Error claiming bonus')
+      setBonusMessage('Fehler')
       setTimeout(() => setBonusMessage(null), 3000)
     } finally {
       setClaimingBonus(false)
@@ -349,14 +327,14 @@ export default function CreditsDisplay() {
   const getTransactionColor = (type: string, amount: number) => {
     if (amount > 0) return 'text-emerald-400'
     if (amount < 0) return 'text-red-400'
-    return 'text-zinc-400'
+    return 'text-muted-foreground'
   }
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 rounded-lg border border-zinc-700 animate-pulse">
-        <div className="w-4 h-4 bg-zinc-700 rounded" />
-        <div className="w-12 h-4 bg-zinc-700 rounded" />
+      <div className="flex items-center gap-2 px-3 py-1.5 glass-card rounded-lg animate-pulse">
+        <div className="w-4 h-4 bg-primary/20 rounded" />
+        <div className="w-12 h-4 bg-primary/20 rounded" />
       </div>
     )
   }
@@ -368,29 +346,22 @@ export default function CreditsDisplay() {
         onClick={() => setIsOpen(!isOpen)}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
           isOpen
-            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-            : 'bg-zinc-800/50 border-zinc-700 text-zinc-300 hover:border-zinc-600 hover:text-white'
+            ? 'glass-card-gold border-primary/50'
+            : 'glass-card border-primary/20 hover:border-primary/40'
         }`}
       >
-        <span className="text-sm">💰</span>
-        <span className="font-bold tabular-nums text-sm">
+        <Coins className="w-4 h-4 text-primary" />
+        <span className="font-bold tabular-nums text-sm gold-text">
           {credits?.available_credits?.toLocaleString() || '1,000'}
         </span>
-        <svg 
-          className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
-          fill="none" 
-          viewBox="0 0 24 24" 
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`w-3 h-3 transition-transform text-muted-foreground ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-80 glass-card border border-primary/30 rounded-xl shadow-2xl z-50 overflow-hidden">
           {/* Header */}
-          <div className="p-4 bg-gradient-to-r from-emerald-900/30 to-teal-900/30 border-b border-zinc-700">
+          <div className="p-4 bg-gradient-to-r from-primary/10 to-amber-500/10 border-b border-primary/20">
             {/* Nickname Section */}
             <div className="mb-3">
               {isEditingNickname ? (
@@ -405,22 +376,22 @@ export default function CreditsDisplay() {
                         if (e.key === 'Enter') handleSaveNickname()
                         if (e.key === 'Escape') handleCancelNickname()
                       }}
-                      placeholder="Enter nickname..."
-                      className="flex-1 px-2 py-1 bg-zinc-800 border border-zinc-600 rounded-md text-white text-sm placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
+                      placeholder="Nickname eingeben..."
+                      className="flex-1 px-2 py-1 bg-card border border-primary/30 rounded-md text-foreground text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                       maxLength={20}
                     />
                     <button
                       onClick={handleSaveNickname}
                       disabled={savingNickname}
-                      className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-md text-emerald-400 transition-colors disabled:opacity-50"
+                      className="p-1.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 rounded-md text-primary transition-colors disabled:opacity-50"
                     >
-                      {savingNickname ? '...' : '✓'}
+                      {savingNickname ? '...' : <Check className="w-4 h-4" />}
                     </button>
                     <button
                       onClick={handleCancelNickname}
-                      className="p-1.5 hover:bg-zinc-700 rounded-md text-zinc-400 transition-colors"
+                      className="p-1.5 hover:bg-card rounded-md text-muted-foreground transition-colors"
                     >
-                      ✕
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                   {nicknameError && (
@@ -430,29 +401,29 @@ export default function CreditsDisplay() {
               ) : (
                 <button
                   onClick={() => setIsEditingNickname(true)}
-                  className="flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors group"
+                  className="flex items-center gap-2 text-sm text-foreground hover:text-primary transition-colors group"
                 >
-                  <span className="text-lg">👤</span>
+                  <User className="w-4 h-4 text-primary" />
                   <span className="font-medium truncate max-w-[150px]">
-                    {credits?.display_name || 'Anonymous'}
+                    {credits?.display_name || 'Anonym'}
                   </span>
-                  <span className="text-zinc-500 group-hover:text-zinc-400 text-xs">✏️</span>
+                  <span className="text-muted-foreground group-hover:text-primary text-xs">✏️</span>
                 </button>
               )}
             </div>
             
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-zinc-400 uppercase tracking-wider">Available Credits</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Verfügbare Credits</span>
               <button
                 onClick={handleClaimBonus}
                 disabled={claimingBonus}
-                className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded-md text-amber-400 text-xs transition-colors disabled:opacity-50"
+                className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-md text-amber-400 text-xs transition-colors disabled:opacity-50"
               >
-                <span>🎁</span>
+                <Gift className="w-3 h-3" />
                 <span>{claimingBonus ? '...' : 'Daily'}</span>
               </button>
             </div>
-            <div className="text-3xl font-black text-emerald-400 tabular-nums">
+            <div className="text-3xl font-black gold-text tabular-nums">
               {credits?.available_credits?.toLocaleString() || '1,000'}
             </div>
             {bonusMessage && (
@@ -464,39 +435,42 @@ export default function CreditsDisplay() {
 
           {/* Stats */}
           {credits && (
-            <div className="grid grid-cols-3 gap-2 p-3 border-b border-zinc-800">
-              <div className="text-center">
+            <div className="grid grid-cols-3 gap-2 p-3 border-b border-primary/10">
+              <div className="text-center p-2 bg-card/30 rounded-lg">
                 <div className="text-lg font-bold text-blue-400 tabular-nums">{credits.total_bets_placed}</div>
-                <div className="text-[10px] text-zinc-500 uppercase">Bets</div>
+                <div className="text-[10px] text-muted-foreground uppercase">Wetten</div>
               </div>
-              <div className="text-center">
+              <div className="text-center p-2 bg-card/30 rounded-lg">
                 <div className="text-lg font-bold text-emerald-400 tabular-nums">{credits.total_bets_won}</div>
-                <div className="text-[10px] text-zinc-500 uppercase">Won</div>
+                <div className="text-[10px] text-muted-foreground uppercase">Gewonnen</div>
               </div>
-              <div className="text-center">
+              <div className="text-center p-2 bg-card/30 rounded-lg">
                 <div className="text-lg font-bold text-purple-400 tabular-nums">
                   {credits.total_bets_placed > 0 
                     ? Math.round((credits.total_bets_won / credits.total_bets_placed) * 100) 
                     : 0}%
                 </div>
-                <div className="text-[10px] text-zinc-500 uppercase">Win Rate</div>
+                <div className="text-[10px] text-muted-foreground uppercase">Win Rate</div>
               </div>
             </div>
           )}
 
           {/* Active Bets */}
           {activeBets.length > 0 && (
-            <div className="p-3 border-b border-zinc-800">
-              <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">Active Bets</div>
+            <div className="p-3 border-b border-primary/10">
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
+                <Target className="w-3 h-3" />
+                Aktive Wetten
+              </div>
               <div className="space-y-2 max-h-24 overflow-y-auto">
                 {activeBets.map((bet) => (
-                  <div key={bet.id} className="flex items-center justify-between text-xs">
+                  <div key={bet.id} className="flex items-center justify-between text-xs p-2 bg-card/30 rounded-lg">
                     <div className="flex items-center gap-2">
                       <span className="text-blue-400">🎯</span>
-                      <span className="text-zinc-300 truncate max-w-[120px]">{bet.target_username}</span>
+                      <span className="text-foreground truncate max-w-[120px]">{bet.target_username}</span>
                     </div>
-                    <div className="text-right">
-                      <span className="text-zinc-400">{bet.bet_amount} → </span>
+                    <div className="text-right font-mono">
+                      <span className="text-muted-foreground">{bet.bet_amount} → </span>
                       <span className="text-emerald-400">{Math.round(bet.potential_payout)}</span>
                     </div>
                   </div>
@@ -507,25 +481,25 @@ export default function CreditsDisplay() {
 
           {/* Transaction History */}
           <div className="p-3">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">Recent Activity</div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Letzte Aktivität</div>
             {transactions.length === 0 ? (
-              <div className="text-center py-4 text-zinc-500 text-sm">
-                No transactions yet
+              <div className="text-center py-4 text-muted-foreground text-sm">
+                Noch keine Transaktionen
               </div>
             ) : (
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {transactions.map((tx) => (
                   <div 
                     key={tx.id} 
-                    className="flex items-center justify-between p-2 bg-zinc-800/50 rounded-lg hover:bg-zinc-800 transition-colors"
+                    className="flex items-center justify-between p-2 bg-card/30 rounded-lg hover:bg-card/50 transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-lg">{getTransactionIcon(tx.transaction_type)}</span>
                       <div className="min-w-0">
-                        <div className="text-xs text-zinc-300 truncate">
+                        <div className="text-xs text-foreground/80 truncate">
                           {tx.description || tx.transaction_type.replace(/_/g, ' ')}
                         </div>
-                        <div className="text-[10px] text-zinc-500">
+                        <div className="text-[10px] text-muted-foreground">
                           {formatDistanceToNow(new Date(tx.created_at), { addSuffix: true })}
                         </div>
                       </div>
@@ -540,15 +514,17 @@ export default function CreditsDisplay() {
           </div>
 
           {/* Footer */}
-          <div className="p-3 bg-zinc-800/30 border-t border-zinc-800">
+          <div className="p-3 bg-card/30 border-t border-primary/10">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500">
+              <span className="text-muted-foreground flex items-center gap-1">
+                <Flame className="w-3 h-3 text-amber-400" />
                 Streak: <span className="text-amber-400 font-bold">{credits?.current_streak || 0}</span>
                 {credits?.best_streak ? ` (Best: ${credits.best_streak})` : ''}
               </span>
               {credits?.best_win && credits.best_win > 0 && (
-                <span className="text-zinc-500">
-                  Best win: <span className="text-emerald-400 font-bold">+{credits.best_win}</span>
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Trophy className="w-3 h-3 text-emerald-400" />
+                  Best: <span className="text-emerald-400 font-bold">+{credits.best_win}</span>
                 </span>
               )}
             </div>
@@ -558,4 +534,3 @@ export default function CreditsDisplay() {
     </div>
   )
 }
-

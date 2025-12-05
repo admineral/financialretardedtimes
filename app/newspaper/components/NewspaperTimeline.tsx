@@ -1,16 +1,13 @@
 /**
  * NewspaperTimeline.tsx
  * 
- * Infinite scroll timeline showing multiple newspaper editions.
+ * REDESIGNED: Premium dark edition archive timeline
  * 
- * LOCAL: Displays a vertical timeline of cached newspaper days.
- * Each day has a prominent date header and separator.
- * Uses intersection observer for infinite scroll loading.
- * 
- * GLOBAL: Provides a scrollable archive view of past newspaper editions.
- * Shows today first, then progressively loads older days from cache.
- * 
- * EXPORTS: NewspaperTimeline (React component)
+ * Features:
+ * - Gold-accented day headers
+ * - Glassmorphism article cards
+ * - Infinite scroll with loading animations
+ * - Elegant visual separators
  */
 
 'use client'
@@ -50,9 +47,6 @@ interface CacheResponse {
   dayRange: number
 }
 
-/**
- * Format date for display in German
- */
 function formatDateHeader(dateStr: string): { weekday: string; date: string; relative: string } {
   const date = new Date(dateStr + 'T12:00:00')
   const today = new Date()
@@ -74,9 +68,6 @@ function formatDateHeader(dateStr: string): { weekday: string; date: string; rel
   }
 }
 
-/**
- * Generate a URL-safe slug from a headline
- */
 function generateSlug(headline: string): string {
   return headline
     .toLowerCase()
@@ -89,9 +80,6 @@ function generateSlug(headline: string): string {
     .slice(0, 60)
 }
 
-/**
- * Day Header Component - Visual separator between days
- */
 function DayHeader({ 
   date, 
   messageCount, 
@@ -107,35 +95,38 @@ function DayHeader({
   const isToday = relative === 'Heute'
   
   return (
-    <div className={`relative ${isFirst ? '' : 'mt-16'}`}>
-      {/* Connecting line from previous content */}
+    <div className={`relative ${isFirst ? '' : 'mt-20'}`}>
+      {/* Connecting line */}
       {!isFirst && (
-        <div className="absolute left-1/2 -top-16 w-px h-16 bg-gradient-to-b from-transparent via-foreground/20 to-foreground/40" />
+        <div className="absolute left-1/2 -top-20 w-px h-20 bg-gradient-to-b from-transparent via-primary/20 to-primary/40" />
       )}
       
       {/* Date badge */}
-      <div className="relative flex flex-col items-center mb-8">
+      <div className="relative flex flex-col items-center mb-10">
         {/* Decorative line */}
-        <div className="absolute top-1/2 left-0 right-0 h-px bg-foreground/20" />
+        <div className="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
         
         {/* Date content */}
-        <div className={`relative z-10 px-6 py-4 bg-background border-2 ${
-          isToday 
-            ? 'border-primary/50 shadow-lg shadow-primary/10' 
-            : 'border-foreground/20'
-        }`}>
+        <div className={`
+          relative z-10 px-8 py-5 bg-card border-2 rounded-sm
+          ${isToday 
+            ? 'border-primary/50 shadow-xl shadow-primary/10' 
+            : 'border-primary/20'
+          }
+        `}>
           {/* Relative time badge */}
-          <div className={`text-center text-xs font-headline uppercase tracking-widest mb-1 ${
-            isToday ? 'text-primary' : 'text-muted-foreground'
-          }`}>
+          <div className={`
+            text-center text-xs font-headline uppercase tracking-widest mb-2
+            ${isToday ? 'text-primary' : 'text-muted-foreground'}
+          `}>
             {relative}
           </div>
           
           {/* Main date */}
-          <div className="flex items-center gap-3">
-            <Calendar className={`w-5 h-5 ${isToday ? 'text-primary' : 'text-muted-foreground'}`} />
+          <div className="flex items-center gap-4">
+            <Calendar className={`w-6 h-6 ${isToday ? 'text-primary' : 'text-muted-foreground/60'}`} />
             <div>
-              <div className="font-headline text-lg font-bold">
+              <div className="font-headline text-xl font-bold text-foreground">
                 {weekday}
               </div>
               <div className="text-sm text-muted-foreground font-body">
@@ -145,31 +136,28 @@ function DayHeader({
           </div>
           
           {/* Stats */}
-          <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-foreground/10">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <MessageSquare className="w-3.5 h-3.5" />
+          <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-primary/20">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <MessageSquare className="w-4 h-4 text-primary/60" />
               <span className="font-mono">{messageCount.toLocaleString()}</span>
-              <span>Nachrichten</span>
+              <span className="hidden sm:inline">Nachrichten</span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Users className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Users className="w-4 h-4 text-primary/60" />
               <span className="font-mono">{uniqueUsers}</span>
-              <span>User</span>
+              <span className="hidden sm:inline">User</span>
             </div>
           </div>
         </div>
         
         {/* Decorative dots */}
-        <div className="absolute top-1/2 left-4 w-2 h-2 rounded-full bg-foreground/20 -translate-y-1/2" />
-        <div className="absolute top-1/2 right-4 w-2 h-2 rounded-full bg-foreground/20 -translate-y-1/2" />
+        <div className="absolute top-1/2 left-8 w-2 h-2 rounded-full bg-primary/30 -translate-y-1/2" />
+        <div className="absolute top-1/2 right-8 w-2 h-2 rounded-full bg-primary/30 -translate-y-1/2" />
       </div>
     </div>
   )
 }
 
-/**
- * Compact article card for timeline view
- */
 function TimelineArticle({ 
   article, 
   type,
@@ -192,36 +180,42 @@ function TimelineArticle({
   })
   
   return (
-    <article className={`pb-4 mb-4 border-b border-foreground/10 ${
-      type === 'featured' ? '' : 'pl-4 border-l-2 border-foreground/10'
-    }`}>
-      <div className="flex items-center gap-2 mb-2">
+    <article className={`
+      p-4 rounded-sm transition-all group
+      ${type === 'featured' 
+        ? 'glass-card-gold' 
+        : 'glass-card border-l-2 border-primary/30'
+      }
+    `}>
+      <div className="flex items-center gap-2 mb-3">
         <span className="text-[10px] font-headline uppercase tracking-wider text-muted-foreground">
           {article.author}
         </span>
-        <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded border ${
+        <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-sm border ${
           getCategoryStyle(article.category || '')
         }`}>
           {article.category}
         </span>
       </div>
       
-      <h4 className={`font-headline font-bold leading-tight mb-2 hover:text-primary/80 transition-colors ${
-        type === 'featured' ? 'text-lg' : 'text-base'
-      }`}>
+      <h4 className={`
+        font-headline font-bold leading-tight mb-3 
+        text-foreground group-hover:text-primary transition-colors
+        ${type === 'featured' ? 'text-lg' : 'text-base'}
+      `}>
         <Link href={`/newspaper/article/${slug}?${params.toString()}`} prefetch={false}>
           {article.headline}
         </Link>
       </h4>
       
-      <p className="text-sm text-muted-foreground font-body line-clamp-2">
+      <p className="text-sm text-muted-foreground font-body line-clamp-2 leading-relaxed">
         {article.summary}
       </p>
       
       {article.contributors && article.contributors.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
+        <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-primary/10">
           {article.contributors.slice(0, 3).map((c, i) => (
-            <span key={i} className="px-1.5 py-0.5 bg-muted text-[10px] font-body rounded">
+            <span key={i} className="px-2 py-0.5 bg-card/80 text-[10px] font-body rounded-full border border-primary/10">
               <ContributorAvatar username={c} size="xs" />
             </span>
           ))}
@@ -231,68 +225,62 @@ function TimelineArticle({
   )
 }
 
-/**
- * Compact event card for timeline view
- */
 function TimelineEvent({ event }: { event: UnifiedNewspaperData['events'][0] }) {
   if (!event?.title) return null
   
   return (
-    <div className="p-3 border border-foreground/10 bg-muted/10 rounded-sm mb-3">
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+    <div className="p-3 glass-card rounded-sm border-l-2 border-amber-500/40">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-sm ${
           getEventStyle(event.type || '')
         }`}>
           {event.type?.toUpperCase()}
         </span>
       </div>
-      <h5 className="font-headline text-sm font-semibold mb-1">{event.title}</h5>
+      <h5 className="font-headline text-sm font-semibold text-foreground mb-1">{event.title}</h5>
       <p className="text-xs text-muted-foreground font-body line-clamp-2">{event.summary}</p>
     </div>
   )
 }
 
-/**
- * Single day's newspaper content in compact timeline format
- */
 function DayContent({ newspaper }: { newspaper: CachedNewspaper }) {
   const { data, date } = newspaper
   
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
       {/* Main articles column */}
-      <div>
+      <div className="space-y-4">
         <TimelineArticle article={data.featuredArticle} type="featured" date={date} />
         <TimelineArticle article={data.secondaryArticle} type="secondary" date={date} />
       </div>
       
       {/* Events and more column */}
-      <div>
-        {/* Events */}
+      <div className="space-y-4">
         {data.events && data.events.length > 0 && (
-          <div className="mb-4">
-            <h4 className="text-xs font-headline uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
+          <div>
+            <h4 className="text-xs font-headline uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
               <span className="text-amber-500">⚡</span> Chat-Momente
             </h4>
-            {data.events.slice(0, 2).map((event, idx) => (
-              <TimelineEvent key={idx} event={event} />
-            ))}
+            <div className="space-y-2">
+              {data.events.slice(0, 2).map((event, idx) => (
+                <TimelineEvent key={idx} event={event} />
+              ))}
+            </div>
           </div>
         )}
         
-        {/* More Articles (compact list) */}
         {data.moreArticles && data.moreArticles.length > 0 && (
           <div>
-            <h4 className="text-xs font-headline uppercase tracking-wider text-muted-foreground mb-2">
+            <h4 className="text-xs font-headline uppercase tracking-wider text-muted-foreground mb-3">
               Weitere Themen
             </h4>
             <div className="space-y-2">
               {data.moreArticles.slice(0, 3).map((article, idx) => (
-                <div key={idx} className="text-sm">
-                  <span className="text-[10px] text-muted-foreground font-headline uppercase">
+                <div key={idx} className="p-3 border border-primary/10 rounded-sm hover:border-primary/30 transition-colors">
+                  <span className="text-[9px] text-muted-foreground/60 font-headline uppercase">
                     {article.category}
                   </span>
-                  <div className="font-headline font-medium hover:text-primary/80 cursor-pointer transition-colors">
+                  <div className="font-headline text-sm font-medium text-foreground hover:text-primary cursor-pointer transition-colors mt-0.5">
                     {article.headline}
                   </div>
                 </div>
@@ -306,13 +294,9 @@ function DayContent({ newspaper }: { newspaper: CachedNewspaper }) {
 }
 
 interface NewspaperTimelineProps {
-  /** Date currently shown in main view - will be skipped in timeline */
   currentDate?: string | null
 }
 
-/**
- * Main Timeline Component
- */
 export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
   const [newspapers, setNewspapers] = useState<CachedNewspaper[]>([])
   const [availableDates, setAvailableDates] = useState<string[]>([])
@@ -324,17 +308,13 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const loadedDatesRef = useRef<Set<string>>(new Set())
 
-  // Fetch list of available cached dates
   const fetchAvailableDates = useCallback(async () => {
     try {
       const response = await fetch('/newspaper/api/cache-list?dayRange=1&limit=30')
       if (!response.ok) throw new Error('Failed to fetch cache list')
       
       const data: CacheListResponse = await response.json()
-      // Filter out the currently displayed date to avoid duplication
-      const filteredDates = data.dates
-        .map(d => d.date)
-        .filter(d => d !== currentDate)
+      const filteredDates = data.dates.map(d => d.date).filter(d => d !== currentDate)
       
       setAvailableDates(filteredDates)
       setHasMore(data.hasMore && filteredDates.length < data.total - 1)
@@ -347,7 +327,6 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     }
   }, [currentDate])
 
-  // Fetch a single day's newspaper data
   const fetchNewspaper = useCallback(async (date: string): Promise<CachedNewspaper | null> => {
     if (loadedDatesRef.current.has(date)) return null
     
@@ -371,17 +350,13 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     }
   }, [])
 
-  // Load initial newspapers
   useEffect(() => {
     const loadInitial = async () => {
       setIsLoading(true)
-      // Reset state when currentDate changes
       loadedDatesRef.current = new Set()
       setNewspapers([])
       
       const dates = await fetchAvailableDates()
-      
-      console.log('[Timeline] Available dates (excluding current):', dates)
       
       if (dates.length === 0) {
         setIsLoading(false)
@@ -389,12 +364,9 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
         return
       }
       
-      // Load first 5 days
       const initialDates = dates.slice(0, 5)
       const results = await Promise.all(initialDates.map(fetchNewspaper))
       const validResults = results.filter((r): r is CachedNewspaper => r !== null)
-      
-      console.log('[Timeline] Loaded newspapers:', validResults.length)
       
       setNewspapers(validResults)
       setHasMore(dates.length > initialDates.length)
@@ -404,13 +376,11 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     loadInitial()
   }, [fetchAvailableDates, fetchNewspaper, currentDate])
 
-  // Load more newspapers when scrolling
   const loadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore) return
     
     setIsLoadingMore(true)
     
-    // Find next dates to load
     const loadedCount = loadedDatesRef.current.size
     const nextDates = availableDates.slice(loadedCount, loadedCount + 2)
     
@@ -434,7 +404,6 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     setIsLoadingMore(false)
   }, [isLoadingMore, hasMore, availableDates, fetchNewspaper])
 
-  // Intersection observer for infinite scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -452,28 +421,26 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     return () => observer.disconnect()
   }, [hasMore, isLoadingMore, loadMore])
 
-  // Loading state
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-4" />
+      <div className="flex flex-col items-center justify-center py-24">
+        <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
         <p className="text-sm text-muted-foreground font-body">Lade Timeline...</p>
       </div>
     )
   }
 
-  // Error or empty state
   if (error || (newspapers.length === 0 && !isLoading)) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <Calendar className="w-10 h-10 text-muted-foreground/50 mb-3" />
-        <p className="text-muted-foreground font-body">
-          {error || 'Keine älteren gecachten Ausgaben'}
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-16 h-16 rounded-full bg-card border border-primary/20 flex items-center justify-center mb-4">
+          <Calendar className="w-8 h-8 text-muted-foreground/50" />
+        </div>
+        <p className="text-muted-foreground font-body text-lg mb-2">
+          {error || 'Keine älteren Ausgaben'}
         </p>
-        <p className="text-xs text-muted-foreground/60 font-body mt-2 max-w-sm">
+        <p className="text-xs text-muted-foreground/60 font-body max-w-sm">
           Die Timeline zeigt nur Tage, für die bereits eine Zeitung generiert wurde.
-          <br />
-          Wähle einen anderen Tag oben aus und klicke auf den Refresh-Button, um eine Ausgabe zu erstellen.
         </p>
       </div>
     )
@@ -481,9 +448,8 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
 
   return (
     <div className="relative">
-      {/* Newspaper entries */}
       {newspapers.map((newspaper, idx) => (
-        <div key={newspaper.date}>
+        <div key={newspaper.date} className="stagger-item" style={{ animationDelay: `${idx * 100}ms` }}>
           <DayHeader 
             date={newspaper.date}
             messageCount={newspaper.messageCount}
@@ -495,20 +461,20 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
       ))}
       
       {/* Load more trigger */}
-      <div ref={loadMoreRef} className="py-8">
+      <div ref={loadMoreRef} className="py-12">
         {isLoadingMore && (
           <div className="flex flex-col items-center">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mb-2" />
+            <Loader2 className="w-6 h-6 animate-spin text-primary mb-2" />
             <p className="text-sm text-muted-foreground font-body">Lade ältere Ausgaben...</p>
           </div>
         )}
         
         {!hasMore && newspapers.length > 0 && (
           <div className="text-center">
-            <div className="inline-flex flex-col items-center gap-2 px-4 py-3 border border-foreground/10 rounded text-sm text-muted-foreground font-body">
-              <span>📜 Keine weiteren gecachten Ausgaben</span>
+            <div className="inline-flex flex-col items-center gap-2 px-6 py-4 glass-card rounded-sm text-sm text-muted-foreground font-body">
+              <span>📜 Ende des Archivs</span>
               <span className="text-xs text-muted-foreground/60">
-                Nur Tage mit vorgenerierten Zeitungen werden hier angezeigt
+                Nur Tage mit vorgenerierten Zeitungen werden angezeigt
               </span>
             </div>
           </div>
@@ -517,9 +483,9 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
         {hasMore && !isLoadingMore && (
           <button 
             onClick={loadMore}
-            className="w-full flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground hover:text-foreground transition-colors font-body"
+            className="w-full flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground hover:text-primary transition-colors font-body group"
           >
-            <ChevronDown className="w-4 h-4" />
+            <ChevronDown className="w-4 h-4 group-hover:translate-y-1 transition-transform" />
             Mehr laden
           </button>
         )}
@@ -527,4 +493,3 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     </div>
   )
 }
-

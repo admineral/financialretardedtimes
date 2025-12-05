@@ -58,14 +58,14 @@ const FearGreedSchema = z.object({
 })
 
 /**
- * Get color based on index value - Retro/muted tones
+ * Get color based on index value - High contrast for accessibility
  */
 function getIndexColor(index: number): string {
-  if (index <= 20) return 'text-red-400/90'
-  if (index <= 40) return 'text-amber-600/90'
-  if (index <= 60) return 'text-yellow-600/80'
-  if (index <= 80) return 'text-lime-600/80'
-  return 'text-emerald-600/90'
+  if (index <= 20) return 'text-red-700 dark:text-red-400'
+  if (index <= 40) return 'text-amber-700 dark:text-amber-400'
+  if (index <= 60) return 'text-yellow-700 dark:text-yellow-400'
+  if (index <= 80) return 'text-lime-700 dark:text-lime-400'
+  return 'text-emerald-700 dark:text-emerald-400'
 }
 
 /**
@@ -120,7 +120,7 @@ function MiniGauge({
       
       {/* Classification */}
       {classification && (
-        <div className="text-[9px] font-body text-muted-foreground/70">
+        <div className="text-[9px] font-body text-foreground/70 dark:text-foreground/80">
           {classification}
         </div>
       )}
@@ -358,11 +358,11 @@ export function FearGreedWidget({
         <div className="flex items-center gap-2">
           {/* Cache info display */}
           {cacheInfo && !isLoading && (
-            <span className="flex items-center gap-1 text-[9px] text-muted-foreground/70">
+            <span className="flex items-center gap-1 text-[9px] text-foreground/70 dark:text-foreground/80">
               <Clock className="w-2.5 h-2.5" />
               <span className={cn(
-                cacheInfo.isStale && "text-amber-600",
-                !cacheInfo.isFromToday && "text-red-400"
+                cacheInfo.isStale && "text-amber-700 dark:text-amber-400",
+                !cacheInfo.isFromToday && "text-red-700 dark:text-red-400"
               )}>
                 {formatTimeAgo(cacheInfo.updatedAt)}
               </span>
@@ -398,25 +398,25 @@ export function FearGreedWidget({
         />
       </div>
 
-      {/* Trend Indicator - retro newspaper style */}
+      {/* Trend Indicator - high contrast newspaper style */}
       {data?.trend && (
-        <div className="flex items-center justify-center gap-1.5 mt-3 pt-2 border-t border-foreground/10 text-xs">
+        <div className="flex items-center justify-center gap-1.5 mt-3 pt-2 border-t border-foreground/20 text-xs">
           {data.trend === 'rising' && (
             <>
-              <TrendingUp className="w-3 h-3 text-emerald-700/80" />
-              <span className="text-emerald-700/80 font-body">steigend</span>
+              <TrendingUp className="w-3 h-3 text-emerald-700 dark:text-emerald-400" />
+              <span className="text-emerald-700 dark:text-emerald-400 font-body">steigend</span>
             </>
           )}
           {data.trend === 'falling' && (
             <>
-              <TrendingDown className="w-3 h-3 text-red-400/80" />
-              <span className="text-red-400/80 font-body">fallend</span>
+              <TrendingDown className="w-3 h-3 text-red-700 dark:text-red-400" />
+              <span className="text-red-700 dark:text-red-400 font-body">fallend</span>
             </>
           )}
           {data.trend === 'stable' && (
             <>
-              <Minus className="w-3 h-3 text-amber-600/80" />
-              <span className="text-amber-600/80 font-body">stabil</span>
+              <Minus className="w-3 h-3 text-amber-700 dark:text-amber-400" />
+              <span className="text-amber-700 dark:text-amber-400 font-body">stabil</span>
             </>
           )}
         </div>
@@ -452,12 +452,12 @@ export function FearGreedWidget({
 
       {/* Date range info */}
       {cacheInfo?.dateRange && !isLoading && (
-        <div className="mt-3 pt-2 border-t border-foreground/10 text-center">
-          <span className="text-[9px] text-muted-foreground/60">
+        <div className="mt-3 pt-2 border-t border-foreground/20 text-center">
+          <span className="text-[9px] text-foreground/60 dark:text-foreground/70">
             Daten: {cacheInfo.dateRange.oldestDate} → {cacheInfo.dateRange.newestDate}
           </span>
           {cacheInfo.dateRange.todayMessageCount === 0 && (
-            <span className="block text-[9px] text-amber-600 mt-0.5">
+            <span className="block text-[9px] text-amber-700 dark:text-amber-400 mt-0.5">
               ⚠️ Keine Nachrichten von heute
             </span>
           )}

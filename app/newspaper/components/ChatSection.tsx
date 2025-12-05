@@ -1,51 +1,47 @@
 /**
  * ChatSection.tsx
  * 
- * Live chat widget for real-time community interaction.
+ * REDESIGNED: Premium dark edition live chat widget
  * 
- * LOCAL: Renders a memoized chat container with:
- * - Header showing "Live-Ticker" with LIVE indicator
- * - GuestbookChat component for actual chat functionality
- * 
- * GLOBAL: Embedded in the right sidebar of the newspaper page.
- * Memoized to prevent re-renders during AI content streaming.
- * 
- * EXPORTS: ChatSection (React component)
- * 
- * NOTE: This component is memoized using React.memo to prevent
- * unnecessary re-renders when parent state changes (e.g., during
- * AI content streaming). The chat should remain stable while
- * other content updates.
+ * Features:
+ * - Glassmorphism container with gold accents
+ * - Animated live indicator
+ * - Memoized for performance
  */
 
 'use client'
 
 import { memo } from 'react'
+import { Radio } from 'lucide-react'
 import { GuestbookChat } from '@/components/guestbook-chat'
 
-/**
- * Memoized chat section component.
- * Prevents re-renders during AI streaming to maintain chat stability.
- */
 export const ChatSection = memo(function ChatSection() {
   return (
-    <div className="border-2 border-foreground/30 bg-card">
+    <div className="glass-card overflow-hidden rounded-sm">
       {/* Chat Header */}
-      <div className="px-4 py-3 border-b-2 border-foreground/30 bg-muted/50">
+      <div className="px-4 py-3 border-b border-primary/20 bg-card/50">
         <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-headline text-sm font-bold uppercase tracking-wider">
-              Live-Ticker
-            </h3>
-            <p className="text-[10px] text-muted-foreground font-body">
-              Echtzeit Community Chat
-            </p>
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-primary" />
+            <div>
+              <h3 className="font-headline text-sm font-bold uppercase tracking-wider gold-text">
+                Live-Ticker
+              </h3>
+              <p className="text-[10px] text-muted-foreground/60 font-body">
+                Echtzeit Community Chat
+              </p>
+            </div>
           </div>
           {/* Live Indicator */}
-          <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            LIVE
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className="text-[10px] font-mono text-emerald-500 uppercase tracking-wider">
+              Live
+            </span>
+          </div>
         </div>
       </div>
       
@@ -54,4 +50,3 @@ export const ChatSection = memo(function ChatSection() {
     </div>
   )
 })
-

@@ -1,32 +1,22 @@
 /**
  * page.tsx (Newspaper Landing Page)
  * 
- * Main landing page for the Financial Retarded Times newspaper.
+ * REDESIGNED: Premium Dark Edition
+ * A dramatic, cinematic newspaper experience with gold accents
  * 
- * LOCAL: Orchestrates all newspaper components and manages shared state:
- * - Fetches available dates and BTC market data
- * - Manages date selection and loading states
- * - Coordinates data flow between components
- * 
- * GLOBAL: Primary entry point for the newspaper feature at /newspaper.
- * Renders the full newspaper layout with header, navigation, content areas,
- * and footer. All AI-generated content flows through this page.
- * 
- * ROUTE: /newspaper
- * 
- * STATE:
- * - availableDates: DateStats[] - Available chat archive dates
- * - selectedDate: string | null - Currently selected date
- * - btcData: BTCData | null - Live Bitcoin market data
- * - isLoading: boolean - Content generation loading state
- * - newspaperData: UnifiedNewspaperData - Shared AI-generated content
+ * Features:
+ * - Live BTC ticker with animated price display
+ * - Glassmorphism cards with depth
+ * - Gold accent color scheme
+ * - Staggered reveal animations
+ * - Responsive newspaper grid
  */
 
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { SparklesIcon } from 'lucide-react'
+import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
@@ -44,10 +34,6 @@ import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats, UnifiedNewspaperData } from './lib/types'
 
-/**
- * BTC Market Data Interface
- * Displayed in the masthead ticker
- */
 interface BTCData {
   price: number
   change24h: number
@@ -56,12 +42,9 @@ interface BTCData {
   high24h: number
   low24h: number
   ath: number
+  cachedAt: number
 }
 
-/**
- * CurrentDate Component
- * Displays the current date in German format
- */
 function CurrentDate() {
   const [date, setDate] = useState<string>('')
   
@@ -75,12 +58,9 @@ function CurrentDate() {
     }))
   }, [])
   
-  return <span>{date || 'Loading...'}</span>
+  return <span className="text-muted-foreground">{date || '...'}</span>
 }
 
-/**
- * Format time ago in German
- */
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString)
   const now = new Date()
@@ -91,72 +71,92 @@ function formatTimeAgo(dateString: string): string {
   
   if (diffMins < 1) return 'gerade eben'
   if (diffMins < 60) return `vor ${diffMins}m`
-  if (diffHours < 24) return `vor ${diffHours}h ${diffMins % 60}m`
-  return `vor ${diffDays}d ${diffHours % 24}h`
+  if (diffHours < 24) return `vor ${diffHours}h`
+  return `vor ${diffDays}d`
 }
 
 /**
- * Main Newspaper Page Component
+ * Animated BTC Price Display
  */
+function BTCPriceTicker({ btcData }: { btcData: BTCData | null }) {
+  if (!btcData) {
+    return (
+      <div className="flex items-center gap-3 animate-pulse">
+        <div className="w-24 h-8 bg-muted/50 rounded" />
+        <div className="w-16 h-6 bg-muted/50 rounded" />
+      </div>
+    )
+  }
+
+  const isPositive = btcData.change24h >= 0
+
+  return (
+    <div className="flex items-center gap-4">
+      {/* Main Price */}
+      <div className="flex items-center gap-2">
+        <span className="text-2xl sm:text-3xl font-bold gold-text font-mono tracking-tight">
+          ${btcData.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+        </span>
+        <div className={`flex items-center gap-1 px-2 py-1 rounded text-sm font-mono font-semibold ${
+          isPositive 
+            ? 'bg-emerald-500/20 text-emerald-400' 
+            : 'bg-red-500/20 text-red-400'
+        }`}>
+          {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+          {isPositive ? '+' : ''}{btcData.change24h.toFixed(2)}%
+        </div>
+      </div>
+      
+      {/* Extended Stats */}
+      <div className="hidden lg:flex items-center gap-3 text-xs font-mono text-muted-foreground border-l border-primary/20 pl-4">
+        <span className={btcData.change7d >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'}>
+          7d: {btcData.change7d >= 0 ? '+' : ''}{btcData.change7d.toFixed(1)}%
+        </span>
+        <span className={btcData.change30d >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'}>
+          30d: {btcData.change30d >= 0 ? '+' : ''}{btcData.change30d.toFixed(1)}%
+        </span>
+        <span className="text-muted-foreground/60">
+          ATH: ${btcData.ath.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function NewspaperPage() {
-  // Date selection state
   const [availableDates, setAvailableDates] = useState<DateStats[]>([])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [selectedDates, setSelectedDates] = useState<string[]>([])
   const [dayRange, setDayRange] = useState<DayRange>(1)
   const [isLoadingDates, setIsLoadingDates] = useState(true)
   const [cumulativeUsers, setCumulativeUsers] = useState<Record<number, number> | undefined>(undefined)
-  
-  // Market data state
   const [btcData, setBtcData] = useState<BTCData | null>(null)
-  
-  // Content loading state
   const [isLoading, setIsLoading] = useState(false)
-  
-  // Refresh key to force content regeneration
   const [refreshKey, setRefreshKey] = useState(0)
-  
-  // Shared newspaper data (for sidebar synchronization)
   const [newspaperData, setNewspaperData] = useState<Partial<UnifiedNewspaperData> | undefined>(undefined)
-  
-  // Cache info for displaying version and time
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
 
-  /**
-   * Track page view on mount
-   */
   useEffect(() => {
     track('newspaper_page_view', { source: 'direct' })
   }, [])
 
-  /**
-   * Fetch BTC market data from our API proxy
-   * Refreshes every 60 seconds
-   */
   useEffect(() => {
     const fetchBTC = async () => {
       try {
         const response = await fetch('/newspaper/api/btc-price')
         if (response.ok) {
           const data = await response.json()
-          if (!data.error) {
-            setBtcData(data)
-          }
+          if (!data.error) setBtcData(data)
         }
       } catch (err) {
         console.error('Failed to fetch BTC data:', err)
       }
     }
-    
     fetchBTC()
     const interval = setInterval(fetchBTC, 60000)
     return () => clearInterval(interval)
   }, [])
 
-  /**
-   * Fetch available dates from the API
-   * Runs once on mount
-   */
   useEffect(() => {
     const fetchDates = async () => {
       try {
@@ -164,14 +164,8 @@ export default function NewspaperPage() {
         if (response.ok) {
           const data = await response.json()
           setAvailableDates(data.dates || [])
-          // Store cumulative users for deduplicated multi-day stats
-          if (data.cumulativeUsers) {
-            setCumulativeUsers(data.cumulativeUsers)
-          }
-          // Auto-select the most recent date
-          if (data.dates && data.dates.length > 0) {
-            setSelectedDate(data.dates[0].date)
-          }
+          if (data.cumulativeUsers) setCumulativeUsers(data.cumulativeUsers)
+          if (data.dates && data.dates.length > 0) setSelectedDate(data.dates[0].date)
         }
       } catch (err) {
         console.error('Failed to fetch available dates:', err)
@@ -182,258 +176,279 @@ export default function NewspaperPage() {
     fetchDates()
   }, [])
 
-  // Callbacks for child component communication
   const handleDateSelect = useCallback((date: string) => {
     setSelectedDate(date)
-    // When selecting a new date, reset to single day if currently on multi-day
-    if (dayRange === 1) {
-      setSelectedDates([date])
-    }
-    // Track date selection
-    track('newspaper_date_select', { 
-      date,
-      dayRange,
-      source: 'timeline'
-    })
+    if (dayRange === 1) setSelectedDates([date])
+    track('newspaper_date_select', { date, dayRange, source: 'timeline' })
   }, [dayRange])
   
   const handleDayRangeChange = useCallback((days: DayRange, dates: string[]) => {
     setDayRange(days)
     setSelectedDates(dates)
-    // Track day range change
-    track('newspaper_day_range_change', { 
-      dayRange: days,
-      datesCount: dates.length
-    })
+    track('newspaper_day_range_change', { dayRange: days, datesCount: dates.length })
   }, [])
 
-  const handleLoadingChange = useCallback((loading: boolean) => {
-    setIsLoading(loading)
-  }, [])
-  
-  const handleDataChange = useCallback((data: Partial<UnifiedNewspaperData> | undefined) => {
-    setNewspaperData(data)
-  }, [])
+  const handleLoadingChange = useCallback((loading: boolean) => setIsLoading(loading), [])
+  const handleDataChange = useCallback((data: Partial<UnifiedNewspaperData> | undefined) => setNewspaperData(data), [])
   
   const handleRefresh = useCallback(() => {
     setRefreshKey(k => k + 1)
-    // Track manual refresh
-    track('newspaper_refresh', { 
-      selectedDate: selectedDate || 'none',
-      dayRange
-    })
+    track('newspaper_refresh', { selectedDate: selectedDate || 'none', dayRange })
   }, [selectedDate, dayRange])
   
-  const handleCacheInfoChange = useCallback((info: CacheInfo | null) => {
-    setCacheInfo(info)
-  }, [])
+  const handleCacheInfoChange = useCallback((info: CacheInfo | null) => setCacheInfo(info), [])
 
   return (
     <AvatarProvider>
-    <main className="min-h-screen bg-background">
-      {/* Top Bar */}
-      <div className="w-full border-b border-foreground/10 py-2">
-        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 flex justify-between items-center text-xs text-muted-foreground">
-          <CurrentDate />
-          <div className="flex items-center gap-4">
-            {/* Cache Info */}
-            {cacheInfo && !isLoading && (
-              <span className="hidden md:flex items-center gap-1.5 text-muted-foreground/70">
-                <span className={cacheInfo.isFromCache ? 'text-emerald-600' : 'text-amber-600'}>
-                  {cacheInfo.dayRange}d
-                </span>
-                <span>•</span>
-                <span>{formatTimeAgo(cacheInfo.updatedAt)}</span>
-                {cacheInfo.isFromCache && <span className="text-emerald-600/60">(cache)</span>}
-              </span>
-            )}
-            <span className="hidden sm:inline">Vol. 1 • No. 1</span>
-            {isLoading && (
-              <span className="flex items-center gap-1.5 text-amber-600">
-                <SparklesIcon className="h-3 w-3 animate-pulse" />
-                <span className="hidden sm:inline">Chat-Kurator...</span>
-              </span>
-            )}
-            <ThemeSwitcher />
-          </div>
-        </div>
-      </div>
-
-      {/* Masthead */}
-      <header className="w-full py-2 sm:py-3 border-b-2 border-double border-foreground/60">
-        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 text-center">
-          <Link href="/newspaper" className="inline-block">
-            <h1 className="font-masthead text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl tracking-wide text-foreground hover:text-primary transition-colors">
-              Financial Retarded Times
-            </h1>
-          </Link>
-          <p className="font-headline text-[9px] sm:text-[10px] md:text-xs tracking-[0.15em] sm:tracking-[0.2em] uppercase text-muted-foreground mt-0.5 sm:mt-1">
-            Community Edition • Chat-Highlights & Diskussionen
-          </p>
-          
-          {/* BTC Price Ticker */}
-          {btcData && (
-            <div className="mt-2 sm:mt-3 flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-              <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded">
-                <span className="text-amber-500 font-bold text-xs sm:text-sm">₿</span>
-                <span className="font-mono font-semibold text-xs sm:text-sm">
-                  ${btcData.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                </span>
+      <main className="min-h-screen bg-background relative">
+        {/* Subtle gradient background - z-0 to stay behind content */}
+        <div className="fixed inset-0 bg-gradient-to-br from-background via-background to-primary/5 pointer-events-none z-0" />
+        
+        {/* Hero Masthead Section */}
+        <header className="relative border-b border-primary/20 z-10">
+          {/* Top utility bar */}
+          <div className="w-full border-b border-primary/10 bg-card/50 backdrop-blur-sm">
+            <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex justify-between items-center">
+              <div className="flex items-center gap-3 text-xs">
+                <CurrentDate />
+                {cacheInfo && !isLoading && (
+                  <span className="hidden md:flex items-center gap-1.5 text-muted-foreground/60 border-l border-primary/20 pl-3">
+                    <span className="text-primary">{cacheInfo.dayRange}d</span>
+                    <span>•</span>
+                    <span>{formatTimeAgo(cacheInfo.updatedAt)}</span>
+                    {cacheInfo.isFromCache && <span className="text-emerald-500/60">(cache)</span>}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] font-mono">
-                <span className={`px-1 py-0.5 rounded ${btcData.change24h >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                  24h: {btcData.change24h >= 0 ? '+' : ''}{btcData.change24h.toFixed(1)}%
-                </span>
-                <span className={`px-1 py-0.5 rounded ${btcData.change7d >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                  7d: {btcData.change7d >= 0 ? '+' : ''}{btcData.change7d.toFixed(1)}%
-                </span>
-                <span className={`hidden sm:inline px-1 py-0.5 rounded ${btcData.change30d >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                  30d: {btcData.change30d >= 0 ? '+' : ''}{btcData.change30d.toFixed(1)}%
-                </span>
+              <div className="flex items-center gap-3">
+                {isLoading && (
+                  <span className="flex items-center gap-1.5 text-xs text-primary animate-pulse">
+                    <SparklesIcon className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Kuratiere...</span>
+                  </span>
+                )}
+                <ThemeSwitcher />
               </div>
             </div>
-          )}
-        </div>
-      </header>
+          </div>
 
-      {/* Date Timeline with integrated navigation */}
-      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
-        <DateTimeline 
-          availableDates={availableDates}
-          selectedDate={selectedDate}
-          isLoadingDates={isLoadingDates}
-          isLoading={isLoading}
-          onDateSelect={handleDateSelect}
-          onDayRangeChange={handleDayRangeChange}
-          onRefresh={handleRefresh}
-          cumulativeUsers={cumulativeUsers}
-        />
-      </div>
-
-      {/* Compact Chat History Timeline - Top placement */}
-      {dayRange === 1 && !isLoading && (
-        <div className="w-full border-b border-foreground/10 bg-muted/20">
-          <ChatHistoryTimeline autoStart compact />
-        </div>
-      )}
-
-      {/* Main Content Grid */}
-      <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
-          
-          {/* Left Sidebar */}
-          <NewspaperSidebar 
-            data={newspaperData} 
-            isLoading={isLoading}
-            selectedDate={selectedDate}
-            selectedDates={selectedDates}
-          />
-
-          {/* Main Content */}
-          <main className="lg:col-span-7">
-            {/* AI-Generated Newspaper Content */}
-            <NewspaperContent 
-              selectedDate={selectedDate}
-              selectedDates={selectedDates}
-              dayRange={dayRange}
-              onLoadingChange={handleLoadingChange}
-              onDataChange={handleDataChange}
-              onCacheInfoChange={handleCacheInfoChange}
-              forceRefresh={refreshKey}
-            />
-          </main>
-
-          {/* Right Sidebar */}
-          <aside className="lg:col-span-3">
-            <div className="sticky top-20">
-              {/* Fear & Greed Index */}
-              <div className="p-4 border-2 border-foreground/20 bg-muted/30">
-                <FearGreedWidget autoStart />
+          {/* Main Masthead */}
+          <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+              {/* Title Section */}
+              <div className="text-center lg:text-left">
+                <Link href="/newspaper" className="inline-block group">
+                  <div className="flex items-center justify-center lg:justify-start gap-3 mb-2">
+                    <Newspaper className="w-8 h-8 text-primary opacity-60" />
+                    <div className="h-px w-12 bg-gradient-to-r from-primary/60 to-transparent" />
+                  </div>
+                  <h1 className="font-masthead text-4xl sm:text-5xl md:text-6xl lg:text-7xl gold-text tracking-wide transition-all duration-300 group-hover:tracking-wider">
+                    Financial Retarded Times
+                  </h1>
+                </Link>
+                <div className="flex items-center justify-center lg:justify-start gap-4 mt-3">
+                  <p className="text-xs sm:text-sm tracking-[0.2em] uppercase text-muted-foreground/60 font-headline">
+                    Community Edition
+                  </p>
+                  <span className="text-primary/40">•</span>
+                  <p className="text-xs sm:text-sm tracking-[0.15em] uppercase text-muted-foreground/60 font-headline">
+                    Chat-Highlights & Analysen
+                  </p>
+                </div>
               </div>
 
-              {/* Short News */}
-              <div className="mt-6">
+              {/* BTC Price Section */}
+              <div className="flex justify-center lg:justify-end">
+                <div className="glass-card-gold px-6 py-4 rounded-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">₿</span>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Bitcoin</span>
+                    {btcData?.cachedAt && (
+                      <span className="text-[10px] text-muted-foreground/40 font-mono ml-auto">
+                        {new Date(btcData.cachedAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                    <span className={`w-2 h-2 rounded-full bg-emerald-500 animate-pulse ${!btcData?.cachedAt ? 'ml-auto' : ''}`} />
+                  </div>
+                  <BTCPriceTicker btcData={btcData} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Golden rule */}
+          <div className="newspaper-rule-gold" />
+        </header>
+
+        {/* Date Navigation - Sticky */}
+        <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-primary/10">
+          <DateTimeline 
+            availableDates={availableDates}
+            selectedDate={selectedDate}
+            isLoadingDates={isLoadingDates}
+            isLoading={isLoading}
+            onDateSelect={handleDateSelect}
+            onDayRangeChange={handleDayRangeChange}
+            onRefresh={handleRefresh}
+            cumulativeUsers={cumulativeUsers}
+          />
+        </div>
+
+        {/* Chat Activity Timeline - Always visible for dayRange 1 */}
+        {dayRange === 1 && (
+          <div className="w-full border-b border-primary/10 bg-card/30 relative z-10">
+            <ChatHistoryTimeline autoStart compact />
+          </div>
+        )}
+
+        {/* Main Content Area */}
+        <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+            
+            {/* Left Sidebar - Contributors & Topics */}
+            <aside className="lg:col-span-2 hidden lg:block">
+              <div className="sticky top-24">
+                <NewspaperSidebar 
+                  data={newspaperData} 
+                  isLoading={isLoading}
+                  selectedDate={selectedDate}
+                  selectedDates={selectedDates}
+                />
+              </div>
+            </aside>
+
+            {/* Main Content Column */}
+            <main className="lg:col-span-7">
+              {/* Section Header */}
+              <div className="flex items-center gap-4 mb-8">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-primary" />
+                  <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">
+                    Tages-Highlights
+                  </h2>
+                </div>
+                <div className="flex-1 h-px bg-gradient-to-r from-primary/40 to-transparent" />
+              </div>
+
+              {/* AI-Generated Content */}
+              <NewspaperContent 
+                selectedDate={selectedDate}
+                selectedDates={selectedDates}
+                dayRange={dayRange}
+                onLoadingChange={handleLoadingChange}
+                onDataChange={handleDataChange}
+                onCacheInfoChange={handleCacheInfoChange}
+                forceRefresh={refreshKey}
+              />
+            </main>
+
+            {/* Right Sidebar */}
+            <aside className="lg:col-span-3">
+              <div className="sticky top-24 space-y-6">
+                {/* Fear & Greed Index */}
+                <div className="glass-card-gold p-5 rounded-sm">
+                  <FearGreedWidget autoStart />
+                </div>
+
+                {/* Short News */}
                 <ShortNewsSidebar 
                   data={newspaperData} 
                   isLoading={isLoading} 
                 />
-              </div>
 
-              {/* Live Chat */}
-              <ChatSection />
+                {/* Live Chat */}
+                <ChatSection />
 
-              {/* Newsletter Signup */}
-              <div className="mt-6 p-4 border-2 border-foreground/20 bg-muted/30">
-                <h4 className="font-headline text-sm font-bold uppercase tracking-wider mb-2">
-                  Newsletter
-                </h4>
-                <p className="text-xs text-muted-foreground font-body mb-3">
-                  Die wichtigsten Chat-Highlights direkt in Ihr Postfach.
-                </p>
-                <div className="flex gap-2">
-                  <input 
-                    type="email" 
-                    placeholder="E-Mail Adresse" 
-                    className="flex-1 px-3 py-1.5 text-xs font-body bg-background border border-foreground/20 focus:outline-none focus:border-primary/50"
-                  />
-                  <button 
-                    onClick={() => track('newspaper_newsletter_click', { location: 'sidebar' })}
-                    className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-headline tracking-wide hover:bg-primary/90 transition-colors"
-                  >
-                    OK
-                  </button>
+                {/* Newsletter Signup */}
+                <div className="glass-card p-5 rounded-sm">
+                  <h4 className="font-headline text-sm font-bold uppercase tracking-wider mb-3 gold-text">
+                    Newsletter
+                  </h4>
+                  <p className="text-xs text-muted-foreground font-body mb-4 leading-relaxed">
+                    Die wichtigsten Chat-Highlights direkt in Ihr Postfach. Täglich kuratiert.
+                  </p>
+                  <div className="flex gap-2">
+                    <input 
+                      type="email" 
+                      placeholder="E-Mail Adresse" 
+                      className="flex-1 px-3 py-2 text-xs font-body bg-background/50 border border-primary/20 focus:outline-none focus:border-primary/50 transition-colors rounded-sm"
+                    />
+                    <button 
+                      onClick={() => track('newspaper_newsletter_click', { location: 'sidebar' })}
+                      className="px-4 py-2 bg-primary text-primary-foreground text-xs font-headline font-semibold tracking-wide hover:bg-primary/90 transition-all rounded-sm hover:shadow-lg hover:shadow-primary/20"
+                    >
+                      OK
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </aside>
+            </aside>
+          </div>
         </div>
-      </div>
 
-      {/* Older Editions Section */}
-      {dayRange === 1 && !isLoading && (
-        <div className="w-full border-t-2 border-foreground/20 mt-8">
-          <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-8">
-            {/* Section Header */}
-            <div className="text-center mb-8">
-              <h2 className="font-masthead text-2xl sm:text-3xl text-foreground/80 mb-2">
-                Ältere Ausgaben
-              </h2>
-              <p className="text-sm text-muted-foreground font-body">
-                Scrolle nach unten für die Archive der vergangenen Tage
-              </p>
+        {/* Older Editions Section */}
+        {dayRange === 1 && !isLoading && (
+          <section className="border-t-2 border-primary/20 mt-12 bg-card/30 relative z-10">
+            <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
+              {/* Section Header */}
+              <div className="text-center mb-12">
+                <div className="inline-flex items-center gap-4 mb-4">
+                  <div className="w-16 h-px bg-gradient-to-r from-transparent to-primary/40" />
+                  <Newspaper className="w-6 h-6 text-primary/60" />
+                  <div className="w-16 h-px bg-gradient-to-l from-transparent to-primary/40" />
+                </div>
+                <h2 className="font-masthead text-3xl sm:text-4xl gold-text mb-3">
+                  Ältere Ausgaben
+                </h2>
+                <p className="text-sm text-muted-foreground font-body max-w-md mx-auto">
+                  Stöbern Sie durch die Archive vergangener Tage
+                </p>
+              </div>
+              
+              {/* Timeline */}
+              <div className="max-w-5xl mx-auto">
+                <NewspaperTimeline currentDate={selectedDate} />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Footer */}
+        <footer className="border-t border-primary/20 bg-card/50 mt-auto relative z-10">
+          <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {/* Navigation Links */}
+            <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 mb-6">
+              <span className="text-xs text-muted-foreground/60 uppercase tracking-wider">Rubriken:</span>
+              {['Diskussionen', 'Analysen', 'Meinungen', 'Highlights'].map((item) => (
+                <span 
+                  key={item}
+                  onClick={() => track('newspaper_nav_click', { section: item.toLowerCase() })}
+                  className="text-sm text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+                >
+                  {item}
+                </span>
+              ))}
+              <span className="text-primary/20">|</span>
+              <span className="text-xs text-muted-foreground/60 uppercase tracking-wider">Community:</span>
+              <span 
+                onClick={() => track('newspaper_nav_click', { section: 'top_beitragende' })}
+                className="text-sm text-muted-foreground hover:text-primary cursor-pointer transition-colors"
+              >
+                Top Beitragende
+              </span>
             </div>
             
-            {/* Newspaper Timeline Component */}
-            <div className="max-w-4xl mx-auto">
-              <NewspaperTimeline currentDate={selectedDate} />
+            {/* Copyright */}
+            <div className="text-center">
+              <div className="inline-flex items-center gap-3 text-xs text-muted-foreground/50">
+                <span>© 2024-2025 Financial Retarded Times</span>
+                <span className="text-primary/30">•</span>
+                <span className="italic">„Keine Finanzberatung – nur Entertainment"</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <footer className="w-full border-t-2 border-foreground/20 mt-8 sm:mt-12">
-        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
-          {/* Links Row */}
-          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-4 text-sm font-body">
-            <span className="text-muted-foreground">Rubriken:</span>
-            <span onClick={() => track('newspaper_nav_click', { section: 'diskussionen' })} className="hover:text-primary cursor-pointer transition-colors">Diskussionen</span>
-            <span onClick={() => track('newspaper_nav_click', { section: 'analysen' })} className="hover:text-primary cursor-pointer transition-colors">Analysen</span>
-            <span onClick={() => track('newspaper_nav_click', { section: 'meinungen' })} className="hover:text-primary cursor-pointer transition-colors">Meinungen</span>
-            <span onClick={() => track('newspaper_nav_click', { section: 'highlights' })} className="hover:text-primary cursor-pointer transition-colors">Highlights</span>
-            <span className="text-foreground/30">|</span>
-            <span className="text-muted-foreground">Community:</span>
-            <span onClick={() => track('newspaper_nav_click', { section: 'top_beitragende' })} className="hover:text-primary cursor-pointer transition-colors">Top Beitragende</span>
-          </div>
-          
-          {/* Copyright */}
-          <div className="text-center text-xs text-muted-foreground font-body">
-            <p>© 2025 Financial Retarded Times • „Keine Finanzberatung – nur Entertainment"</p>
-          </div>
-        </div>
-      </footer>
-    </main>
+        </footer>
+      </main>
     </AvatarProvider>
   )
 }
-

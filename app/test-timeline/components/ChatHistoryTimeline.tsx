@@ -48,55 +48,55 @@ interface CacheResponse {
   updatedAt: string
 }
 
-// Get style for event type
+// Get style for event type - High contrast colors for accessibility
 function getEventStyle(type: ChatEventType) {
   switch (type) {
     case 'discussion':
       return {
         icon: MessageSquare,
-        bg: 'bg-blue-500/20',
-        border: 'border-blue-500/50',
-        text: 'text-blue-400',
+        bg: 'bg-blue-500/20 dark:bg-blue-400/20',
+        border: 'border-blue-600 dark:border-blue-400',
+        text: 'text-blue-700 dark:text-blue-300',
         label: 'Diskussion'
       }
     case 'prediction':
       return {
         icon: TrendingUp,
-        bg: 'bg-emerald-500/20',
-        border: 'border-emerald-500/50',
-        text: 'text-emerald-400',
+        bg: 'bg-emerald-500/20 dark:bg-emerald-400/20',
+        border: 'border-emerald-600 dark:border-emerald-400',
+        text: 'text-emerald-700 dark:text-emerald-300',
         label: 'Prognose'
       }
     case 'drama':
       return {
         icon: AlertTriangle,
-        bg: 'bg-red-500/20',
-        border: 'border-red-500/50',
-        text: 'text-red-400',
+        bg: 'bg-red-500/20 dark:bg-red-400/20',
+        border: 'border-red-600 dark:border-red-400',
+        text: 'text-red-700 dark:text-red-300',
         label: 'Drama'
       }
     case 'insight':
       return {
         icon: Sparkles,
-        bg: 'bg-amber-500/20',
-        border: 'border-amber-500/50',
-        text: 'text-amber-400',
+        bg: 'bg-amber-500/20 dark:bg-amber-400/20',
+        border: 'border-amber-600 dark:border-amber-400',
+        text: 'text-amber-700 dark:text-amber-300',
         label: 'Insight'
       }
     case 'milestone':
       return {
         icon: Zap,
-        bg: 'bg-purple-500/20',
-        border: 'border-purple-500/50',
-        text: 'text-purple-400',
+        bg: 'bg-purple-500/20 dark:bg-purple-400/20',
+        border: 'border-purple-600 dark:border-purple-400',
+        text: 'text-purple-700 dark:text-purple-300',
         label: 'Meilenstein'
       }
     case 'humor':
       return {
         icon: Users,
-        bg: 'bg-pink-500/20',
-        border: 'border-pink-500/50',
-        text: 'text-pink-400',
+        bg: 'bg-pink-500/20 dark:bg-pink-400/20',
+        border: 'border-pink-600 dark:border-pink-400',
+        text: 'text-pink-700 dark:text-pink-300',
         label: 'Humor'
       }
   }
@@ -161,7 +161,7 @@ function TimelineCard({
                 </span>
               ))}
               {event.participants.length > 3 && (
-                <span className="text-[9px] text-muted-foreground">
+                <span className="text-[9px] text-foreground/70 dark:text-foreground/80">
                   +{event.participants.length - 3}
                 </span>
               )}
@@ -230,7 +230,7 @@ function CompactTimelineCard({ event }: { event: ChatEvent }) {
                 <span key={i} className="text-[8px] px-1 py-0.5 bg-background/50 rounded">@{p}</span>
               ))}
               {event.participants.length > 3 && (
-                <span className="text-[8px] text-muted-foreground">+{event.participants.length - 3}</span>
+                <span className="text-[8px] text-foreground/70 dark:text-foreground/80">+{event.participants.length - 3}</span>
               )}
             </div>
           )}
@@ -277,7 +277,7 @@ function CompactDateMarker({ date, messageCount }: { date: string; messageCount?
           {day} {month}
         </div>
         {messageCount && (
-          <div className="text-[8px] text-muted-foreground/60">
+          <div className="text-[8px] text-foreground/60 dark:text-foreground/70">
             {messageCount} msgs
           </div>
         )}
@@ -339,7 +339,7 @@ function DateMarker({ date, messageCount }: { date: string; messageCount?: numbe
           {month}
         </div>
         {messageCount && (
-          <div className="text-[9px] text-muted-foreground/60 mt-1 pt-1 border-t border-foreground/10">
+          <div className="text-[9px] text-foreground/60 dark:text-foreground/70 mt-1 pt-1 border-t border-foreground/20">
             {messageCount} msgs
           </div>
         )}
@@ -574,12 +574,12 @@ export function ChatHistoryTimeline({
           
           {/* Cache age */}
           {cacheInfo && !isLoading && !isRefreshing && (
-            <span className="text-[8px] text-muted-foreground/60 whitespace-nowrap leading-none">
+            <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
               {formatDetailedTimeAgo(cacheInfo.updatedAt)}
             </span>
           )}
           {(isLoading || isRefreshing) && (
-            <span className="text-[8px] text-muted-foreground/50 whitespace-nowrap leading-none">
+            <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
               ...
             </span>
           )}
@@ -664,7 +664,7 @@ export function ChatHistoryTimeline({
 
           {/* Compact: Empty state - just show nothing or minimal text */}
           {hasLoaded && events.length === 0 && !isLoading && !error && (
-            <div className="flex items-center justify-center py-3 text-[10px] text-muted-foreground/50">
+            <div className="flex items-center justify-center py-3 text-[10px] text-foreground/50 dark:text-foreground/60">
               Keine Chat-Events
             </div>
           )}
@@ -686,7 +686,7 @@ export function ChatHistoryTimeline({
           
           {/* Cache info */}
           {cacheInfo && !isLoading && !isRefreshing && (
-            <span className="text-[10px] text-muted-foreground/60">
+            <span className="text-[10px] text-foreground/60 dark:text-foreground/70">
               {formatTimeAgo(cacheInfo.updatedAt)}
             </span>
           )}
@@ -776,9 +776,9 @@ export function ChatHistoryTimeline({
       {/* Empty state - not loaded yet */}
       {!hasLoaded && !isLoading && !error && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <MessageSquare className="w-12 h-12 text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground mb-2">Chat-Chronik</p>
-          <p className="text-sm text-muted-foreground/60 max-w-sm">
+          <MessageSquare className="w-12 h-12 text-foreground/30 dark:text-foreground/40 mb-4" />
+          <p className="text-foreground/70 dark:text-foreground/80 mb-2">Chat-Chronik</p>
+          <p className="text-sm text-foreground/60 dark:text-foreground/70 max-w-sm">
             Zeigt wichtige Momente und Diskussionen aus dem TradingView-Chat der letzten Tage.
           </p>
         </div>
@@ -839,7 +839,7 @@ export function ChatHistoryTimeline({
           </div>
           
           {/* Scroll hint */}
-          <p className="text-center text-[10px] text-muted-foreground mt-2">
+          <p className="text-center text-[10px] text-foreground/60 dark:text-foreground/70 mt-2">
             Heute ← Scrolle für ältere Events →
           </p>
         </div>
@@ -848,9 +848,9 @@ export function ChatHistoryTimeline({
       {/* Empty loaded state */}
       {hasLoaded && events.length === 0 && !isLoading && !error && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <MessageSquare className="w-8 h-8 text-muted-foreground/30 mb-3" />
-          <p className="text-sm text-muted-foreground">Keine Chat-Events gefunden</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
+          <MessageSquare className="w-8 h-8 text-foreground/30 dark:text-foreground/40 mb-3" />
+          <p className="text-sm text-foreground/70 dark:text-foreground/80">Keine Chat-Events gefunden</p>
+          <p className="text-xs text-foreground/60 dark:text-foreground/70 mt-1">
             Generiere zuerst Zeitungen für mehrere Tage
           </p>
         </div>

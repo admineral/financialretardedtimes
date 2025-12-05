@@ -58,6 +58,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/api") &&
     !request.nextUrl.pathname.startsWith("/Rate-Chart") &&
     !request.nextUrl.pathname.startsWith("/chat-archive") &&
+    !request.nextUrl.pathname.startsWith("/chart-timeline") &&
     !request.nextUrl.pathname.startsWith("/newspaper")
   ) {
     // no user, potentially respond by redirecting the user to the login page

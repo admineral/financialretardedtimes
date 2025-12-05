@@ -1,15 +1,13 @@
 /**
  * NewspaperSidebar.tsx
  * 
- * Left sidebar displaying top contributors, active chatters, and trending topics.
+ * REDESIGNED: Premium dark edition sidebar
  * 
- * OPTIMIZED VERSION:
- * - Initially fetches only 5 chatters (lightweight initial load)
- * - Fetches remaining chatters on "weitere anzeigen" click
- * - NO eager profile fetching - all profiles load on hover only
- * - Avatars come from chatters endpoint or use fallback
- * 
- * EXPORTS: NewspaperSidebar (React component)
+ * Features:
+ * - Glassmorphism cards with gold accents
+ * - Animated list items with stagger
+ * - Hover cards for user profiles
+ * - Message count badges
  */
 
 'use client'
@@ -21,6 +19,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from './ui/Skeleton'
 import { UserHoverCard } from '@/app/Test/components/UserHoverCard'
 import { useAvatarContext } from './AvatarContext'
+import { TrendingUp, Users, Hash, Crown, ChevronDown } from 'lucide-react'
 import type { UnifiedNewspaperData, ActiveChatter } from '../lib/types'
 
 interface NewspaperSidebarProps {
@@ -36,9 +35,8 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
   const router = useRouter()
   const { addAvatars } = useAvatarContext()
   
-  // Active chatters state - staged loading
-  const [initialChatters, setInitialChatters] = useState<ActiveChatter[]>([]) // First 5
-  const [additionalChatters, setAdditionalChatters] = useState<ActiveChatter[]>([]) // Rest
+  const [initialChatters, setInitialChatters] = useState<ActiveChatter[]>([])
+  const [additionalChatters, setAdditionalChatters] = useState<ActiveChatter[]>([])
   const [totalChattersCount, setTotalChattersCount] = useState<number>(0)
   const [isLoadingInitial, setIsLoadingInitial] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -46,7 +44,6 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
   const [hasFetchedMore, setHasFetchedMore] = useState(false)
   const [clickedUser, setClickedUser] = useState<string | null>(null)
   
-  // Reset state when dates change
   useEffect(() => {
     setClickedUser(null)
     setShowAllChatters(false)
@@ -54,7 +51,6 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     setAdditionalChatters([])
   }, [selectedDate, selectedDates])
   
-  // Navigate to user profile
   const handleUserClick = useCallback((username: string, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -62,16 +58,13 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     router.push(`/chat-archive?username=${encodeURIComponent(username)}&room=bitcoin_de_DE`)
   }, [router])
 
-  // Combine all chatters for display
   const allChatters = useMemo(() => {
     return [...initialChatters, ...additionalChatters]
   }, [initialChatters, additionalChatters])
 
-  // Displayed chatters (limited or all)
   const activeChatters = showAllChatters ? allChatters : initialChatters
   const hasMoreChatters = totalChattersCount > INITIAL_CHATTERS_COUNT
 
-  // Fetch INITIAL chatters (first 5) - runs on page load
   useEffect(() => {
     const fetchInitialChatters = async () => {
       const dates = selectedDates?.length ? selectedDates : (selectedDate ? [selectedDate] : [])
@@ -80,12 +73,8 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
       setIsLoadingInitial(true)
       
       try {
-        // Only fetch first 5 chatters + get total count
         const response = await fetch(`/api/date-chatters?dates=${dates.join(',')}&limit=${INITIAL_CHATTERS_COUNT}`)
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error: ${response.status}`)
-        }
+        if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
 
         const result = await response.json()
         
@@ -97,10 +86,8 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
           }))
           
           setInitialChatters(chatters)
-          // userCount from API tells us total unique users
           setTotalChattersCount(result.userCount || chatters.length)
           
-          // Populate avatar context for other components to use
           const avatarMap: Record<string, string | null> = {}
           for (const c of result.chatters) {
             avatarMap[c.username] = c.avatar
@@ -117,7 +104,6 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     fetchInitialChatters()
   }, [selectedDate, selectedDates, addAvatars])
 
-  // Fetch MORE chatters - only when "weitere anzeigen" is clicked
   const fetchMoreChatters = useCallback(async () => {
     if (hasFetchedMore || isLoadingMore) return
     
@@ -127,12 +113,8 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     setIsLoadingMore(true)
     
     try {
-      // Fetch all chatters (up to 100)
       const response = await fetch(`/api/date-chatters?dates=${dates.join(',')}&limit=100`)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`)
-      }
+      if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
 
       const result = await response.json()
       
@@ -143,7 +125,6 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
           messageCount: c.messageCount
         }))
         
-        // Only add chatters that aren't in initial set
         const initialUsernames = new Set(initialChatters.map(c => c.username))
         const additional = allFetched.filter(c => !initialUsernames.has(c.username))
         
@@ -151,7 +132,6 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
         setTotalChattersCount(result.userCount || allFetched.length)
         setHasFetchedMore(true)
         
-        // Populate avatar context for other components to use
         const avatarMap: Record<string, string | null> = {}
         for (const c of result.chatters) {
           avatarMap[c.username] = c.avatar
@@ -165,16 +145,13 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     }
   }, [selectedDate, selectedDates, initialChatters, hasFetchedMore, isLoadingMore, addAvatars])
 
-  // Handle show more click
   const handleShowMore = useCallback(() => {
     if (!showAllChatters && !hasFetchedMore) {
-      // First time clicking "show more" - fetch additional chatters
       fetchMoreChatters()
     }
     setShowAllChatters(!showAllChatters)
   }, [showAllChatters, hasFetchedMore, fetchMoreChatters])
 
-  // Build avatar lookup from chatters - NO additional API calls
   const chatterAvatarMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const chatter of allChatters) {
@@ -185,24 +162,25 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     return map
   }, [allChatters])
 
-  // Enrich contributors with avatars from chatters ONLY (no eager profile fetching)
   const enrichedContributors = useMemo(() => {
     if (!data?.topContributors) return undefined
     return data.topContributors.map(contributor => ({
       ...contributor,
-      // Use avatar from: 1) contributor data, 2) chatter map, 3) undefined (fallback shown)
       avatar: contributor.avatar || chatterAvatarMap.get(contributor.username)
     }))
   }, [data?.topContributors, chatterAvatarMap])
 
   return (
-    <aside className="lg:col-span-2 hidden lg:block">
-      <div className="sticky top-20">
-        {/* Top Contributors Section - AI-selected */}
-        <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground mb-4 pb-2 border-b border-foreground/20">
-          Top Beitragende
-        </h3>
-        <ul className="space-y-3 font-body text-sm">
+    <div className="space-y-8">
+      {/* Top Contributors Section */}
+      <div>
+        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-primary/20">
+          <Crown className="w-4 h-4 text-primary" />
+          <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground">
+            Top Beitragende
+          </h3>
+        </div>
+        <ul className="space-y-2">
           {enrichedContributors && enrichedContributors.length > 0 ? (
             enrichedContributors.map((contributor, idx) => {
               const isClicked = clickedUser === contributor.username
@@ -216,31 +194,41 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
                   onClick={(e) => handleUserClick(contributor.username, e)}
                 >
                   <li 
-                    className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 -mx-1 transition-all duration-150 ${
-                      isClicked 
-                        ? 'bg-primary/20 scale-95' 
-                        : 'hover:bg-muted/50 active:scale-95 active:bg-primary/10'
-                    }`}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        handleUserClick(contributor.username, e as unknown as React.MouseEvent)
+                    className={`
+                      stagger-item flex items-center gap-2.5 cursor-pointer rounded-sm px-2 py-2 -mx-2
+                      transition-all duration-200 group
+                      ${isClicked 
+                        ? 'bg-primary/20 scale-98' 
+                        : 'hover:bg-card/80 active:scale-98'
                       }
-                    }}
+                    `}
+                    style={{ animationDelay: `${idx * 50}ms` }}
                   >
-                    <Avatar className={`h-6 w-6 border border-foreground/20 ${isClicked ? 'opacity-70' : ''}`}>
-                      <AvatarImage 
-                        src={contributor.avatar} 
-                        alt={contributor.username}
-                        className="rounded-full object-cover"
-                      />
-                      <AvatarFallback className="bg-muted text-xs font-semibold">
-                        {contributor.initial || contributor.username?.slice(0, 1).toUpperCase() || '?'}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className={`truncate flex-1 ${isClicked ? 'opacity-70' : ''}`}>
+                    <div className="relative">
+                      <Avatar className={`h-7 w-7 border-2 border-primary/30 ${isClicked ? 'opacity-70' : ''}`}>
+                        <AvatarImage 
+                          src={contributor.avatar} 
+                          alt={contributor.username}
+                          className="rounded-full object-cover"
+                        />
+                        <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold">
+                          {contributor.initial || contributor.username?.slice(0, 1).toUpperCase() || '?'}
+                        </AvatarFallback>
+                      </Avatar>
+                      {/* Rank indicator */}
+                      {idx < 3 && (
+                        <span className={`
+                          absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-[9px] font-bold
+                          flex items-center justify-center
+                          ${idx === 0 ? 'bg-amber-500 text-amber-950' : 
+                            idx === 1 ? 'bg-gray-400 text-gray-900' : 
+                            'bg-amber-700 text-amber-100'}
+                        `}>
+                          {idx + 1}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`truncate flex-1 text-sm font-body group-hover:text-primary transition-colors ${isClicked ? 'opacity-70' : ''}`}>
                       {contributor.username || <Skeleton className="h-4 w-24" />}
                     </span>
                     {isClicked && (
@@ -251,57 +239,61 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
               )
             })
           ) : (
-            <>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-6 h-6 rounded-full" />
-                <Skeleton className="h-4 w-28" />
+            Array.from({ length: 3 }).map((_, idx) => (
+              <li key={idx} className="flex items-center gap-2.5 px-2 py-2">
+                <Skeleton className="w-7 h-7 rounded-full" />
+                <Skeleton className="h-4 w-full max-w-[100px]" />
               </li>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-6 h-6 rounded-full" />
-                <Skeleton className="h-4 w-24" />
-              </li>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-6 h-6 rounded-full" />
-                <Skeleton className="h-4 w-20" />
-              </li>
-            </>
+            ))
           )}
         </ul>
+      </div>
 
-        {/* Trending Topics Section */}
-        <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground mt-8 mb-4 pb-2 border-b border-foreground/20">
-          Trending Themen
-        </h3>
-        <ul className="space-y-2 font-body text-sm">
+      {/* Trending Topics Section */}
+      <div>
+        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-primary/20">
+          <TrendingUp className="w-4 h-4 text-emerald-500" />
+          <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground">
+            Trending
+          </h3>
+        </div>
+        <ul className="space-y-1.5">
           {data?.trendingTopics && data.trendingTopics.length > 0 ? (
             data.trendingTopics.map((topic, idx) => (
               <li 
                 key={idx} 
-                className="text-primary hover:underline cursor-pointer"
+                className="stagger-item text-sm text-primary hover:text-primary/80 cursor-pointer transition-colors flex items-center gap-1.5"
+                style={{ animationDelay: `${idx * 50}ms` }}
               >
-                #{topic}
+                <Hash className="w-3.5 h-3.5 text-primary/50" />
+                {topic}
               </li>
             ))
           ) : (
-            <>
-              <li><Skeleton className="h-4 w-28" /></li>
-              <li><Skeleton className="h-4 w-24" /></li>
-              <li><Skeleton className="h-4 w-32" /></li>
-              <li><Skeleton className="h-4 w-20" /></li>
-            </>
+            Array.from({ length: 4 }).map((_, idx) => (
+              <li key={idx} className="flex items-center gap-1.5">
+                <Skeleton className="w-3.5 h-3.5 rounded" />
+                <Skeleton className={`h-4 ${idx % 2 === 0 ? 'w-24' : 'w-20'}`} />
+              </li>
+            ))
           )}
         </ul>
+      </div>
 
-        {/* Active Chatters Section */}
-        <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground mt-8 mb-4 pb-2 border-b border-foreground/20">
-          Aktive Chatter
+      {/* Active Chatters Section */}
+      <div>
+        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-primary/20">
+          <Users className="w-4 h-4 text-blue-400" />
+          <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground">
+            Aktive Chatter
+          </h3>
           {totalChattersCount > 0 && (
-            <span className="ml-2 text-[10px] font-normal text-muted-foreground/60">
-              ({totalChattersCount})
+            <span className="text-[10px] font-mono text-muted-foreground/50 ml-auto">
+              {totalChattersCount}
             </span>
           )}
-        </h3>
-        <ul className="space-y-2 font-body text-sm">
+        </div>
+        <ul className="space-y-1">
           {!isLoadingInitial && activeChatters.length > 0 ? (
             <>
               {activeChatters.map((chatter, idx) => {
@@ -316,98 +308,83 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
                     onClick={(e) => handleUserClick(chatter.username, e)}
                   >
                     <li 
-                      className={`flex items-center gap-2 cursor-pointer rounded-md px-1 py-0.5 -mx-1 transition-all duration-150 ${
-                        isClicked 
-                          ? 'bg-primary/20 scale-95' 
-                          : 'hover:bg-muted/50 active:scale-95 active:bg-primary/10'
-                      }`}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          handleUserClick(chatter.username, e as unknown as React.MouseEvent)
+                      className={`
+                        stagger-item flex items-center gap-2 cursor-pointer rounded-sm px-2 py-1.5 -mx-2
+                        transition-all duration-200 group
+                        ${isClicked 
+                          ? 'bg-primary/20 scale-98' 
+                          : 'hover:bg-card/80 active:scale-98'
                         }
-                      }}
+                      `}
+                      style={{ animationDelay: `${idx * 30}ms` }}
                     >
-                      <Avatar className={`h-5 w-5 border border-foreground/10 ${isClicked ? 'opacity-70' : ''}`}>
+                      <Avatar className={`h-5 w-5 border border-primary/20 ${isClicked ? 'opacity-70' : ''}`}>
                         <AvatarImage 
                           src={chatter.avatar} 
                           alt={chatter.username}
                           className="rounded-full object-cover"
                         />
-                        <AvatarFallback className="bg-muted text-[10px] font-semibold">
+                        <AvatarFallback className="bg-card text-[9px] font-semibold text-muted-foreground">
                           {chatter.username?.slice(0, 1).toUpperCase() || '?'}
                         </AvatarFallback>
                       </Avatar>
-                      <span className={`truncate flex-1 text-xs ${isClicked ? 'opacity-70' : ''}`}>
+                      <span className={`truncate flex-1 text-xs font-body group-hover:text-foreground transition-colors ${isClicked ? 'opacity-70' : 'text-muted-foreground'}`}>
                         {chatter.username}
                       </span>
                       {isClicked ? (
-                        <div className="h-3 w-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        <div className="h-2.5 w-2.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                       ) : (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                        <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums">
                           {chatter.messageCount}
-                        </Badge>
+                        </span>
                       )}
                     </li>
                   </UserHoverCard>
                 )
               })}
               
-              {/* Show more button */}
               {hasMoreChatters && (
-                <li>
+                <li className="pt-2">
                   <button
                     onClick={handleShowMore}
                     disabled={isLoadingMore}
-                    className="text-xs text-primary hover:underline cursor-pointer w-full text-left py-1 flex items-center gap-1.5 disabled:opacity-50"
+                    className="
+                      w-full text-xs text-muted-foreground hover:text-primary 
+                      transition-colors flex items-center justify-center gap-1.5 
+                      py-2 rounded-sm hover:bg-card/50 disabled:opacity-50
+                    "
                   >
                     {isLoadingMore ? (
                       <>
                         <div className="h-2.5 w-2.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        <span>Lade weitere...</span>
+                        <span>Lade...</span>
                       </>
                     ) : showAllChatters ? (
-                      <>↑ Weniger anzeigen</>
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5 rotate-180 transition-transform" />
+                        <span>Weniger</span>
+                      </>
                     ) : (
-                      <>↓ {totalChattersCount - INITIAL_CHATTERS_COUNT} weitere anzeigen</>
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5" />
+                        <span>+{totalChattersCount - INITIAL_CHATTERS_COUNT} weitere</span>
+                      </>
                     )}
                   </button>
                 </li>
               )}
             </>
           ) : (
-            <>
-              <li className="flex items-center gap-2">
+            Array.from({ length: 5 }).map((_, idx) => (
+              <li key={idx} className="flex items-center gap-2 px-2 py-1.5">
                 <Skeleton className="w-5 h-5 rounded-full" />
-                <Skeleton className="h-3 w-20 flex-1" />
-                <Skeleton className="h-4 w-6" />
+                <Skeleton className={`h-3 flex-1 max-w-[${60 + idx * 10}px]`} />
+                <Skeleton className="h-3 w-6" />
               </li>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-5 h-5 rounded-full" />
-                <Skeleton className="h-3 w-16 flex-1" />
-                <Skeleton className="h-4 w-6" />
-              </li>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-5 h-5 rounded-full" />
-                <Skeleton className="h-3 w-24 flex-1" />
-                <Skeleton className="h-4 w-6" />
-              </li>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-5 h-5 rounded-full" />
-                <Skeleton className="h-3 w-18 flex-1" />
-                <Skeleton className="h-4 w-6" />
-              </li>
-              <li className="flex items-center gap-2">
-                <Skeleton className="w-5 h-5 rounded-full" />
-                <Skeleton className="h-3 w-22 flex-1" />
-                <Skeleton className="h-4 w-6" />
-              </li>
-            </>
+            ))
           )}
         </ul>
       </div>
-    </aside>
+    </div>
   )
 }
