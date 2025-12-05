@@ -37,6 +37,16 @@ export const QuoteSchema = z.object({
 })
 
 /**
+ * Chart image schema.
+ * References TradingView chart screenshots shared in chat.
+ */
+export const ChartImageSchema = z.object({
+  url: z.string(), // TradingView chart URL (e.g., https://www.tradingview.com/x/ABC123/)
+  caption: z.string().optional(), // Description of the chart
+  author: z.string().optional() // Who shared it
+})
+
+/**
  * Chat event/moment schema.
  * Represents notable moments like discussions, debates, or milestones.
  */
@@ -57,7 +67,8 @@ export const ArticleSchema = z.object({
   headline: z.string(),
   summary: z.string(),
   quote: QuoteSchema.optional(),
-  contributors: z.array(z.string()).min(1).max(4)
+  contributors: z.array(z.string()).min(1).max(4),
+  chartImage: ChartImageSchema.optional() // Featured chart for this article
 })
 
 /**
@@ -123,4 +134,5 @@ export type EventData = z.infer<typeof EventSchema>
 export type ShortNewsData = z.infer<typeof ShortNewsSchema>
 export type MoreArticleData = z.infer<typeof MoreArticleSchema>
 export type ActiveChatter = z.infer<typeof ActiveChatterSchema>
+export type ChartImage = z.infer<typeof ChartImageSchema>
 

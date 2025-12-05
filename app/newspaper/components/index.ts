@@ -27,6 +27,7 @@ export { ShortNewsSidebar } from './ShortNewsSidebar'
 export { DateTimeline } from './DateTimeline'
 export type { DayRange } from './DateTimeline'
 export { ChatSection } from './ChatSection'
+export { ContributorAvatar, prefetchAvatars } from './ContributorAvatar'
 
 // UI Components
 export { Skeleton, StreamingText, StreamingContainer, TextOrSkeleton } from './ui/Skeleton'

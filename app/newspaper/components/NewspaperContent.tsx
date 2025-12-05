@@ -28,6 +28,7 @@ import { experimental_useObject as useObject } from '@ai-sdk/react'
 import Link from 'next/link'
 import { UnifiedNewspaperSchema, type UnifiedNewspaperData, type ArticleData, type MoreArticleData } from '../lib/types'
 import { getCategoryStyle, getEventStyle } from './ui/helpers'
+import { ContributorAvatar } from './ContributorAvatar'
 
 /**
  * Generate a URL-safe slug from a headline
@@ -123,6 +124,150 @@ function InlineSkeleton({ width = 'w-24' }: { width?: string }) {
 function StreamingCursor({ show }: { show: boolean }) {
   if (!show) return null
   return <span className="inline-block w-0.5 h-[1em] bg-primary/70 animate-pulse ml-0.5 align-middle" />
+}
+
+/**
+ * Check if a TradingView chart URL is valid and complete
+ */
+function isValidChartUrl(url: string | undefined): boolean {
+  if (!url) return false
+  // Must be a complete TradingView chart URL
+  return url.includes('tradingview.com/x/') || url.includes('tradingview.com/chart/')
+}
+
+/**
+ * Convert TradingView chart URL to embeddable image URL
+ */
+function getChartImageUrl(url: string): string {
+  // TradingView /x/ URLs can be loaded as images with .png extension
+  if (url.includes('/x/')) {
+    // Extract the chart ID and create image URL
+    const match = url.match(/\/x\/([A-Za-z0-9]+)/)
+    if (match) {
+      return `https://www.tradingview.com/x/${match[1]}/`
+    }
+  }
+  return url
+}
+
+/**
+ * Chart image component for displaying TradingView charts
+ * Newspaper-style: floated image with text wrap, minimal styling
+ * Features: hover to scale up, click to open lightbox
+ */
+function ChartImageDisplay({ 
+  url, 
+  caption, 
+  author,
+  float = 'right'
+}: { 
+  url: string
+  caption?: string
+  author?: string
+  float?: 'left' | 'right' | 'none'
+}) {
+  const imageUrl = getChartImageUrl(url)
+  const [isOpen, setIsOpen] = useState(false)
+  
+  const floatClasses = {
+    left: 'float-left mr-4 mb-2',
+    right: 'float-right ml-4 mb-2',
+    none: 'mx-auto mb-4'
+  }
+  
+  // Close on escape key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false)
+    }
+    if (isOpen) {
+      document.addEventListener('keydown', handleEsc)
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEsc)
+      document.body.style.overflow = ''
+    }
+  }, [isOpen])
+  
+  return (
+    <>
+      <figure className={`${floatClasses[float]} w-[45%] min-w-[200px] max-w-[280px] relative z-10`}>
+        <div 
+          className="relative cursor-pointer overflow-visible"
+          onClick={() => setIsOpen(true)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imageUrl}
+            alt={caption || 'Chart'}
+            className="w-full h-auto grayscale-[20%] hover:grayscale-0 hover:scale-150 hover:z-50 hover:relative hover:shadow-xl transition-all duration-300 origin-center"
+            loading="lazy"
+          />
+        </div>
+        
+        {(caption || author) && (
+          <figcaption className="mt-1 text-[10px] text-muted-foreground italic leading-tight">
+            {caption && caption.length > 40 ? `${caption.slice(0, 40)}...` : caption}
+            {author && <span className="font-medium not-italic ml-1">@{author}</span>}
+          </figcaption>
+        )}
+      </figure>
+      
+      {/* Lightbox Modal */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setIsOpen(false)}
+        >
+          <div 
+            className="relative max-w-[90vw] max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="absolute -top-10 right-0 text-white hover:text-primary transition-colors flex items-center gap-2 text-sm"
+            >
+              <span>Schließen</span>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            
+            {/* Image */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={caption || 'Chart'}
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            />
+            
+            {/* Caption */}
+            {(caption || author) && (
+              <div className="mt-3 text-center text-sm text-white/80">
+                {caption}
+                {author && <span className="ml-2 font-medium text-white">@{author}</span>}
+              </div>
+            )}
+            
+            {/* Open in TradingView link */}
+            <a 
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 flex items-center justify-center gap-2 text-xs text-white/60 hover:text-white transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              In TradingView öffnen
+            </a>
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 
 export function NewspaperContent({ 
@@ -353,16 +498,27 @@ export function NewspaperContent({
           <StreamingCursor show={isLoading && !!data?.featuredArticle?.headline && !data?.featuredArticle?.summary} />
         </h3>
         
-        {/* Summary - fixed min-height for 3 lines */}
-        <p className="font-body text-sm sm:text-base md:text-lg leading-relaxed text-muted-foreground mb-3 sm:mb-4 min-h-[4.5em]">
-          {data?.featuredArticle?.summary || <><InlineSkeleton width="w-full" /> <InlineSkeleton width="w-full" /> <InlineSkeleton width="w-2/3" /></>}
-          <StreamingCursor show={isFeaturedStreaming && !!data?.featuredArticle?.summary} />
-        </p>
+        {/* Content area with floating chart image */}
+        <div className="clearfix">
+          {/* Chart Image - floated right, text wraps around */}
+          {data?.featuredArticle?.chartImage && isValidChartUrl(data.featuredArticle.chartImage.url) && (
+            <ChartImageDisplay
+              url={data.featuredArticle.chartImage.url}
+              caption={data.featuredArticle.chartImage.caption}
+              author={data.featuredArticle.chartImage.author}
+              float="right"
+            />
+          )}
+          
+          {/* Summary */}
+          <p className="font-body text-sm sm:text-base md:text-lg leading-relaxed text-muted-foreground mb-3 sm:mb-4">
+            {data?.featuredArticle?.summary || <><InlineSkeleton width="w-full" /> <InlineSkeleton width="w-full" /> <InlineSkeleton width="w-2/3" /></>}
+            <StreamingCursor show={isFeaturedStreaming && !!data?.featuredArticle?.summary} />
+          </p>
 
-        {/* Quote - appears when available, space reserved */}
-        <div className="min-h-[48px] mb-3 sm:mb-4">
+          {/* Quote - appears when available */}
           {data?.featuredArticle?.quote && (
-            <div className="relative pl-4 py-2 border-l-2 border-foreground/20">
+            <div className="relative pl-4 py-2 border-l-2 border-foreground/20 mb-3 sm:mb-4">
               <p className="text-sm text-muted-foreground italic">
                 „{data.featuredArticle.quote.text}" 
                 <span className="font-semibold not-italic ml-1">
@@ -372,6 +528,9 @@ export function NewspaperContent({
             </div>
           )}
         </div>
+        
+        {/* Clear floats */}
+        <div className="clear-both" />
 
         {/* Contributors - fixed min-height */}
         <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4 min-h-[28px]">
@@ -381,7 +540,7 @@ export function NewspaperContent({
                 key={idx} 
                 className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded"
               >
-                @{contributor}
+                <ContributorAvatar username={contributor} size="xs" />
               </span>
             ))
           ) : isLoading ? (
@@ -433,16 +592,27 @@ export function NewspaperContent({
           <StreamingCursor show={isLoading && !!data?.secondaryArticle?.headline && !data?.secondaryArticle?.summary} />
         </h3>
         
-        {/* Summary */}
-        <p className="font-body text-sm sm:text-base leading-relaxed text-muted-foreground mb-3 sm:mb-4 min-h-[3em]">
-          {data?.secondaryArticle?.summary || <><InlineSkeleton width="w-full" /> <InlineSkeleton width="w-full" /> <InlineSkeleton width="w-1/2" /></>}
-          <StreamingCursor show={isSecondaryStreaming && !!data?.secondaryArticle?.summary} />
-        </p>
+        {/* Content area with floating chart image */}
+        <div className="clearfix">
+          {/* Chart Image - floated left for variety */}
+          {data?.secondaryArticle?.chartImage && isValidChartUrl(data.secondaryArticle.chartImage.url) && (
+            <ChartImageDisplay
+              url={data.secondaryArticle.chartImage.url}
+              caption={data.secondaryArticle.chartImage.caption}
+              author={data.secondaryArticle.chartImage.author}
+              float="left"
+            />
+          )}
+          
+          {/* Summary */}
+          <p className="font-body text-sm sm:text-base leading-relaxed text-muted-foreground mb-3 sm:mb-4">
+            {data?.secondaryArticle?.summary || <><InlineSkeleton width="w-full" /> <InlineSkeleton width="w-full" /> <InlineSkeleton width="w-1/2" /></>}
+            <StreamingCursor show={isSecondaryStreaming && !!data?.secondaryArticle?.summary} />
+          </p>
 
-        {/* Quote */}
-        <div className="min-h-[40px] mb-3 sm:mb-4">
+          {/* Quote */}
           {data?.secondaryArticle?.quote && (
-            <div className="relative pl-4 py-2 border-l-2 border-foreground/20">
+            <div className="relative pl-4 py-2 border-l-2 border-foreground/20 mb-3 sm:mb-4">
               <p className="text-sm text-muted-foreground italic">
                 „{data.secondaryArticle.quote.text}" 
                 <span className="font-semibold not-italic ml-1">
@@ -452,6 +622,9 @@ export function NewspaperContent({
             </div>
           )}
         </div>
+        
+        {/* Clear floats */}
+        <div className="clear-both" />
 
         {/* Contributors */}
         <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2 sm:mb-3 min-h-[24px]">
@@ -461,7 +634,7 @@ export function NewspaperContent({
                 key={idx} 
                 className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-muted text-[10px] sm:text-xs font-body rounded"
               >
-                @{contributor}
+                <ContributorAvatar username={contributor} size="xs" />
               </span>
             ))
           ) : isLoading ? (
@@ -542,7 +715,7 @@ export function NewspaperContent({
                         key={pIdx} 
                         className="px-1.5 py-0.5 bg-background text-[10px] font-body rounded border border-foreground/10"
                       >
-                        @{participant}
+                        <ContributorAvatar username={participant} size="xs" />
                       </span>
                     ))
                   ) : isLoading ? (

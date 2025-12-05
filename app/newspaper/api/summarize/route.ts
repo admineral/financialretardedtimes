@@ -286,6 +286,23 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    // Extract chart URLs from messages for the AI to reference
+    const chartUrls: { url: string; author: string; time: string }[] = []
+    const chartUrlRegex = /https?:\/\/(?:www\.)?tradingview\.com\/(?:x|chart)\/([A-Za-z0-9]+)/g
+    
+    messages.forEach(msg => {
+      const matches = msg.text.matchAll(chartUrlRegex)
+      for (const match of matches) {
+        chartUrls.push({
+          url: match[0],
+          author: msg.username,
+          time: new Date(msg.time).toLocaleString('de-DE', { 
+            hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' 
+          })
+        })
+      }
+    })
+    
     // Format messages for AI prompt
     const formattedChat = messages.map(msg => {
       const time = new Date(msg.time).toLocaleString('de-DE', { 
@@ -298,6 +315,17 @@ export async function POST(request: NextRequest) {
       const modBadge = msg.is_moderator ? ' [MOD]' : ''
       return `[${time}] ${msg.username}${modBadge}: ${msg.text}`
     }).join('\n')
+    
+    // Format chart URLs summary for the AI
+    const chartUrlsSummary = chartUrls.length > 0 
+      ? `\n═══════════════════════════════════════════════════
+📈 GETEILTE CHARTS (${chartUrls.length} Stück)
+═══════════════════════════════════════════════════
+${chartUrls.map(c => `• ${c.url} (von @${c.author} um ${c.time})`).join('\n')}
+═══════════════════════════════════════════════════
+⚠️ Verwende diese URLs in chartImage-Feldern wenn relevant!
+`
+      : ''
     
     const today = new Date().toISOString().split('T')[0]
     
@@ -381,7 +409,7 @@ export async function POST(request: NextRequest) {
       prompt: `Analysiere den folgenden Chat und erstelle eine übersichtliche Zusammenfassung.
 
 Heutiges Datum: ${today}
-${btcContextStr}
+${btcContextStr}${chartUrlsSummary}
 Chat-Protokoll (${messages.length} Nachrichten von ${uniqueUsers} Usern):
 
 ${formattedChat}`,

@@ -33,6 +33,7 @@ import { z } from 'zod'
 import { ArrowLeft, Clock, Users, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, Quote, ImageIcon, ImageOff, ExternalLink } from 'lucide-react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { Badge } from '@/components/ui/badge'
+import { ContributorAvatar } from '../../components/ContributorAvatar'
 
 /**
  * Schema for chart/image references
@@ -661,7 +662,7 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
                       className="px-2 py-0.5 bg-background text-xs rounded border border-foreground/10"
                       title={user.role}
                     >
-                      @{user.username}
+                      <ContributorAvatar username={user.username} size="xs" />
                     </span>
                   ))}
                 </div>
@@ -797,13 +798,14 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
         {/* Contributors */}
         {contributors.length > 0 && (
           <div className="mt-10 pt-6 border-t border-foreground/10 text-sm text-muted-foreground">
-            <span>Beteiligte: </span>
-            {contributors.map((c, idx) => (
-              <span key={idx}>
-                <span className="font-semibold">@{c}</span>
-                {idx < contributors.length - 1 ? ', ' : ''}
-              </span>
-            ))}
+            <span className="mr-2">Beteiligte:</span>
+            <span className="inline-flex flex-wrap gap-2">
+              {contributors.map((c, idx) => (
+                <span key={idx} className="inline-flex items-center px-2 py-0.5 bg-muted rounded">
+                  <ContributorAvatar username={c} size="sm" />
+                </span>
+              ))}
+            </span>
           </div>
         )}
 
