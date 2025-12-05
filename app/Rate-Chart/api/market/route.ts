@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
           userCredits = newUser
           
           // Record initial credits transaction
-          await supabase
+          const { error: txnError } = await supabase
             .from('market_credit_transactions')
             .insert({
               user_identifier: userId,
@@ -133,6 +133,12 @@ export async function GET(request: NextRequest) {
               balance_after: 1000,
               description: 'Welcome bonus - 1000 credits!'
             })
+          
+          if (txnError) {
+            console.error('[MARKET] Error recording initial transaction:', txnError)
+          } else {
+            console.log(`[MARKET] ✅ New user created with 1000 credits: ${userId}`)
+          }
         }
       } else if (!creditsError) {
         userCredits = credits
@@ -243,16 +249,38 @@ export async function POST(request: NextRequest) {
     
     if (userError || !userCredits) {
       // Create user if doesn't exist
+      const randomNickname = generateRandomNickname()
+      console.log(`[MARKET] Creating new user during bet: ${userId} with nickname: ${randomNickname}`)
+      
       const { error: createError } = await supabase
         .from('market_user_credits')
         .insert({
           user_identifier: userId,
+          display_name: randomNickname,
           total_credits: 1000,
           available_credits: 1000
         })
       
       if (createError) {
+        console.error('[MARKET] Error creating user:', createError)
         return NextResponse.json({ error: 'Failed to create user account' }, { status: 500 })
+      }
+      
+      // Record initial credits transaction
+      const { error: txnError } = await supabase
+        .from('market_credit_transactions')
+        .insert({
+          user_identifier: userId,
+          transaction_type: 'initial_credits',
+          amount: 1000,
+          balance_after: 1000,
+          description: 'Welcome bonus - 1000 credits!'
+        })
+      
+      if (txnError) {
+        console.error('[MARKET] Error recording initial transaction:', txnError)
+      } else {
+        console.log(`[MARKET] ✅ New user created with 1000 credits during bet: ${userId}`)
       }
       
       // Retry getting credits

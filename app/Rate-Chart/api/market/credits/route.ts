@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       credits = newUser
       
       // Record initial credits transaction
-      await supabase
+      const { error: txnError } = await supabase
         .from('market_credit_transactions')
         .insert({
           user_identifier: userId,
@@ -90,9 +90,46 @@ export async function GET(request: NextRequest) {
           balance_after: 1000,
           description: 'Welcome bonus - 1000 credits!'
         })
+      
+      if (txnError) {
+        console.error('[MARKET-CREDITS] Error recording initial transaction:', txnError)
+        // Don't fail the request - user was created, transaction can be repaired
+      } else {
+        console.log(`[MARKET-CREDITS] ✅ New user created with 1000 credits: ${userId}`)
+      }
     } else if (error) {
       console.error('[MARKET-CREDITS] Error fetching credits:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    } else if (credits) {
+      // User exists - check if they have an initial_credits transaction (repair mechanism)
+      const { data: initialTxn } = await supabase
+        .from('market_credit_transactions')
+        .select('id')
+        .eq('user_identifier', userId)
+        .eq('transaction_type', 'initial_credits')
+        .limit(1)
+        .single()
+      
+      if (!initialTxn) {
+        // Missing initial credits transaction - create it now (repair)
+        console.log(`[MARKET-CREDITS] Repairing missing initial transaction for ${userId}`)
+        const { error: repairError } = await supabase
+          .from('market_credit_transactions')
+          .insert({
+            user_identifier: userId,
+            transaction_type: 'initial_credits',
+            amount: 1000,
+            balance_after: 1000,
+            description: 'Welcome bonus - 1000 credits!',
+            created_at: credits.created_at // Use user creation date
+          })
+        
+        if (repairError) {
+          console.error('[MARKET-CREDITS] Error repairing initial transaction:', repairError)
+        } else {
+          console.log(`[MARKET-CREDITS] ✅ Repaired initial transaction for ${userId}`)
+        }
+      }
     }
     
     // Fetch transaction history if requested
