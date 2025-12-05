@@ -57,18 +57,16 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     setClickedUser(null)
   }, [selectedDate, selectedDates])
   
-  // Navigate to user profile in chat-archive with visual feedback
+  // Navigate to user profile in chat-archive immediately
   const handleUserClick = useCallback((username: string, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     
-    // Show brief click feedback then navigate
+    // Set clicked state for visual feedback (will show during navigation)
     setClickedUser(username)
     
-    // Small delay to show the click effect before navigation
-    setTimeout(() => {
-      router.push(`/chat-archive?username=${encodeURIComponent(username)}&room=bitcoin_de_DE`)
-    }, 100)
+    // Navigate immediately - Next.js will handle the transition
+    router.push(`/chat-archive?username=${encodeURIComponent(username)}&room=bitcoin_de_DE`)
   }, [router])
 
   // Displayed chatters (limited or all)
@@ -187,14 +185,48 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     return map
   }, [allChatters])
 
-  // Enrich topContributors with avatars from activeChatters if not already set
+  // State to store fetched profile avatars for contributors not in today's chatters
+  const [fetchedAvatars, setFetchedAvatars] = useState<Map<string, string>>(new Map())
+
+  // Fetch profiles for top contributors who don't have avatars from today's messages
+  useEffect(() => {
+    const fetchMissingAvatars = async () => {
+      if (!data?.topContributors) return
+      
+      // Find contributors without avatars
+      const missingAvatarUsers = data.topContributors.filter(
+        c => !c.avatar && !chatterAvatarMap.has(c.username) && !fetchedAvatars.has(c.username)
+      )
+      
+      if (missingAvatarUsers.length === 0) return
+      
+      // Fetch profiles for missing users
+      for (const user of missingAvatarUsers) {
+        try {
+          const response = await fetch(`/Test/api/user-profile?username=${encodeURIComponent(user.username)}`)
+          if (response.ok) {
+            const profile = await response.json()
+            if (profile?.avatar) {
+              setFetchedAvatars(prev => new Map(prev).set(user.username, profile.avatar))
+            }
+          }
+        } catch (err) {
+          console.error(`[NewspaperSidebar] Failed to fetch profile for ${user.username}:`, err)
+        }
+      }
+    }
+    
+    fetchMissingAvatars()
+  }, [data?.topContributors, chatterAvatarMap, fetchedAvatars])
+
+  // Enrich topContributors with avatars from activeChatters OR fetched profiles
   const enrichedContributors = useMemo(() => {
     if (!data?.topContributors) return undefined
     return data.topContributors.map(contributor => ({
       ...contributor,
-      avatar: contributor.avatar || chatterAvatarMap.get(contributor.username)
+      avatar: contributor.avatar || chatterAvatarMap.get(contributor.username) || fetchedAvatars.get(contributor.username)
     }))
-  }, [data?.topContributors, chatterAvatarMap])
+  }, [data?.topContributors, chatterAvatarMap, fetchedAvatars])
 
   return (
     <aside className="lg:col-span-2 hidden lg:block">

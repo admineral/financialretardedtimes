@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
-import { CrownIcon, UserIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { CrownIcon, UserIcon, RefreshCwIcon } from 'lucide-react'
 import { ChatMessage } from '../types'
 import { useUserProfile } from '../hooks/use-user-profile'
 import { useUserActivity } from '../hooks/use-user-activity'
@@ -37,17 +38,27 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
   // Get user_id from the latest message for this user
   const userId = userMessages.length > 0 ? userMessages[0].user_id || null : null
   
+  // Retry state for fallback fetching
+  const [retryCount, setRetryCount] = useState(0)
+  
   // Fetch extended profile data from TradingView
-  const { profile, isLoading: profileLoading } = useUserProfile({
+  const { profile, isLoading: profileLoading, refetch: refetchProfile } = useUserProfile({
     userId,
     username
   })
   
-  // Fetch user activity data (last 30 days)
-  const { activities, patterns: activityPatterns, isLoading: activityLoading } = useUserActivity(username, 'bitcoin_de_DE', 30)
+  // Fetch user activity data (last 30 days) - this is the fallback when userMessages is empty
+  const { activities, patterns: activityPatterns, isLoading: activityLoading, refetch: refetchActivity } = useUserActivity(username, 'bitcoin_de_DE', 30)
   
   // Determine if we're loading any data
   const isLoadingAnyData = profileLoading || activityLoading
+  
+  // Handle retry - refetch both profile and activity data
+  const handleRetry = useCallback(() => {
+    setRetryCount(prev => prev + 1)
+    refetchProfile?.()
+    refetchActivity?.()
+  }, [refetchProfile, refetchActivity])
 
   const userStats = useMemo(() => {
     if (userMessages.length === 0) return null
@@ -145,23 +156,68 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
     return stats
   }, [userMessages])
 
-  if (!userStats || userMessages.length === 0) {
+  // Show loading state when fetching data
+  if (isLoadingAnyData && !profile && !activityPatterns) {
     return (
       <Card className={`w-80 ${className}`}>
         <CardContent className="p-4">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <UserIcon className="h-4 w-4" />
-            <span className="text-sm">No data available for {username}</span>
+          <div className="flex items-center gap-3">
+            <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm text-muted-foreground">Loading {username}...</span>
           </div>
         </CardContent>
       </Card>
     )
   }
 
+  // Fallback: If no local messages but we have activity data, show profile with activity
+  const hasActivityData = activityPatterns && activityPatterns.totalMessages > 0
+  const hasProfileData = profile !== null
+  
+  // If no userMessages but we have activity or profile data, we can still show something useful
+  if ((!userStats || userMessages.length === 0) && !hasActivityData && !hasProfileData) {
+    return (
+      <Card className={`w-80 ${className}`}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <UserIcon className="h-4 w-4" />
+            <span className="text-sm">No data for {username}</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRetry}
+            disabled={isLoadingAnyData}
+            className="w-full text-xs"
+          >
+            {isLoadingAnyData ? (
+              <>
+                <RefreshCwIcon className="h-3 w-3 mr-1.5 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <RefreshCwIcon className="h-3 w-3 mr-1.5" />
+                Retry fetch
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // If we have activity/profile data but no local messages, use fallback rendering
+  const showFallbackProfile = (!userStats || userMessages.length === 0) && (hasActivityData || hasProfileData)
+  
   const latestMessage = userMessages[userMessages.length - 1]
   const userBadges = latestMessage?.badges || []
   const isPremium = userBadges.some(badge => badge.name.includes('premium'))
   const isModerator = latestMessage?.is_moderator
+  
+  // For fallback profile, get avatar from profile if available
+  // Convert null to undefined for AvatarImage type compatibility
+  const avatarUrl = latestMessage?.user_pic ?? profile?.avatar ?? undefined
 
   return (
     <Card className={`w-96 shadow-lg border-2 ${className}`}>
@@ -169,12 +225,12 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
         <div className="flex items-center gap-3">
           <Avatar className="h-12 w-12 border-3 border-primary/40 shadow-md ring-2 ring-primary/25 hover:border-primary/60 hover:ring-3 hover:ring-primary/35 transition-all duration-200">
             <AvatarImage 
-              src={latestMessage?.user_pic} 
+              src={avatarUrl} 
               alt={username}
               className="rounded-full object-cover"
             />
             <AvatarFallback className="text-sm font-bold bg-muted/50 rounded-full">
-              {latestMessage?.user_pic ? (
+              {avatarUrl ? (
                 username.slice(0, 2).toUpperCase()
               ) : (
                 <UserIcon className="h-6 w-6 text-muted-foreground" />

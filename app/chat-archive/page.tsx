@@ -554,10 +554,44 @@ function ChatArchiveContent() {
   )
 }
 
+// Loading screen component for immediate feedback
+function LoadingScreen({ username }: { username?: string }) {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-center space-y-6">
+        {/* Animated loader */}
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-primary/20 rounded-full" />
+          <div className="absolute top-0 left-0 w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+        
+        {/* Loading text */}
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold text-foreground">
+            {username ? `Loading ${username}'s Profile...` : 'Loading Chat Archive...'}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Fetching activity data
+          </p>
+        </div>
+        
+        {/* Progress dots */}
+        <div className="flex justify-center gap-1">
+          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Wrapper to read URL params before initializing provider
 function ChatArchiveWrapper() {
   const [urlParams, setUrlParams] = useState<{room: string, username: string} | null>(null)
   const [key, setKey] = useState(0) // Force remount when params change
+  const [isLoading, setIsLoading] = useState(true)
+  const [pendingUsername, setPendingUsername] = useState<string | null>(null)
   
   useEffect(() => {
     const updateParams = () => {
@@ -565,6 +599,11 @@ function ChatArchiveWrapper() {
         const searchParams = new URLSearchParams(window.location.search)
         const urlRoom = searchParams.get('room')
         const urlUsername = searchParams.get('username')
+        
+        // Track pending username for loading screen
+        if (urlUsername) {
+          setPendingUsername(urlUsername)
+        }
         
         // Only proceed if we have both room and username from URL
         if (urlRoom && urlUsername) {
@@ -580,10 +619,12 @@ function ChatArchiveWrapper() {
             return prev
           })
         }
+        
+        setIsLoading(false)
       }
     }
     
-    // Initial read
+    // Initial read - immediate
     updateParams()
     
     // Listen for popstate (back/forward navigation)
@@ -594,6 +635,10 @@ function ChatArchiveWrapper() {
       const searchParams = new URLSearchParams(window.location.search)
       const urlRoom = searchParams.get('room')
       const urlUsername = searchParams.get('username')
+      
+      if (urlUsername) {
+        setPendingUsername(urlUsername)
+      }
       
       if (urlRoom && urlUsername) {
         setUrlParams(prev => {
@@ -612,7 +657,12 @@ function ChatArchiveWrapper() {
     }
   }, [])
   
-  // Wait for URL params to be read before rendering provider
+  // Show loading screen during initial load or when we have a pending username but no params yet
+  if (isLoading || (pendingUsername && !urlParams)) {
+    return <LoadingScreen username={pendingUsername || undefined} />
+  }
+  
+  // No URL params available - show empty state
   if (!urlParams) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
