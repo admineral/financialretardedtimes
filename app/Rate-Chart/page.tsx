@@ -5,6 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { formatDistanceToNow, format } from 'date-fns'
 import { track } from '@vercel/analytics'
 import { ChatMessage } from '../Test/types'
+import PredictionMarket from './components/PredictionMarket'
+import CreditsDisplay from './components/CreditsDisplay'
 
 interface PriceGuess {
   username: string
@@ -48,6 +50,9 @@ export default function RateChartPage() {
   const [isMounted, setIsMounted] = useState(false)
   const [isRevealed, setIsRevealed] = useState(false)
   const [currentTime, setCurrentTime] = useState<Date | null>(null)
+  
+  // View mode: 'arena' (default) or 'market' (prediction market)
+  const [viewMode, setViewMode] = useState<'arena' | 'market'>('arena')
   
   // All-time leaderboard state
   const [allTimeLeaderboard, setAllTimeLeaderboard] = useState<{
@@ -153,6 +158,12 @@ export default function RateChartPage() {
     
     // Track page view
     track('ratechart_page_view', { source: 'direct' })
+    
+    // Load saved view mode from localStorage
+    const savedViewMode = localStorage.getItem('ratechart_view_mode')
+    if (savedViewMode === 'market') {
+      setViewMode('market')
+    }
     
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date())
@@ -1159,6 +1170,32 @@ export default function RateChartPage() {
           localStorage.setItem(savedKey, 'true')
           // Refresh leaderboard to show updated results
           await fetchLeaderboard()
+          
+          // Also resolve prediction market bets
+          try {
+            const marketResolveKey = `market_resolved_${gameDate}`
+            if (!localStorage.getItem(marketResolveKey)) {
+              console.log(`[RATE-CHART] 🎰 Resolving prediction market bets for ${gameDate}...`)
+              const marketResponse = await fetch('/Rate-Chart/api/market', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  gameDate,
+                  winnerUsername: leaderboard[0].username,
+                  secondUsername: leaderboard[1]?.username,
+                  thirdUsername: leaderboard[2]?.username
+                })
+              })
+              
+              if (marketResponse.ok) {
+                const marketData = await marketResponse.json()
+                console.log(`[RATE-CHART] 🎰 Market resolved: ${marketData.resolved || 0} bets processed`)
+                localStorage.setItem(marketResolveKey, 'true')
+              }
+            }
+          } catch (marketError) {
+            console.error('[RATE-CHART] Failed to resolve market bets:', marketError)
+          }
         } else {
           const errorData = await response.json()
           console.error('[RATE-CHART] Failed to save winners:', errorData.error)
@@ -1178,6 +1215,40 @@ export default function RateChartPage() {
 
   const formatPrice = (price: number) => {
     return `$${price.toLocaleString()}`
+  }
+
+  // Toggle view mode with localStorage persistence
+  const toggleViewMode = () => {
+    const newMode = viewMode === 'arena' ? 'market' : 'arena'
+    setViewMode(newMode)
+    localStorage.setItem('ratechart_view_mode', newMode)
+    track('ratechart_view_toggle', { mode: newMode })
+  }
+  
+  // Get current game date for market
+  const getCurrentGameDate = () => {
+    const now = new Date()
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Vienna',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false
+    })
+    const parts = formatter.formatToParts(now)
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value || ''
+    const hour = parseInt(getPart('hour'))
+    
+    if (hour < 8) {
+      // Winners period - use yesterday's date
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      const yParts = formatter.formatToParts(yesterday)
+      const getYPart = (type: string) => yParts.find(p => p.type === type)?.value || ''
+      return `${getYPart('year')}-${getYPart('month')}-${getYPart('day')}`
+    }
+    
+    return `${getPart('year')}-${getPart('month')}-${getPart('day')}`
   }
 
   const formatTimestamp = (timestamp: string) => {
@@ -1243,6 +1314,26 @@ export default function RateChartPage() {
     )
   }
 
+  // Prediction Market View - early return
+  const isMarketMode = viewMode === 'market'
+  
+  if (isMarketMode) {
+    return (
+      <PredictionMarket
+        leaderboard={leaderboard}
+        currentBitcoinPrice={currentBitcoinPrice}
+        midnightPrice={midnightPrice}
+        gameDate={getCurrentGameDate()}
+        isRevealed={isRevealed}
+        isPastMidnight={isPastMidnight}
+        onClose={toggleViewMode}
+      />
+    )
+  }
+
+  // Arena View (default)
+  const isArenaMode = viewMode === 'arena' // For the toggle display below
+
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white font-mono selection:bg-orange-500/30">
       {/* Animated background */}
@@ -1279,6 +1370,27 @@ export default function RateChartPage() {
                   </span>
                 </div>
               )}
+              
+              {/* Credits Display */}
+              <CreditsDisplay />
+              
+              {/* View Mode Toggle */}
+              <button
+                onClick={toggleViewMode}
+                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                  isMarketMode
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                    : 'bg-gradient-to-r from-amber-900/30 to-yellow-900/30 border-amber-500/60 text-amber-300 hover:border-amber-400 hover:text-amber-200 shadow-[0_0_15px_rgba(251,191,36,0.3)] animate-pulse-glow'
+                }`}
+              >
+                {!isMarketMode && (
+                  <span className="absolute inset-0 rounded-lg border border-amber-400/50 animate-ping-slow pointer-events-none" />
+                )}
+                <span className="text-lg">{isMarketMode ? '📊' : '🎯'}</span>
+                <span className="text-xs font-medium hidden sm:block">
+                  {isMarketMode ? 'Market View' : 'Prediction Market'}
+                </span>
+              </button>
             </div>
 
             <div className="flex items-center gap-4">
