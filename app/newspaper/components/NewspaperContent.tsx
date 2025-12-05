@@ -29,7 +29,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { UnifiedNewspaperSchema, type UnifiedNewspaperData, type ArticleData, type MoreArticleData } from '../lib/types'
 import { getCategoryStyle, getEventStyle } from './ui/helpers'
-import { ContributorAvatar } from './ContributorAvatar'
+import { ContributorAvatar, prefetchAvatars } from './ContributorAvatar'
+import { useAvatarContext } from './AvatarContext'
 
 /**
  * Generate a URL-safe slug from a headline
@@ -440,10 +441,50 @@ export function NewspaperContent({
     onLoadingChange?.(isLoading)
   }, [isLoading, onLoadingChange])
 
+  // Get avatar context to prefetch contributor avatars
+  const { addAvatars: addAvatarsToContext } = useAvatarContext()
+
   // Notify parent of data changes (for sidebar synchronization)
+  // Also prefetch avatars for all contributors
   useEffect(() => {
     onDataChange?.(data)
-  }, [data, onDataChange])
+    
+    // Extract all contributor usernames from the data and prefetch their avatars
+    if (data) {
+      const allContributors = new Set<string>()
+      
+      // Featured article contributors
+      if (data.featuredArticle?.contributors) {
+        data.featuredArticle.contributors.forEach(c => allContributors.add(c))
+      }
+      
+      // Secondary article contributors
+      if (data.secondaryArticle?.contributors) {
+        data.secondaryArticle.contributors.forEach(c => allContributors.add(c))
+      }
+      
+      // Note: moreArticles don't have participants/contributors in schema
+      
+      // Event participants
+      if (data.events) {
+        data.events.forEach(event => {
+          if (event.participants) {
+            event.participants.forEach(p => allContributors.add(p))
+          }
+        })
+      }
+      
+      // Top contributors
+      if (data.topContributors) {
+        data.topContributors.forEach(c => allContributors.add(c.username))
+      }
+      
+      // Prefetch all unique contributors
+      if (allContributors.size > 0) {
+        prefetchAvatars(Array.from(allContributors))
+      }
+    }
+  }, [data, onDataChange, addAvatarsToContext])
 
   // Load content when date changes: check cache first, generate if not found or too old
   useEffect(() => {

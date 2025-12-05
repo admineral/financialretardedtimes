@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from './ui/Skeleton'
 import { UserHoverCard } from '@/app/Test/components/UserHoverCard'
+import { useAvatarContext } from './AvatarContext'
 import type { UnifiedNewspaperData, ActiveChatter } from '../lib/types'
 
 interface NewspaperSidebarProps {
@@ -33,6 +34,7 @@ const INITIAL_CHATTERS_COUNT = 5
 
 export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates }: NewspaperSidebarProps) {
   const router = useRouter()
+  const { addAvatars } = useAvatarContext()
   
   // Active chatters state - staged loading
   const [initialChatters, setInitialChatters] = useState<ActiveChatter[]>([]) // First 5
@@ -97,6 +99,13 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
           setInitialChatters(chatters)
           // userCount from API tells us total unique users
           setTotalChattersCount(result.userCount || chatters.length)
+          
+          // Populate avatar context for other components to use
+          const avatarMap: Record<string, string | null> = {}
+          for (const c of result.chatters) {
+            avatarMap[c.username] = c.avatar
+          }
+          addAvatars(avatarMap)
         }
       } catch (err) {
         console.error('[NewspaperSidebar] Error fetching initial chatters:', err)
@@ -106,7 +115,7 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     }
 
     fetchInitialChatters()
-  }, [selectedDate, selectedDates])
+  }, [selectedDate, selectedDates, addAvatars])
 
   // Fetch MORE chatters - only when "weitere anzeigen" is clicked
   const fetchMoreChatters = useCallback(async () => {
@@ -141,13 +150,20 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
         setAdditionalChatters(additional)
         setTotalChattersCount(result.userCount || allFetched.length)
         setHasFetchedMore(true)
+        
+        // Populate avatar context for other components to use
+        const avatarMap: Record<string, string | null> = {}
+        for (const c of result.chatters) {
+          avatarMap[c.username] = c.avatar
+        }
+        addAvatars(avatarMap)
       }
     } catch (err) {
       console.error('[NewspaperSidebar] Error fetching more chatters:', err)
     } finally {
       setIsLoadingMore(false)
     }
-  }, [selectedDate, selectedDates, initialChatters, hasFetchedMore, isLoadingMore])
+  }, [selectedDate, selectedDates, initialChatters, hasFetchedMore, isLoadingMore, addAvatars])
 
   // Handle show more click
   const handleShowMore = useCallback(() => {

@@ -35,6 +35,7 @@ import {
   DateTimeline,
   ChatSection,
   NewspaperTimeline,
+  AvatarProvider,
 } from './components'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedWidget } from '@/app/test-fg/components'
@@ -121,26 +122,18 @@ export default function NewspaperPage() {
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
 
   /**
-   * Fetch BTC market data from CoinGecko
+   * Fetch BTC market data from our API proxy
    * Refreshes every 60 seconds
    */
   useEffect(() => {
     const fetchBTC = async () => {
       try {
-        const response = await fetch(
-          'https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false'
-        )
+        const response = await fetch('/newspaper/api/btc-price')
         if (response.ok) {
           const data = await response.json()
-          setBtcData({
-            price: data.market_data.current_price.usd,
-            change24h: data.market_data.price_change_percentage_24h,
-            change7d: data.market_data.price_change_percentage_7d,
-            change30d: data.market_data.price_change_percentage_30d,
-            high24h: data.market_data.high_24h.usd,
-            low24h: data.market_data.low_24h.usd,
-            ath: data.market_data.ath.usd
-          })
+          if (!data.error) {
+            setBtcData(data)
+          }
         }
       } catch (err) {
         console.error('Failed to fetch BTC data:', err)
@@ -212,6 +205,7 @@ export default function NewspaperPage() {
   }, [])
 
   return (
+    <AvatarProvider>
     <main className="min-h-screen bg-background">
       {/* Top Bar */}
       <div className="w-full border-b border-foreground/10 py-2">
@@ -417,6 +411,7 @@ export default function NewspaperPage() {
         </div>
       </footer>
     </main>
+    </AvatarProvider>
   )
 }
 

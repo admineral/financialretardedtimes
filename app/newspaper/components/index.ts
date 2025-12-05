@@ -29,6 +29,7 @@ export type { DayRange } from './DateTimeline'
 export { ChatSection } from './ChatSection'
 export { ContributorAvatar, prefetchAvatars } from './ContributorAvatar'
 export { NewspaperTimeline } from './NewspaperTimeline'
+export { AvatarProvider, useAvatarContext } from './AvatarContext'
 
 // UI Components
 export { Skeleton, StreamingText, StreamingContainer, TextOrSkeleton } from './ui/Skeleton'
