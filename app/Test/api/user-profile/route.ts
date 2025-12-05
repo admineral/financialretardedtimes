@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
-import { writeFileSync, mkdirSync } from 'fs'
-import { join } from 'path'
 import { getCachedProfile, isProfileFresh, cacheProfile } from '../../lib/db-cache'
 
 const TRADINGVIEW_ORIGIN = 'https://de.tradingview.com'
@@ -508,60 +506,6 @@ export async function GET(request: NextRequest) {
       extractedIdeas: profileData.extractedIdeas?.length || 0,
       profileFields: Object.keys(profileData).filter(key => profileData[key] !== null && key !== 'extractedIdeas').length
     })
-    
-    // Save raw data to files for analysis
-    try {
-      const dataDir = join(process.cwd(), 'profile-data')
-      mkdirSync(dataDir, { recursive: true })
-      
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const username = profileData.username || 'unknown'
-      
-      // Save complete extraction log
-      // Create a clean log without the massive feature toggle data
-      const cleanLog = {
-        ...extractionLog,
-        relevantData: {
-          ...extractionLog.relevantData,
-          jsVariables: extractionLog.relevantData.jsVariables ? {
-            environment: extractionLog.relevantData.jsVariables.environment,
-            locale: extractionLog.relevantData.jsVariables.locale,
-            language: extractionLog.relevantData.jsVariables.language,
-            buildTime: extractionLog.relevantData.jsVariables.buildTime,
-            countryCode: extractionLog.relevantData.jsVariables.countryCode
-            // Exclude the massive featureToggleState
-          } : undefined
-        }
-      }
-      
-      const logFilename = `${username}_${timestamp}_complete.json`
-      writeFileSync(join(dataDir, logFilename), JSON.stringify(cleanLog, null, 2))
-      
-      // Save raw HTML
-      const htmlFilename = `${username}_${timestamp}_raw.html`
-      writeFileSync(join(dataDir, htmlFilename), html)
-      
-      // Save just the profile data
-      const profileFilename = `${username}_${timestamp}_profile.json`
-      writeFileSync(join(dataDir, profileFilename), JSON.stringify(profileData, null, 2))
-      
-      console.log('💾 [USER PROFILE API] Raw data saved to files:', {
-        completeLog: logFilename,
-        rawHtml: htmlFilename,
-        profileData: profileFilename
-      })
-      
-      console.log('📊 [USER PROFILE API] Extraction Summary:', {
-        success: extractionLog.summary.extractionSuccess,
-        dataSource: extractionLog.summary.dataSource,
-        totalScripts: extractionLog.summary.totalJsonScripts,
-        relevantScripts: extractionLog.summary.relevantJsonScripts,
-        totalMetaTags: extractionLog.summary.totalMetaTags,
-        relevantMetaTags: extractionLog.summary.relevantMetaTags
-      })
-    } catch (saveError) {
-      console.error('❌ [USER PROFILE API] Error saving raw data:', saveError)
-    }
     
     console.log('👤 [USER PROFILE API] Parsed profile data:', profileData)
 

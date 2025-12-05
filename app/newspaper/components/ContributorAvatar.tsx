@@ -26,13 +26,18 @@ export function ContributorAvatar({
   showName = true,
   className = ''
 }: ContributorAvatarProps) {
-  const [avatar, setAvatar] = useState<string | null>(avatarCache.get(username) ?? null)
-  const [isLoading, setIsLoading] = useState(!avatarCache.has(username))
+  // Guard against undefined/empty usernames (can happen during streaming)
+  const safeUsername = username || ''
+  
+  const [avatar, setAvatar] = useState<string | null>(safeUsername ? (avatarCache.get(safeUsername) ?? null) : null)
+  const [isLoading, setIsLoading] = useState(safeUsername ? !avatarCache.has(safeUsername) : false)
 
   useEffect(() => {
-    // Skip if already cached
-    if (avatarCache.has(username)) {
-      setAvatar(avatarCache.get(username) ?? null)
+    // Skip if no username or already cached
+    if (!safeUsername || avatarCache.has(safeUsername)) {
+      if (safeUsername) {
+        setAvatar(avatarCache.get(safeUsername) ?? null)
+      }
       setIsLoading(false)
       return
     }
@@ -40,25 +45,25 @@ export function ContributorAvatar({
     // Fetch profile to get avatar
     const fetchAvatar = async () => {
       try {
-        const response = await fetch(`/Test/api/user-profile?username=${encodeURIComponent(username)}`)
+        const response = await fetch(`/Test/api/user-profile?username=${encodeURIComponent(safeUsername)}`)
         if (response.ok) {
           const profile = await response.json()
           const avatarUrl = profile?.avatar ?? null
-          avatarCache.set(username, avatarUrl)
+          avatarCache.set(safeUsername, avatarUrl)
           setAvatar(avatarUrl)
         } else {
-          avatarCache.set(username, null)
+          avatarCache.set(safeUsername, null)
         }
       } catch (err) {
-        console.error(`[ContributorAvatar] Failed to fetch avatar for ${username}:`, err)
-        avatarCache.set(username, null)
+        console.error(`[ContributorAvatar] Failed to fetch avatar for ${safeUsername}:`, err)
+        avatarCache.set(safeUsername, null)
       } finally {
         setIsLoading(false)
       }
     }
 
     fetchAvatar()
-  }, [username])
+  }, [safeUsername])
 
   const sizeClasses = {
     xs: 'h-4 w-4',
@@ -72,23 +77,28 @@ export function ContributorAvatar({
     md: 'text-[10px]'
   }
 
+  // Don't render anything if no username
+  if (!safeUsername) {
+    return null
+  }
+
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
       <Avatar className={`${sizeClasses[size]} border border-foreground/10`}>
         <AvatarImage 
           src={avatar ?? undefined} 
-          alt={username}
+          alt={safeUsername}
           className="object-cover"
         />
         <AvatarFallback className={`${textClasses[size]} font-semibold bg-muted`}>
           {isLoading ? (
             <span className="animate-pulse">•</span>
           ) : (
-            username.slice(0, 1).toUpperCase()
+            safeUsername.slice(0, 1).toUpperCase()
           )}
         </AvatarFallback>
       </Avatar>
-      {showName && <span>@{username}</span>}
+      {showName && <span>@{safeUsername}</span>}
     </span>
   )
 }

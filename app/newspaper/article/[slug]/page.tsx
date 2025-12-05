@@ -212,7 +212,6 @@ function getChartProxyUrl(url: string | undefined): string {
   
   // Type 1: Direct S3 Image (best - already the final URL)
   if (isTradingViewS3Image(url)) {
-    console.log('📸 Direct S3 image:', url)
     return `/api/image-proxy?url=${encodeURIComponent(url)}`
   }
   
@@ -224,7 +223,6 @@ function getChartProxyUrl(url: string | undefined): string {
       const firstLetter = snapshotId.charAt(0).toLowerCase()
       // Same format as chat: s3.tradingview.com/snapshots/{letter}/{id}.png
       const s3Url = `https://s3.tradingview.com/snapshots/${firstLetter}/${snapshotId}.png`
-      console.log('📊 Snapshot URL converted:', url, '→', s3Url)
       return `/api/image-proxy?url=${encodeURIComponent(s3Url)}`
     }
   }
@@ -237,21 +235,20 @@ function getChartProxyUrl(url: string | undefined): string {
       const firstLetter = chartId.charAt(0).toLowerCase()
       // Same format as chat: s3.tradingview.com/{letter}/{chartId}_mid.webp
       const s3Url = `https://s3.tradingview.com/${firstLetter}/${chartId}_mid.webp`
-      console.log('💡 Idea URL converted:', url, '→', s3Url)
       return `/api/image-proxy?url=${encodeURIComponent(s3Url)}`
     }
   }
   
   // Fallback: Direct proxy
-  console.log('🖼️ Direct proxy:', url)
   return `/api/image-proxy?url=${encodeURIComponent(url)}`
 }
 
 /**
  * Chart Image Component - renders a chart with caption and visible error state
  * Supports floating layout for text wrapping (newspaper style)
+ * Memoized to prevent re-renders during streaming
  */
-function ChartImageDisplay({ 
+const ChartImageDisplay = React.memo(function ChartImageDisplay({ 
   chart, 
   size = 'large',
   float = 'none',
@@ -263,6 +260,11 @@ function ChartImageDisplay({
   className?: string 
 }) {
   const [imageStatus, setImageStatus] = React.useState<'loading' | 'loaded' | 'error'>('loading')
+  
+  // Memoize computations - must be called before any early returns
+  const proxyUrl = React.useMemo(() => chart?.url ? getChartProxyUrl(chart.url) : '', [chart?.url])
+  const urlInfo = React.useMemo(() => chart?.url ? getUrlType(chart.url) : { type: 'other', badge: '', color: '' }, [chart?.url])
+  const isComplete = chart?.url ? isCompleteImageUrl(chart.url) : false
   
   // Don't render if chart or URL is missing
   if (!chart?.url) return null
@@ -276,7 +278,7 @@ function ChartImageDisplay({
   
   // IMPORTANT: Don't render partial URLs during streaming!
   // This prevents 403 errors from incomplete URLs like "https://s3.tradingview.com/snap"
-  if (!isCompleteImageUrl(chart.url)) {
+  if (!isComplete) {
     // Show a "waiting for URL" state instead of trying to load
     return (
       <div className={`${size === 'large' ? 'max-w-2xl' : size === 'medium' ? 'max-w-md' : 'max-w-xs'} ${floatClassesPlaceholder[float]} ${className}`}>
@@ -290,10 +292,7 @@ function ChartImageDisplay({
     )
   }
   
-  const proxyUrl = getChartProxyUrl(chart.url)
   if (!proxyUrl) return null
-  
-  const urlInfo = getUrlType(chart.url)
   
   const sizeClasses = {
     small: 'max-w-xs',
@@ -385,12 +384,12 @@ function ChartImageDisplay({
       </figcaption>
     </figure>
   )
-}
+})
 
 /**
  * Styled Quote Component - renders a quote with sentiment styling
  */
-function StyledQuoteDisplay({ 
+const StyledQuoteDisplay = React.memo(function StyledQuoteDisplay({ 
   quote, 
   size = 'normal',
   className = ''
@@ -444,12 +443,12 @@ function StyledQuoteDisplay({
       </footer>
     </blockquote>
   )
-}
+})
 
 /**
  * Chart Gallery Component - renders multiple charts in a grid
  */
-function ChartGallery({ charts, className = '' }: { charts: ChartImage[]; className?: string }) {
+const ChartGallery = React.memo(function ChartGallery({ charts, className = '' }: { charts: ChartImage[]; className?: string }) {
   // Filter out charts without valid, complete URLs
   const validCharts = charts?.filter(c => c?.url && isCompleteImageUrl(c.url)) || []
   if (validCharts.length === 0) return null
@@ -471,7 +470,7 @@ function ChartGallery({ charts, className = '' }: { charts: ChartImage[]; classN
       </div>
     </div>
   )
-}
+})
 
 
 /**
