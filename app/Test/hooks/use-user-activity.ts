@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, subDays } from 'date-fns'
 
 interface ActivityData {
@@ -27,6 +27,12 @@ const activityMemoryCache = new Map<string, {
   expiry: number
 }>()
 
+// Track pending requests for deduplication
+const pendingActivityRequests = new Map<string, Promise<{
+  activities: ActivityData[]
+  patterns: ActivityPatterns
+} | null>>()
+
 interface CachedActivityData {
   activities: ActivityData[]
   patterns: ActivityPatterns
@@ -45,7 +51,6 @@ function getActivityFromCache(username: string, roomId: string, days: number): C
   // Check memory cache first (fastest)
   const memCached = activityMemoryCache.get(cacheKey)
   if (memCached && now < memCached.expiry) {
-    console.log(`✅ [ACTIVITY CACHE] Memory hit for ${username}`)
     return {
       activities: memCached.activities,
       patterns: memCached.patterns,
@@ -64,11 +69,6 @@ function getActivityFromCache(username: string, roomId: string, days: number): C
     const entry: CachedActivityData = JSON.parse(cached)
     
     if (now < entry.expiry) {
-      console.log(`✅ [ACTIVITY CACHE] localStorage hit for ${username}`, {
-        totalMessages: entry.patterns.totalMessages,
-        age: Math.round((now - entry.timestamp) / 1000 / 60) + ' minutes'
-      })
-      
       // Update memory cache
       activityMemoryCache.set(cacheKey, {
         activities: entry.activities,
@@ -80,7 +80,6 @@ function getActivityFromCache(username: string, roomId: string, days: number): C
     }
     
     // Expired, remove it
-    console.log(`[ACTIVITY CACHE] Expired for ${username}, removing`)
     localStorage.removeItem(cacheKey)
     activityMemoryCache.delete(cacheKey)
     return null
@@ -115,56 +114,62 @@ function saveActivityToCache(
       expiry
     }
     
-    console.log(`💾 [ACTIVITY CACHE] Saving for ${username}`, {
-      totalMessages: patterns.totalMessages,
-      days: activities.length
-    })
-    
     localStorage.setItem(cacheKey, JSON.stringify(entry))
   } catch (error) {
     console.warn('[ACTIVITY CACHE] Failed to write:', error)
   }
 }
 
+function calculatePatterns(activities: ActivityData[]): ActivityPatterns {
+  const hourCounts: { [hour: number]: number } = {}
+  let totalMessages = 0
+
+  // Initialize all hours
+  for (let i = 0; i < 24; i++) {
+    hourCounts[i] = 0
+  }
+
+  // Count messages by hour
+  activities.forEach(activity => {
+    totalMessages += activity.count
+    activity.messages?.forEach(msg => {
+      try {
+        const date = new Date(parseFloat(msg.time) * 1000)
+        const hour = date.getHours()
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1
+      } catch {
+        // Skip invalid times
+      }
+    })
+  })
+
+  return {
+    hourCounts,
+    totalMessages
+  }
+}
+
+/**
+ * Hook to fetch user activity data
+ * 
+ * OPTIMIZED:
+ * - Request deduplication (only one request per user)
+ * - Memory + localStorage caching
+ * - Skip fetch if no username
+ */
 export function useUserActivity(username: string, roomId: string = 'bitcoin_de_DE', days: number = 30) {
   const [activities, setActivities] = useState<ActivityData[]>([])
   const [patterns, setPatterns] = useState<ActivityPatterns | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const calculatePatterns = useCallback((activities: ActivityData[]): ActivityPatterns => {
-    const hourCounts: { [hour: number]: number } = {}
-    let totalMessages = 0
-
-    // Initialize all hours
-    for (let i = 0; i < 24; i++) {
-      hourCounts[i] = 0
-    }
-
-    // Count messages by hour
-    activities.forEach(activity => {
-      totalMessages += activity.count
-      activity.messages?.forEach(msg => {
-        try {
-          const date = new Date(parseFloat(msg.time) * 1000)
-          const hour = date.getHours()
-          hourCounts[hour] = (hourCounts[hour] || 0) + 1
-        } catch {
-          // Skip invalid times
-        }
-      })
-    })
-
-    return {
-      hourCounts,
-      totalMessages
-    }
-  }, [])
+  const hasFetchedRef = useRef(false)
 
   const fetchActivity = useCallback(async () => {
     if (!username || !roomId) return
 
-    // Check client-side cache first (1 day TTL)
+    const cacheKey = getActivityCacheKey(username, roomId, days)
+
+    // 1. Check cache first
     const cached = getActivityFromCache(username, roomId, days)
     if (cached) {
       setActivities(cached.activities)
@@ -174,61 +179,104 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
       return
     }
 
+    // 2. Check if request is already in flight (DEDUPLICATION)
+    const pending = pendingActivityRequests.get(cacheKey)
+    if (pending) {
+      try {
+        const result = await pending
+        if (result) {
+          setActivities(result.activities)
+          setPatterns(result.patterns)
+        }
+        setIsLoading(false)
+        return
+      } catch {
+        setIsLoading(false)
+        return
+      }
+    }
+
     setIsLoading(true)
     setError(null)
 
+    // 3. Create and track the request
+    const requestPromise = (async () => {
+      try {
+        // Generate dates for the requested period
+        const today = new Date()
+        const dates: string[] = []
+        for (let i = 0; i < days; i++) {
+          dates.push(format(subDays(today, i), 'yyyy-MM-dd'))
+        }
+        
+        // Fetch from API - it handles database caching
+        const response = await fetch('/api/chat-activity', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            room: roomId,
+            username,
+            dates
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const data = await response.json()
+        
+        if (data.activities) {
+          const activityData = data.activities as ActivityData[]
+          const activityPatterns = calculatePatterns(activityData)
+          
+          // Save to cache
+          saveActivityToCache(username, roomId, days, activityData, activityPatterns)
+          
+          return { activities: activityData, patterns: activityPatterns }
+        }
+        
+        return null
+      } catch (err) {
+        console.error('[useUserActivity] Error:', err)
+        throw err
+      }
+    })()
+
+    // Track the pending request
+    pendingActivityRequests.set(cacheKey, requestPromise)
+
     try {
-      // Generate dates for the requested period
-      const today = new Date()
-      const dates: string[] = []
-      for (let i = 0; i < days; i++) {
-        dates.push(format(subDays(today, i), 'yyyy-MM-dd'))
-      }
-
-      console.log(`🔍 [USE USER ACTIVITY] Loading ${days} days for ${username} (database-backed)`)
-      
-      // Fetch from API - it handles database caching
-      const response = await fetch('/api/chat-activity', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          room: roomId,
-          username,
-          dates
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-      
-      if (data.activities) {
-        const activityData = data.activities as ActivityData[]
-        const activityPatterns = calculatePatterns(activityData)
-        
-        setActivities(activityData)
-        setPatterns(activityPatterns)
-        
-        // Save to client-side cache (1 day TTL)
-        saveActivityToCache(username, roomId, days, activityData, activityPatterns)
-        
-        console.log(`✅ [USE USER ACTIVITY] Loaded ${activityData.length} days for ${username} (${data.cachedCount || 0} cached, ${data.fetchedCount || 0} fetched)`)
+      const result = await requestPromise
+      if (result) {
+        setActivities(result.activities)
+        setPatterns(result.patterns)
       }
     } catch (err) {
-      console.error('❌ [USE USER ACTIVITY] Error fetching activity:', err)
       setError(err instanceof Error ? err.message : 'Failed to fetch activity')
     } finally {
       setIsLoading(false)
+      pendingActivityRequests.delete(cacheKey)
     }
-  }, [username, roomId, days, calculatePatterns])
+  }, [username, roomId, days])
 
   useEffect(() => {
+    // Skip if already fetched for this user
+    if (hasFetchedRef.current) return
+    
+    // Only fetch if we have a username
+    if (!username) return
+
+    hasFetchedRef.current = true
     fetchActivity()
-  }, [fetchActivity])
+  }, [fetchActivity, username])
+
+  // Reset when user changes
+  useEffect(() => {
+    hasFetchedRef.current = false
+  }, [username])
 
   return {
     activities,

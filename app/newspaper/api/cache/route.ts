@@ -25,6 +25,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { cacheLogger as log } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   const date = request.nextUrl.searchParams.get('date')
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('[CACHE] ❌', error instanceof Error ? error.message : error)
+    log.error('Cache fetch failed', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

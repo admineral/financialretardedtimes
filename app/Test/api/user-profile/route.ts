@@ -2,6 +2,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { getCachedProfile, isProfileFresh, cacheProfile } from '../../lib/db-cache'
+import { profileLogger as log } from '@/lib/logger'
 
 const TRADINGVIEW_ORIGIN = 'https://de.tradingview.com'
 
@@ -12,59 +13,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
-
-interface ExtractionLog {
-  timestamp: string
-  userId: string | null
-  username: string | null
-  url: string
-  summary: {
-    totalJsonScripts: number
-    relevantJsonScripts: number
-    totalMetaTags: number
-    relevantMetaTags: number
-    extractionSuccess: boolean
-    dataSource: string
-  }
-  relevantData: {
-    ssrData?: Record<string, unknown>
-    allJsonScripts?: Array<{
-      scriptIndex: number
-      keys: string[]
-      data: Record<string, unknown>
-    }>
-    keyMetaTags: Array<{
-      name?: string
-      property?: string
-      content?: string
-    }>
-    htmlPatterns: {
-      followerMatches: string[]
-      followingMatches: string[]
-      ideasMatches: string[]
-      joinDateMatches: string[]
-    }
-    ideas?: Array<{
-      index: number
-      title: string | null
-      url: string | null
-      content: string | null
-      symbol: string | null
-      imageUrl: string | null
-      author: string | null
-      publishedAt: string | null
-      comments: number
-      boosts: number
-      isEditorsPick: boolean
-      strategy: string | null
-      chartId: string | null
-      error?: string
-    }>
-    jsVariables?: Record<string, string>
-  }
-  extractedProfile: Record<string, unknown>
-  errors: string[]
 }
 
 export async function OPTIONS() {
@@ -86,19 +34,14 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    console.log(`💡 [USER PROFILE API] POST: Parsing ideas from provided HTML for ${username}`)
-    console.log(`💡 [USER PROFILE API] HTML content size: ${htmlContent.length} chars`)
+    log.debug('POST: Parsing ideas from HTML', { username, htmlSize: htmlContent.length })
     
     // Extract ideas directly from the provided HTML content
-    // Look for both the specific TradingView idea card structure and generic article tags
     let ideaCards = htmlContent.match(/<article[^>]*class="[^"]*idea-card-R05xWTMw[^"]*"[^>]*>[\s\S]*?<\/article>/g) || []
     
-    // If no specific TradingView cards found, try generic idea-card pattern
     if (ideaCards.length === 0) {
       ideaCards = htmlContent.match(/<article[^>]*class="[^"]*idea-card[^"]*"[^>]*>[\s\S]*?<\/article>/g) || []
     }
-    
-    console.log(`💡 [USER PROFILE API] Found ${ideaCards.length} idea cards in provided HTML`)
     
     if (ideaCards.length === 0) {
       return NextResponse.json({
@@ -108,79 +51,10 @@ export async function POST(request: NextRequest) {
       }, { headers: corsHeaders })
     }
     
-    const extractedIdeas = ideaCards.map((cardHtml, index) => {
-      try {
-        // Extract title - look for TradingView specific patterns
-        const titleMatch = cardHtml.match(/class="[^"]*title-tkslJwxl[^"]*"[^>]*>([^<]+)<\/a>/) || 
-                          cardHtml.match(/data-name="open-idea-popup"[^>]*>([^<]+)<\/a>/) ||
-                          cardHtml.match(/class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/)
-        const title = titleMatch ? titleMatch[1].trim() : null
-        
-        // Extract URL
-        const urlMatch = cardHtml.match(/href="([^"]*tradingview\.com[^"]*)"/)
-        const url = urlMatch ? urlMatch[1] : null
-        
-        // Extract content - look for TradingView specific patterns
-        const contentMatch = cardHtml.match(/<span[^>]*class="[^"]*line-clamp-content-t3qFZvNN[^"]*"[^>]*>([\s\S]*?)<\/span>/) ||
-                            cardHtml.match(/<span[^>]*class="[^"]*line-clamp-content[^"]*"[^>]*>([\s\S]*?)<\/span>/)
-        let content = null
-        if (contentMatch) {
-          content = contentMatch[1]
-            .replace(/<[^>]*>/g, '')
-            .replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&')
-            .replace(/\s+/g, ' ').trim().substring(0, 800)
-        }
-        
-        // Extract symbol
-        const symbolMatch = cardHtml.match(/\/symbols\/([^/]+)\//) || 
-                           cardHtml.match(/title="([^"]*:[^"]*)"/)
-        const symbol = symbolMatch ? symbolMatch[1] : null
-        
-        // Extract image URL
-        const imageMatch = cardHtml.match(/src="(https:\/\/s3\.tradingview\.com\/[^"]+)"/g)
-        const imageUrl = imageMatch ? imageMatch[imageMatch.length - 1].match(/src="([^"]+)"/)?.[1] : null
-        
-        // Extract timestamp
-        const timeMatch = cardHtml.match(/datetime="([^"]+)"/)
-        const publishedAt = timeMatch ? timeMatch[1] : null
-        
-        // Extract engagement
-        const commentsMatch = cardHtml.match(/aria-label="(\d+) Kommentare?"/)
-        const comments = commentsMatch ? parseInt(commentsMatch[1]) : 0
-        
-        const boostsMatch = cardHtml.match(/aria-label="(\d+) Booster"/)
-        const boosts = boostsMatch ? parseInt(boostsMatch[1]) : 0
-        
-        // Check Editor's Pick
-        const isEditorsPick = cardHtml.includes('badge-editors-pick')
-        
-        // Extract strategy
-        const strategyMatch = cardHtml.match(/title="(Long|Short)"/)
-        const strategy = strategyMatch ? strategyMatch[1] : null
-        
-        return {
-          index: index + 1,
-          title, url, content, symbol, imageUrl,
-          author: username,
-          publishedAt, comments, boosts, isEditorsPick, strategy,
-          chartId: url ? url.split('/').pop() : null
-        }
-      } catch (error) {
-        console.error(`💡 [USER PROFILE API] Error parsing idea ${index + 1}:`, error)
-        return { index: index + 1, error: error.message, title: 'Parse Error' }
-      }
-    })
-    
+    const extractedIdeas = ideaCards.map((cardHtml, index) => parseIdeaCard(cardHtml, index, username))
     const validIdeas = extractedIdeas.filter(i => !i.error)
-    console.log(`💡 [USER PROFILE API] Successfully extracted ${validIdeas.length} ideas from provided HTML`)
     
-    // Log sample of extracted ideas
-    if (validIdeas.length > 0) {
-      console.log('💡 [USER PROFILE API] Sample extracted ideas:')
-      validIdeas.slice(0, 3).forEach(idea => {
-        console.log(`  - "${idea.title}" (${idea.symbol || 'N/A'}) - ${idea.comments} comments, ${idea.boosts} boosts`)
-      })
-    }
+    log.info('Ideas extracted from POST', { username, count: validIdeas.length })
     
     return NextResponse.json({
       username,
@@ -190,7 +64,7 @@ export async function POST(request: NextRequest) {
     }, { headers: corsHeaders })
     
   } catch (error) {
-    console.error('💡 [USER PROFILE API] POST Error:', error)
+    log.error('POST request failed', error)
     return NextResponse.json(
       { error: 'Failed to parse ideas from HTML content' },
       { status: 500, headers: corsHeaders }
@@ -203,7 +77,7 @@ export async function GET(request: NextRequest) {
   const userId = searchParams.get('userId')
   const username = searchParams.get('username')
   const forceRefresh = searchParams.get('forceRefresh') === 'true'
-  const useCache = searchParams.get('useCache') !== 'false' // Default to using cache
+  const useCache = searchParams.get('useCache') !== 'false'
 
   if (!userId && !username) {
     return NextResponse.json(
@@ -212,7 +86,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  console.log('🔍 [USER PROFILE API] Fetching profile for:', { userId, username, useCache, forceRefresh })
+  const identifier = username || userId || 'unknown'
 
   // Check database cache first (if enabled and not forcing refresh)
   if (useCache && !forceRefresh && username) {
@@ -221,47 +95,17 @@ export async function GET(request: NextRequest) {
       if (isFresh) {
         const cachedProfile = await getCachedProfile(username)
         if (cachedProfile) {
-          console.log('✅ [USER PROFILE API] Serving from database cache:', username)
+          log.debug('Cache hit', { username })
           return NextResponse.json({
             ...cachedProfile,
             _cached: true,
             _cacheSource: 'database'
           }, { headers: corsHeaders })
         }
-      } else {
-        console.log('📊 [USER PROFILE API] Cache expired or missing for:', username)
       }
     } catch (cacheError) {
-      console.warn('⚠️ [USER PROFILE API] Cache check failed:', cacheError)
-      // Continue to fetch from TradingView
+      log.warn('Cache check failed', { username, error: cacheError instanceof Error ? cacheError.message : 'Unknown' })
     }
-  }
-
-  // Create a detailed log object to store all extracted data
-  const extractionLog: ExtractionLog = {
-    timestamp: new Date().toISOString(),
-    userId,
-    username,
-    url: '',
-    summary: {
-      totalJsonScripts: 0,
-      relevantJsonScripts: 0,
-      totalMetaTags: 0,
-      relevantMetaTags: 0,
-      extractionSuccess: false,
-      dataSource: 'none'
-    },
-    relevantData: {
-      keyMetaTags: [],
-      htmlPatterns: {
-        followerMatches: [],
-        followingMatches: [],
-        ideasMatches: [],
-        joinDateMatches: []
-      }
-    },
-    extractedProfile: {},
-    errors: []
   }
 
   try {
@@ -282,8 +126,6 @@ export async function GET(request: NextRequest) {
 
     // Try each URL until we find one that works
     for (const url of urlsToTry) {
-      console.log('📡 [USER PROFILE API] Trying URL:', url)
-      
       try {
         const testResponse = await fetch(url, {
           headers: {
@@ -295,22 +137,17 @@ export async function GET(request: NextRequest) {
           },
         })
 
-        console.log('📊 [USER PROFILE API] Response status for', url, ':', testResponse.status)
-
         if (testResponse.ok) {
           response = testResponse
-          extractionLog.url = url
           break
         }
-      } catch (error) {
-        console.log('⚠️ [USER PROFILE API] Failed to fetch', url, ':', error)
+      } catch {
         continue
       }
     }
 
     if (!response || !response.ok) {
-      console.log('⚠️ [USER PROFILE API] No working URL found, returning mock data')
-      // Return mock/limited data when profile is not accessible
+      log.debug('Profile not accessible, returning limited data', { identifier })
       return NextResponse.json({
         userId: userId || username,
         username: username || null,
@@ -332,193 +169,53 @@ export async function GET(request: NextRequest) {
 
     const html = await response.text()
     
-    // Parse comprehensive profile information from HTML with logging
-    const profileData = parseProfileFromHTML(html, userId || username || 'unknown', extractionLog)
+    // Parse comprehensive profile information from HTML
+    const profileData = parseProfileFromHTML(html, userId || username || 'unknown')
     
-    // Fetch LIVE ideas content using TradingView's dynamic API
+    // Fetch LIVE ideas content
     if (profileData.userId) {
       try {
-        console.log(`💡 [USER PROFILE API] Fetching live ideas for user ID: ${profileData.userId}`)
+        const ideasResponse = await fetch(`${TRADINGVIEW_ORIGIN}/u/${profileData.username}/published-charts/`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+            'Referer': `${TRADINGVIEW_ORIGIN}/u/${profileData.username}/`,
+          },
+        })
         
-        // Try TradingView's internal API endpoints for ideas
-        const apiEndpoints = [
-          `${TRADINGVIEW_ORIGIN}/ideas-backend/v1/ideas/list/`,
-          `${TRADINGVIEW_ORIGIN}/minds-backend/v1/ideas/list/`,
-          `${TRADINGVIEW_ORIGIN}/profile-backend/v1/user/${profileData.userId}/ideas/`,
-          `${TRADINGVIEW_ORIGIN}/u/${profileData.username}/published-charts/`
-        ]
-        
-        let ideasResponse: Response | null = null
-        let ideasData: unknown = null
-        
-        for (const endpoint of apiEndpoints) {
-          try {
-            console.log(`💡 [USER PROFILE API] Trying endpoint: ${endpoint}`)
-            
-            if (endpoint.includes('-backend')) {
-              // Try POST request for backend APIs
-              const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                  'Referer': `${TRADINGVIEW_ORIGIN}/u/${profileData.username}/`,
-                  'X-Requested-With': 'XMLHttpRequest',
-                },
-                body: JSON.stringify({
-                  sort: 'popular',
-                  lang: 'de',
-                  author: parseInt(profileData.userId),
-                  offset: 0,
-                  limit: 18
-                })
-              })
-              
-              if (response.ok) {
-                ideasData = await response.json()
-                ideasResponse = response
-                console.log(`💡 [USER PROFILE API] Backend API success: ${Object.keys(ideasData).join(', ')}`)
-                break
-              }
-            } else {
-              // Try GET request for profile pages
-              const response = await fetch(endpoint, {
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                  'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
-                  'Referer': `${TRADINGVIEW_ORIGIN}/u/${profileData.username}/`,
-                },
-              })
-              
-              if (response.ok) {
-                ideasResponse = response
-                break
-              }
-            }
-          } catch (error) {
-            console.log(`💡 [USER PROFILE API] Endpoint ${endpoint} failed:`, error.message)
-            continue
-          }
-        }
-        
-        if (ideasResponse && ideasResponse.ok) {
+        if (ideasResponse.ok) {
           const ideasHtml = await ideasResponse.text()
-          console.log(`💡 [USER PROFILE API] Fetched ideas page, size: ${ideasHtml.length} chars`)
-          
-          // Extract idea cards from the dedicated ideas page
           const ideaCards = ideasHtml.match(/<article[^>]*class="[^"]*idea-card[^"]*"[^>]*>[\s\S]*?<\/article>/g) || []
-          console.log(`💡 [USER PROFILE API] Found ${ideaCards.length} idea cards in ideas page`)
           
           if (ideaCards.length > 0) {
-            const extractedIdeas = ideaCards.map((cardHtml, index) => {
-              try {
-                // Extract title
-                const titleMatch = cardHtml.match(/class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/) || 
-                                  cardHtml.match(/data-name="open-idea-popup"[^>]*>([^<]+)<\/a>/)
-                const title = titleMatch ? titleMatch[1].trim() : null
-                
-                // Extract URL
-                const urlMatch = cardHtml.match(/href="([^"]*tradingview\.com[^"]*)"/)
-                const url = urlMatch ? urlMatch[1] : null
-                
-                // Extract content
-                const contentMatch = cardHtml.match(/<span[^>]*class="[^"]*line-clamp-content[^"]*"[^>]*>([\s\S]*?)<\/span>/)
-                let content = null
-                if (contentMatch) {
-                  content = contentMatch[1]
-                    .replace(/<[^>]*>/g, '')
-                    .replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&')
-                    .replace(/\s+/g, ' ').trim().substring(0, 800)
-                }
-                
-                // Extract symbol
-                const symbolMatch = cardHtml.match(/\/symbols\/([^/]+)\//) || 
-                                   cardHtml.match(/title="([^"]*:[^"]*)"/)
-                const symbol = symbolMatch ? symbolMatch[1] : null
-                
-                // Extract image URL
-                const imageMatch = cardHtml.match(/src="(https:\/\/s3\.tradingview\.com\/[^"]+)"/g)
-                const imageUrl = imageMatch ? imageMatch[imageMatch.length - 1].match(/src="([^"]+)"/)?.[1] : null
-                
-                // Extract timestamp
-                const timeMatch = cardHtml.match(/datetime="([^"]+)"/)
-                const publishedAt = timeMatch ? timeMatch[1] : null
-                
-                // Extract engagement
-                const commentsMatch = cardHtml.match(/aria-label="(\d+) Kommentare?"/)
-                const comments = commentsMatch ? parseInt(commentsMatch[1]) : 0
-                
-                const boostsMatch = cardHtml.match(/aria-label="(\d+) Booster"/)
-                const boosts = boostsMatch ? parseInt(boostsMatch[1]) : 0
-                
-                // Check Editor's Pick
-                const isEditorsPick = cardHtml.includes('badge-editors-pick')
-                
-                // Extract strategy
-                const strategyMatch = cardHtml.match(/title="(Long|Short)"/)
-                const strategy = strategyMatch ? strategyMatch[1] : null
-                
-                return {
-                  index: index + 1,
-                  title, url, content, symbol, imageUrl,
-                  author: profileData.username,
-                  publishedAt, comments, boosts, isEditorsPick, strategy,
-                  chartId: url ? url.split('/').pop() : null
-                }
-              } catch (error) {
-                console.error(`💡 [USER PROFILE API] Error parsing idea ${index + 1}:`, error)
-                return { index: index + 1, error: error.message, title: 'Parse Error' }
-              }
-            })
-            
+            const extractedIdeas = ideaCards.map((cardHtml, index) => parseIdeaCard(cardHtml, index, profileData.username))
             const validIdeas = extractedIdeas.filter(i => !i.error)
             if (validIdeas.length > 0) {
               profileData.extractedIdeas = validIdeas
-              console.log(`💡 [USER PROFILE API] Successfully extracted ${validIdeas.length} LIVE ideas`)
-              
-              // Log sample of extracted ideas
-              validIdeas.slice(0, 3).forEach(idea => {
-                console.log(`  - "${idea.title}" (${idea.symbol || 'N/A'}) - ${idea.comments} comments, ${idea.boosts} boosts`)
-              })
             }
           }
-        } else {
-          console.log(`💡 [USER PROFILE API] No valid ideas response found (all endpoints failed or returned errors)`)
         }
-      } catch (ideasError) {
-        console.error('💡 [USER PROFILE API] Error fetching live ideas:', ideasError)
+      } catch {
+        // Ideas fetch failed silently - not critical
       }
     }
-    
-    // Store the final extracted profile data
-    extractionLog.extractedProfile = profileData
-    
-    // Log only the relevant extraction summary (not the massive feature toggle data)
-    console.log('📊 [USER PROFILE API] EXTRACTION SUMMARY:', {
-      timestamp: extractionLog.timestamp,
-      username: extractionLog.username,
-      success: extractionLog.summary.extractionSuccess,
-      dataSource: extractionLog.summary.dataSource,
-      totalScripts: extractionLog.summary.totalJsonScripts,
-      relevantScripts: extractionLog.summary.relevantJsonScripts,
-      extractedIdeas: profileData.extractedIdeas?.length || 0,
-      profileFields: Object.keys(profileData).filter(key => profileData[key] !== null && key !== 'extractedIdeas').length
-    })
-    
-    console.log('👤 [USER PROFILE API] Parsed profile data:', profileData)
 
-    // Cache the profile to database (if we have a username)
+    // Cache the profile to database
     if (profileData.username && useCache) {
       try {
         await cacheProfile(profileData)
-        console.log('💾 [USER PROFILE API] Profile cached to database:', profileData.username)
-      } catch (cacheError) {
-        console.warn('⚠️ [USER PROFILE API] Failed to cache profile:', cacheError)
-        // Don't fail the request if caching fails
+        log.debug('Profile cached', { username: profileData.username })
+      } catch {
+        // Cache failure is not critical
       }
     }
+
+    log.info('Profile fetched', { 
+      username: profileData.username, 
+      followers: profileData.followers,
+      ideas: profileData.ideas 
+    })
 
     return NextResponse.json({
       ...profileData,
@@ -527,14 +224,14 @@ export async function GET(request: NextRequest) {
     }, { headers: corsHeaders })
 
   } catch (error) {
-    console.error('❌ [USER PROFILE API] Error fetching user profile:', error)
+    log.error('Failed to fetch profile', error, { identifier })
     
     // Try to serve from cache on error
     if (username) {
       try {
         const cachedProfile = await getCachedProfile(username)
         if (cachedProfile) {
-          console.log('🔄 [USER PROFILE API] Serving stale cache due to error:', username)
+          log.info('Serving stale cache due to error', { username })
           return NextResponse.json({
             ...cachedProfile,
             _cached: true,
@@ -542,8 +239,8 @@ export async function GET(request: NextRequest) {
             _error: error instanceof Error ? error.message : 'Unknown error'
           }, { headers: corsHeaders })
         }
-      } catch (cacheError) {
-        console.warn('⚠️ [USER PROFILE API] Cache fallback also failed:', cacheError)
+      } catch {
+        // Cache fallback also failed
       }
     }
     
@@ -557,8 +254,66 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function parseProfileFromHTML(html: string, userId: string, extractionLog?: ExtractionLog) {
-  // Extract comprehensive profile information from HTML
+/**
+ * Parse an individual idea card from HTML
+ */
+function parseIdeaCard(cardHtml: string, index: number, username: string | null) {
+  try {
+    const titleMatch = cardHtml.match(/class="[^"]*title-tkslJwxl[^"]*"[^>]*>([^<]+)<\/a>/) || 
+                      cardHtml.match(/data-name="open-idea-popup"[^>]*>([^<]+)<\/a>/) ||
+                      cardHtml.match(/class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/)
+    const title = titleMatch ? titleMatch[1].trim() : null
+    
+    const urlMatch = cardHtml.match(/href="([^"]*tradingview\.com[^"]*)"/)
+    const url = urlMatch ? urlMatch[1] : null
+    
+    const contentMatch = cardHtml.match(/<span[^>]*class="[^"]*line-clamp-content-t3qFZvNN[^"]*"[^>]*>([\s\S]*?)<\/span>/) ||
+                        cardHtml.match(/<span[^>]*class="[^"]*line-clamp-content[^"]*"[^>]*>([\s\S]*?)<\/span>/)
+    let content = null
+    if (contentMatch) {
+      content = contentMatch[1]
+        .replace(/<[^>]*>/g, '')
+        .replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ').trim().substring(0, 800)
+    }
+    
+    const symbolMatch = cardHtml.match(/\/symbols\/([^/]+)\//) || 
+                       cardHtml.match(/title="([^"]*:[^"]*)"/)
+    const symbol = symbolMatch ? symbolMatch[1] : null
+    
+    const imageMatch = cardHtml.match(/src="(https:\/\/s3\.tradingview\.com\/[^"]+)"/g)
+    const imageUrl = imageMatch ? imageMatch[imageMatch.length - 1].match(/src="([^"]+)"/)?.[1] : null
+    
+    const timeMatch = cardHtml.match(/datetime="([^"]+)"/)
+    const publishedAt = timeMatch ? timeMatch[1] : null
+    
+    const commentsMatch = cardHtml.match(/aria-label="(\d+) Kommentare?"/)
+    const comments = commentsMatch ? parseInt(commentsMatch[1]) : 0
+    
+    const boostsMatch = cardHtml.match(/aria-label="(\d+) Booster"/)
+    const boosts = boostsMatch ? parseInt(boostsMatch[1]) : 0
+    
+    const isEditorsPick = cardHtml.includes('badge-editors-pick')
+    
+    const strategyMatch = cardHtml.match(/title="(Long|Short)"/)
+    const strategy = strategyMatch ? strategyMatch[1] : null
+    
+    return {
+      index: index + 1,
+      title, url, content, symbol, imageUrl,
+      author: username,
+      publishedAt, comments, boosts, isEditorsPick, strategy,
+      chartId: url ? url.split('/').pop() : null
+    }
+  } catch (error) {
+    return { index: index + 1, error: error.message, title: 'Parse Error' }
+  }
+}
+
+/**
+ * Parse profile data from TradingView HTML
+ */
+function parseProfileFromHTML(html: string, userId: string) {
   const profileData: {
     userId: string
     username: string | null
@@ -587,6 +342,7 @@ function parseProfileFromHTML(html: string, userId: string, extractionLog?: Extr
     metaDescription: string | null
     ogImage: string | null
     pageTitle: string | null
+    extractedIdeas?: unknown[]
   } = {
     userId,
     username: null,
@@ -618,93 +374,24 @@ function parseProfileFromHTML(html: string, userId: string, extractionLog?: Extr
   }
 
   try {
-    // Extract JSON data from script tags to find the profile data
+    // Extract JSON data from script tags
     const jsonScriptMatches = html.match(/<script type="application\/prs\.init-data\+json">([^<]+)<\/script>/gi)
-    const totalScripts = jsonScriptMatches ? jsonScriptMatches.length : 0
-    console.log(`📊 [USER PROFILE API] Found ${totalScripts} JSON script tags`)
-    
-    if (extractionLog) {
-      extractionLog.summary.totalJsonScripts = totalScripts
-    }
     
     if (jsonScriptMatches) {
-      for (let i = 0; i < jsonScriptMatches.length; i++) {
+      for (const scriptMatch of jsonScriptMatches) {
         try {
-          const match = jsonScriptMatches[i].match(/>([^<]+)</)
+          const match = scriptMatch.match(/>([^<]+)</)
           if (!match) continue
-          const jsonContent = match[1]
-          const jsonData = JSON.parse(jsonContent)
-          
-          // Log ALL scripts - we want everything!
-          console.log(`📊 [USER PROFILE API] Script ${i + 1} keys:`, Object.keys(jsonData))
-          
-          if (extractionLog) {
-            extractionLog.summary.relevantJsonScripts++
-            
-            // Store ALL script data for analysis
-            if (!extractionLog.relevantData.allJsonScripts) {
-              extractionLog.relevantData.allJsonScripts = []
-            }
-            extractionLog.relevantData.allJsonScripts.push({
-              scriptIndex: i + 1,
-              keys: Object.keys(jsonData),
-              data: jsonData
-            })
-          }
+          const jsonData = JSON.parse(match[1])
           
           // Look for profile data in any of the JSON structures
           for (const key in jsonData) {
             const data = jsonData[key]
             
-            // Extract Profile script data (contains ideas, scripts, detailed stats)
-            if (key === 'Profile' && data) {
-              console.log('📊 [USER PROFILE API] Found Profile script with detailed data')
-              
-              if (data.filtersData) {
-                console.log('📊 [USER PROFILE API] Profile filters:', Object.keys(data.filtersData))
-              }
-              
-              if (data.pages && data.pages['published-charts']) {
-                const chartData = data.pages['published-charts']
-                if (chartData.results) {
-                  console.log('📊 [USER PROFILE API] Chart results:', chartData.results)
-                  profileData.ideas = chartData.results.total || profileData.ideas
-                }
-              }
-            }
-            
-            // Extract main menu categories and navigation data
-            if (key === 'mainMenuCategories' && Array.isArray(data)) {
-              console.log('📊 [USER PROFILE API] Found navigation menu data with', data.length, 'categories')
-            }
-            
-            // Extract feature toggle states
-            if (key.includes('featureToggleState') || (typeof data === 'object' && data && Object.keys(data).some(k => k.includes('broker_') || k.includes('enable_')))) {
-              console.log('📊 [USER PROFILE API] Found feature flags:', Object.keys(data).length, 'features')
-            }
-            
-            // Check for ssrData structure (this is where the comprehensive profile data is!)
+            // Check for ssrData structure (comprehensive profile data)
             if (data && data.ssrData && data.ssrData.username) {
               const ssrData = data.ssrData
               const stats = ssrData.statistics || {}
-              
-              console.log('✅ [USER PROFILE API] Found ssrData with comprehensive profile information')
-              
-              // Store the relevant ssrData in our log (filtered)
-              if (extractionLog) {
-                extractionLog.relevantData.ssrData = {
-                  username: ssrData.username,
-                  statistics: stats,
-                  bio: ssrData.bio,
-                  location: ssrData.location,
-                  website: ssrData.website,
-                  joinDate: ssrData.joinDate,
-                  avatar: ssrData.avatar,
-                  socialLinks: ssrData.socialLinks
-                }
-                extractionLog.summary.extractionSuccess = true
-                extractionLog.summary.dataSource = 'ssrData'
-              }
               
               // Basic profile data
               profileData.username = ssrData.username
@@ -725,29 +412,21 @@ function parseProfileFromHTML(html: string, userId: string, extractionLog?: Extr
               profileData.banInfo = ssrData.ban_info || null
               profileData.socialLinks = ssrData.social_links || []
               
-              // Avatar - prefer original size
-              if (ssrData.picture_url_orig) {
-                profileData.avatar = ssrData.picture_url_orig
-              } else if (ssrData.picture_url) {
-                profileData.avatar = ssrData.picture_url
-              }
+              // Avatar
+              profileData.avatar = ssrData.picture_url_orig || ssrData.picture_url || null
               
               // Dates
               if (ssrData.date_joined) {
-                const joinDate = new Date(ssrData.date_joined)
-                profileData.joinDate = joinDate.toISOString()
+                profileData.joinDate = new Date(ssrData.date_joined).toISOString()
               }
               if (ssrData.last_login) {
-                const lastLogin = new Date(ssrData.last_login)
-                profileData.lastLogin = lastLogin.toISOString()
+                profileData.lastLogin = new Date(ssrData.last_login).toISOString()
               }
               
               // Bio
-              if (ssrData.bio) {
-                profileData.bio = ssrData.bio
-              }
+              profileData.bio = ssrData.bio || null
               
-              // Badges - extract badge names
+              // Badges
               if (ssrData.badges && Array.isArray(ssrData.badges)) {
                 profileData.badges = ssrData.badges.map((badge: unknown) => {
                   if (typeof badge === 'string') return badge
@@ -757,19 +436,6 @@ function parseProfileFromHTML(html: string, userId: string, extractionLog?: Extr
                 })
               }
               
-              console.log('✅ [USER PROFILE API] Extracted comprehensive data from ssrData:', {
-                username: profileData.username,
-                followers: profileData.followers,
-                following: profileData.following,
-                ideas: profileData.ideas,
-                scripts: profileData.scripts,
-                avatar: profileData.avatar,
-                isOnline: profileData.isOnline,
-                badges: profileData.badges,
-                socialLinks: profileData.socialLinks?.length || 0
-              })
-              
-              // Found the data, continue to extract meta data and then return
               break
             }
             
@@ -780,226 +446,36 @@ function parseProfileFromHTML(html: string, userId: string, extractionLog?: Extr
               profileData.following = data.statistics.following || null
               profileData.ideas = data.statistics.charts_total || data.statistics.charts || null
               profileData.scripts = data.statistics.scripts_total || data.statistics.scripts || null
-              
-              console.log('✅ [USER PROFILE API] Extracted data from direct structure:', {
-                username: profileData.username,
-                followers: profileData.followers,
-                following: profileData.following,
-                ideas: profileData.ideas,
-                scripts: profileData.scripts
-              })
-              
               return profileData
             }
           }
-        } catch (jsonError) {
-          console.log(`⚠️ [USER PROFILE API] Error parsing JSON script ${i + 1}:`, jsonError instanceof Error ? jsonError.message : 'Unknown error')
+        } catch {
           continue
         }
       }
     }
 
-    // Extract meta data and page information
-    console.log('📄 [USER PROFILE API] Extracting meta data...')
-    
-    // Extract relevant meta tags for logging
-    if (extractionLog) {
-      const allMetaTags = html.match(/<meta[^>]+>/gi) || []
-      const relevantMetaTags = allMetaTags.filter(tag => 
-        tag.includes('description') || tag.includes('title') || tag.includes('image') || tag.includes('og:')
-      )
-      
-      extractionLog.summary.totalMetaTags = allMetaTags.length
-      extractionLog.summary.relevantMetaTags = relevantMetaTags.length
-      
-      // Parse and store only relevant meta tags
-      extractionLog.relevantData.keyMetaTags = relevantMetaTags.map(tag => {
-        const nameMatch = tag.match(/name="([^"]+)"/)
-        const propertyMatch = tag.match(/property="([^"]+)"/)
-        const contentMatch = tag.match(/content="([^"]+)"/)
-        
-        return {
-          name: nameMatch ? nameMatch[1] : undefined,
-          property: propertyMatch ? propertyMatch[1] : undefined,
-          content: contentMatch ? contentMatch[1] : undefined
-        }
-      })
-    }
-    
-    // Extract page title
+    // Extract meta data
     const titleMatch = html.match(/<title[^>]*>([^<]+)/i)
     if (titleMatch) {
       profileData.pageTitle = titleMatch[1].trim()
-      console.log('📄 Page title:', profileData.pageTitle)
     }
 
-    // Extract meta description
     const descriptionMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)
     if (descriptionMatch) {
       profileData.metaDescription = descriptionMatch[1].trim()
-      console.log('📄 Meta description:', profileData.metaDescription)
     }
 
-    // Extract Open Graph image
     const ogImageMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i)
     if (ogImageMatch) {
       profileData.ogImage = ogImageMatch[1].trim()
-      console.log('🖼️ OG Image:', profileData.ogImage)
-    }
-
-    // Extract additional HTML patterns and JavaScript variables
-    if (extractionLog) {
-      // Look for follower/following counts in HTML
-      extractionLog.relevantData.htmlPatterns.followerMatches = html.match(/(\d+(?:,\d+)*)\s*(?:Followers?|followers?)/gi) || []
-      extractionLog.relevantData.htmlPatterns.followingMatches = html.match(/(\d+(?:,\d+)*)\s*(?:Following|following)/gi) || []
-      extractionLog.relevantData.htmlPatterns.ideasMatches = html.match(/(\d+(?:,\d+)*)\s*(?:Ideas?|ideas?)/gi) || []
-      extractionLog.relevantData.htmlPatterns.joinDateMatches = html.match(/(?:Seit|Since|Joined)\s+([^<\n]+)/gi) || []
-      
-      // Extract JavaScript variables from script tags
-      const jsVariables = {
-        featureToggleState: html.match(/var featureToggleState = ({[^}]+});/)?.[1],
-        environment: html.match(/var environment = "([^"]+)"/)?.[1],
-        locale: html.match(/window\.locale = '([^']+)'/)?.[1],
-        language: html.match(/window\.language = '([^']+)'/)?.[1],
-        buildTime: html.match(/window\.BUILD_TIME = "([^"]+)"/)?.[1],
-        countryCode: html.match(/window\.countryCode = "([^"]+)"/)?.[1]
-      }
-      
-      // Store non-null JS variables
-      const validJsVars = Object.fromEntries(
-        Object.entries(jsVariables).filter(([, value]) => value !== undefined)
-      )
-      
-      if (Object.keys(validJsVars).length > 0) {
-        console.log('📊 [USER PROFILE API] Found JS variables:', Object.keys(validJsVars))
-        extractionLog.relevantData.jsVariables = validJsVars
-      }
-      
-      console.log('📊 [USER PROFILE API] HTML Patterns found:', {
-        followers: extractionLog.relevantData.htmlPatterns.followerMatches.length,
-        following: extractionLog.relevantData.htmlPatterns.followingMatches.length,
-        ideas: extractionLog.relevantData.htmlPatterns.ideasMatches.length,
-        joinDates: extractionLog.relevantData.htmlPatterns.joinDateMatches.length
-      })
-      
-      // Extract IDEAS content from HTML - the actual article cards
-      const ideaCards = html.match(/<article[^>]*class="[^"]*idea-card[^"]*"[^>]*>[\s\S]*?<\/article>/g) || []
-      console.log(`💡 [USER PROFILE API] Found ${ideaCards.length} idea cards in HTML`)
-      
-      if (ideaCards.length > 0) {
-        extractionLog.relevantData.ideas = ideaCards.map((cardHtml, index) => {
-          try {
-            // Extract title (more robust pattern)
-            const titleMatch = cardHtml.match(/class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/) || 
-                              cardHtml.match(/data-name="open-idea-popup"[^>]*>([^<]+)<\/a>/)
-            const title = titleMatch ? titleMatch[1].trim() : null
-            
-            // Extract URL
-            const urlMatch = cardHtml.match(/href="([^"]*tradingview\.com[^"]*)"/)
-            const url = urlMatch ? urlMatch[1] : null
-            
-            // Extract preview text/content (more comprehensive)
-            const contentMatch = cardHtml.match(/<span[^>]*class="[^"]*line-clamp-content[^"]*"[^>]*>([\s\S]*?)<\/span>/)
-            let content = null
-            if (contentMatch) {
-              content = contentMatch[1]
-                .replace(/<[^>]*>/g, '') // Remove HTML tags
-                .replace(/&gt;/g, '>') // Decode entities
-                .replace(/&lt;/g, '<')
-                .replace(/&amp;/g, '&')
-                .replace(/\s+/g, ' ') // Normalize whitespace
-                .trim()
-                .substring(0, 800) // Longer preview
-            }
-            
-            // Extract symbol/instrument
-            const symbolMatch = cardHtml.match(/\/symbols\/([^/]+)\//) || 
-                               cardHtml.match(/title="([^"]*:[^"]*)"/) ||
-                               cardHtml.match(/alt="([^"]*:[^"]*)"/)
-            const symbol = symbolMatch ? symbolMatch[1] : null
-            
-            // Extract image URL (chart preview)
-            const imageMatch = cardHtml.match(/src="(https:\/\/s3\.tradingview\.com\/[^"]+)"/g)
-            const imageUrl = imageMatch ? imageMatch[imageMatch.length - 1].match(/src="([^"]+)"/)?.[1] : null
-            
-            // Extract author
-            const authorMatch = cardHtml.match(/data-username="([^"]+)"/)
-            const author = authorMatch ? authorMatch[1] : null
-            
-            // Extract timestamp
-            const timeMatch = cardHtml.match(/datetime="([^"]+)"/)
-            const publishedAt = timeMatch ? timeMatch[1] : null
-            
-            // Extract engagement metrics
-            const commentsMatch = cardHtml.match(/aria-label="(\d+) Kommentare?"/)
-            const comments = commentsMatch ? parseInt(commentsMatch[1]) : 0
-            
-            const boostsMatch = cardHtml.match(/aria-label="(\d+) Booster"/)
-            const boosts = boostsMatch ? parseInt(boostsMatch[1]) : 0
-            
-            // Check if it's an Editor's Pick
-            const isEditorsPick = cardHtml.includes('badge-editors-pick') || cardHtml.includes('Editors\' Picks')
-            
-            // Extract strategy type (Long/Short)
-            const strategyMatch = cardHtml.match(/title="(Long|Short)"/)
-            const strategy = strategyMatch ? strategyMatch[1] : null
-            
-            return {
-              index: index + 1,
-              title,
-              url,
-              content,
-              symbol,
-              imageUrl,
-              author,
-              publishedAt,
-              comments,
-              boosts,
-              isEditorsPick,
-              strategy,
-              chartId: url ? url.split('/').pop() : null
-            }
-          } catch (error) {
-            console.error(`💡 [USER PROFILE API] Error parsing idea card ${index + 1}:`, error)
-            return {
-              index: index + 1,
-              error: error.message,
-              title: 'Parse Error'
-            }
-          }
-        })
-        
-        const successfulIdeas = extractionLog.relevantData.ideas.filter(i => !i.error)
-        console.log(`💡 [USER PROFILE API] Successfully parsed ${successfulIdeas.length} ideas`)
-        
-        // Log summary of extracted ideas
-        if (successfulIdeas.length > 0) {
-          console.log('💡 [USER PROFILE API] Ideas Summary:')
-          successfulIdeas.slice(0, 5).forEach(idea => {
-            console.log(`  - "${idea.title}" (${idea.symbol || 'Unknown'}) - ${idea.comments} comments, ${idea.boosts} boosts`)
-          })
-        }
-      }
-      
-      // If we found data via HTML patterns and not ssrData, mark as successful
-      if (!extractionLog.summary.extractionSuccess && 
-          (extractionLog.relevantData.htmlPatterns.followerMatches.length || 
-           extractionLog.relevantData.htmlPatterns.followingMatches.length || 
-           extractionLog.relevantData.htmlPatterns.ideasMatches.length)) {
-        extractionLog.summary.extractionSuccess = true
-        extractionLog.summary.dataSource = 'htmlPatterns'
-      }
     }
 
     // Fallback: Extract username from title
-    if (!profileData.username) {
-      const titleMatch = html.match(/<title[^>]*>([^<]+)/i)
-      if (titleMatch) {
-        const title = titleMatch[1]
-        const usernameMatch = title.match(/^([^—]+)/)
-        if (usernameMatch) {
-          profileData.username = usernameMatch[1].trim()
-        }
+    if (!profileData.username && profileData.pageTitle) {
+      const usernameMatch = profileData.pageTitle.match(/^([^—]+)/)
+      if (usernameMatch) {
+        profileData.username = usernameMatch[1].trim()
       }
     }
 
@@ -1016,20 +492,20 @@ function parseProfileFromHTML(html: string, userId: string, extractionLog?: Extr
 
     // Extract avatar URL
     const avatarMatch = html.match(/userpics\/[^"]+/i)
-    if (avatarMatch) {
+    if (avatarMatch && !profileData.avatar) {
       profileData.avatar = `https://s3.tradingview.com/${avatarMatch[0]}`
     }
 
     // Extract bio/description
-    const bioMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)
-    if (bioMatch) {
-      profileData.bio = bioMatch[1]
+    if (!profileData.bio) {
+      const bioMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)
+      if (bioMatch) {
+        profileData.bio = bioMatch[1]
+      }
     }
-
-    console.log('✅ [USER PROFILE API] Successfully parsed profile data')
     
   } catch (parseError) {
-    console.error('⚠️ [USER PROFILE API] Error parsing HTML:', parseError)
+    log.error('Failed to parse profile HTML', parseError)
   }
 
   return profileData

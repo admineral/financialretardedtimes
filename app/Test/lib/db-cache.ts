@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { dbLogger as log } from '@/lib/logger'
 import { ChatMessage, TradingViewUserProfile } from '../types'
 
 // ============================================
@@ -85,10 +86,10 @@ export async function getSyncStatus(roomId: string): Promise<DBSyncStatus | null
     }
     // Table doesn't exist or other DB error - throw so caller can handle
     if (error.code === '42P01' || error.message?.includes('does not exist')) {
-      console.error('[DB Cache] Table does not exist:', error)
+      log.error('Table does not exist', error)
       throw new Error('Database tables not set up')
     }
-    console.error('[DB Cache] Error getting sync status:', error)
+    log.error('Error getting sync status', error)
     throw error
   }
   
@@ -115,7 +116,7 @@ export async function updateSyncStatus(
     })
   
   if (error) {
-    console.error('[DB Cache] Error updating sync status:', error)
+    log.error('Error updating sync status', error)
     throw error
   }
 }
@@ -159,7 +160,7 @@ export async function getCachedMessages(
   const { data, error } = await query
   
   if (error) {
-    console.error('[DB Cache] Error getting cached messages:', error)
+    log.error('Error getting cached messages', error)
     return []
   }
   
@@ -179,7 +180,7 @@ export async function getCachedMessageCount(roomId: string): Promise<number> {
     .eq('room_id', roomId)
   
   if (error) {
-    console.error('[DB Cache] Error getting message count:', error)
+    log.error('Error getting message count', error)
     return 0
   }
   
@@ -197,9 +198,7 @@ export async function cacheMessages(
     return { inserted: 0, updated: 0 }
   }
   
-  // Get unique usernames from messages for logging
-  const uniqueUsers = [...new Set(messages.map(m => m.username))]
-  console.log(`💾 [DB Cache] Caching ${messages.length} messages for room "${roomId}" from users: ${uniqueUsers.join(', ')}`)
+  log.debug('Caching messages', { room: roomId, count: messages.length })
   
   const supabase = await createClient()
   
@@ -221,7 +220,7 @@ export async function cacheMessages(
       })
     
     if (error) {
-      console.error('[DB Cache] Error caching messages batch:', error)
+      log.error('Error caching messages batch', error)
       throw error
     }
     
@@ -246,7 +245,7 @@ export async function cacheMessages(
     total_messages: await getCachedMessageCount(roomId)
   })
   
-  console.log(`✅ [DB Cache] Successfully cached ${totalInserted} messages for room "${roomId}"`)
+  log.info('Messages cached', { room: roomId, count: totalInserted })
   return { inserted: totalInserted, updated: 0 }
 }
 
@@ -268,7 +267,6 @@ export async function markFullHistoryCached(roomId: string): Promise<void> {
  * Get cached user profile
  */
 export async function getCachedProfile(username: string): Promise<TradingViewUserProfile | null> {
-  console.log(`🔍 [DB Cache] Looking up cached profile for user: "${username}"`)
   const supabase = await createClient()
   
   const { data, error } = await supabase
@@ -279,14 +277,12 @@ export async function getCachedProfile(username: string): Promise<TradingViewUse
   
   if (error) {
     if (error.code === 'PGRST116') {
-      console.log(`📭 [DB Cache] No cached profile found for user: "${username}"`)
       return null
     }
-    console.error(`❌ [DB Cache] Error getting cached profile for "${username}":`, error)
+    log.error('Error getting cached profile', error, { username })
     return null
   }
   
-  console.log(`✅ [DB Cache] Found cached profile for user: "${username}"`)
   return dbProfileToTradingViewProfile(data)
 }
 
@@ -318,11 +314,10 @@ export async function isProfileFresh(username: string): Promise<boolean> {
  */
 export async function cacheProfile(profile: TradingViewUserProfile): Promise<void> {
   if (!profile.username) {
-    console.warn('[DB Cache] Cannot cache profile without username')
+    log.warn('Cannot cache profile without username')
     return
   }
   
-  console.log(`💾 [DB Cache] Caching profile for user: "${profile.username}"`)
   const supabase = await createClient()
   
   const dbProfile: Partial<DBUserProfile> = {
@@ -355,11 +350,9 @@ export async function cacheProfile(profile: TradingViewUserProfile): Promise<voi
     })
   
   if (error) {
-    console.error(`❌ [DB Cache] Error caching profile for "${profile.username}":`, error)
+    log.error('Error caching profile', error, { username: profile.username })
     throw error
   }
-  
-  console.log(`✅ [DB Cache] Successfully cached profile for user: "${profile.username}"`)
 }
 
 /**
@@ -378,7 +371,7 @@ export async function getCachedProfiles(usernames: string[]): Promise<Map<string
     .in('username', usernames)
   
   if (error) {
-    console.error('[DB Cache] Error getting cached profiles:', error)
+    log.error('Error getting cached profiles', error)
     return new Map()
   }
   
@@ -416,7 +409,7 @@ export async function getUserActivity(
     .order('date', { ascending: false })
   
   if (error) {
-    console.error('[DB Cache] Error getting user activity:', error)
+    log.error('Error getting user activity', error)
     return []
   }
   
@@ -449,7 +442,7 @@ export async function getMultipleUsersActivity(
     .order('date', { ascending: false })
   
   if (error) {
-    console.error('[DB Cache] Error getting multiple users activity:', error)
+    log.error('Error getting multiple users activity', error)
     return new Map()
   }
   
@@ -480,7 +473,7 @@ export async function refreshUserActivity(
   })
   
   if (error) {
-    console.error('[DB Cache] Error refreshing user activity:', error)
+    log.error('Error refreshing user activity', error)
     throw error
   }
 }
@@ -497,7 +490,7 @@ export async function refreshRoomActivity(roomId: string, date: Date): Promise<v
   })
   
   if (error) {
-    console.error('[DB Cache] Error refreshing room activity:', error)
+    log.error('Error refreshing room activity', error)
     throw error
   }
 }
@@ -545,7 +538,7 @@ export async function getCachedActivityForDates(
     .in('date', dates)
   
   if (activityError) {
-    console.error('[DB Cache] Error getting cached activity:', activityError)
+    log.error('Error getting cached activity', activityError)
     return new Map()
   }
   
@@ -558,7 +551,7 @@ export async function getCachedActivityForDates(
     .in('date', dates)
   
   if (messagesError) {
-    console.error('[DB Cache] Error getting cached activity messages:', messagesError)
+    log.error('Error getting cached activity messages', messagesError)
   }
   
   // Combine into map
@@ -605,7 +598,7 @@ export async function getMissingActivityDates(
     .in('date', dates)
   
   if (error) {
-    console.error('[DB Cache] Error checking cached dates:', error)
+    log.error('Error checking cached dates', error)
     return dates // Return all dates as missing on error
   }
   
@@ -658,7 +651,7 @@ export async function cacheActivityData(
     })
   
   if (activityError) {
-    console.error('[DB Cache] Error caching activity:', activityError)
+    log.error('Error caching activity', activityError)
     throw activityError
   }
   
@@ -670,11 +663,9 @@ export async function cacheActivityData(
     })
   
   if (messagesError) {
-    console.error('[DB Cache] Error caching activity messages:', messagesError)
+    log.error('Error caching activity messages', messagesError)
     // Don't throw - messages are optional
   }
-  
-  console.log(`✅ [DB Cache] Cached ${activities.length} activity records for ${username}`)
 }
 
 /**
@@ -733,7 +724,7 @@ export async function getChatters(roomId: string): Promise<ChatterStats[]> {
     .order('time', { ascending: false })
   
   if (error) {
-    console.error('[DB Cache] Error getting chatters:', error)
+    log.error('Error getting chatters', error)
     return []
   }
   

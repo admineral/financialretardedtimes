@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { CrownIcon, UserIcon, RefreshCwIcon } from 'lucide-react'
 import { ChatMessage } from '../types'
 import { useUserProfile } from '../hooks/use-user-profile'
@@ -32,6 +33,118 @@ interface UserProfileHoverProps {
   username: string
   userMessages: ChatMessage[]
   className?: string
+}
+
+/**
+ * Skeleton loading state that matches the full card layout
+ * Shows immediately with proper dimensions to prevent layout shift
+ */
+function ProfileSkeleton({ username }: { username: string }) {
+  return (
+    <Card className="w-96 shadow-lg border-2 animate-in fade-in duration-200">
+      <CardHeader className="pb-0">
+        <div className="flex items-center gap-3">
+          {/* Avatar skeleton with pulse */}
+          <div className="relative">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <div className="absolute inset-0 rounded-full border-2 border-primary/20 animate-pulse" />
+          </div>
+          
+          <div className="flex-1 min-w-0 space-y-2">
+            {/* Username + loading badge */}
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-lg">{username}</span>
+              <Badge variant="outline" className="text-xs bg-primary/5 border-primary/20">
+                <div className="flex items-center gap-1.5">
+                  <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                  <span className="text-muted-foreground">Loading...</span>
+                </div>
+              </Badge>
+            </div>
+            
+            {/* Stats skeleton row */}
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-4 w-8" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-3 w-10" />
+                <Skeleton className="h-4 w-6" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-3 w-14" />
+                <Skeleton className="h-4 w-10" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Skeleton className="h-3 w-8" />
+                <Skeleton className="h-4 w-6" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4 pt-4">
+        <Separator />
+        
+        {/* Weekly Activity Grid Skeleton */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+          {/* Grid skeleton - 7 columns x 5 rows to match WeeklyActivityGrid */}
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: 35 }).map((_, i) => (
+              <Skeleton 
+                key={i} 
+                className="h-3 w-3 rounded-sm"
+                style={{ 
+                  animationDelay: `${i * 20}ms`,
+                  opacity: 0.3 + (Math.random() * 0.4)
+                }}
+              />
+            ))}
+          </div>
+        </div>
+        
+        <Separator />
+        
+        {/* Activity Bar Chart Skeleton */}
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <div className="flex items-end gap-0.5 h-[100px]">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <Skeleton 
+                key={i} 
+                className="flex-1 rounded-t"
+                style={{ 
+                  height: `${20 + Math.random() * 60}%`,
+                  animationDelay: `${i * 30}ms`
+                }}
+              />
+            ))}
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>0h</span>
+            <span>12h</span>
+            <span>23h</span>
+          </div>
+        </div>
+        
+        <Separator />
+        
+        {/* Bottom section skeleton */}
+        <div className="flex items-center justify-center py-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="h-3 w-3 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
+            <span>Fetching profile data...</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function UserProfileHover({ username, userMessages, className = '' }: UserProfileHoverProps) {
@@ -156,18 +269,9 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
     return stats
   }, [userMessages])
 
-  // Show loading state when fetching data
+  // Show skeleton loading state when fetching initial data
   if (isLoadingAnyData && !profile && !activityPatterns) {
-    return (
-      <Card className={`w-80 ${className}`}>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm text-muted-foreground">Loading {username}...</span>
-          </div>
-        </CardContent>
-      </Card>
-    )
+    return <ProfileSkeleton username={username} />
   }
 
   // Fallback: If no local messages but we have activity data, show profile with activity
@@ -177,18 +281,27 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
   // If no userMessages but we have activity or profile data, we can still show something useful
   if ((!userStats || userMessages.length === 0) && !hasActivityData && !hasProfileData) {
     return (
-      <Card className={`w-80 ${className}`}>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <UserIcon className="h-4 w-4" />
-            <span className="text-sm">No data for {username}</span>
+      <Card className={`w-96 shadow-lg border-2 ${className}`}>
+        <CardHeader className="pb-0">
+          <div className="flex items-center gap-3">
+            <Avatar className="h-12 w-12 border-2 border-muted">
+              <AvatarFallback className="text-sm font-bold bg-muted/50">
+                <UserIcon className="h-6 w-6 text-muted-foreground" />
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1">
+              <h3 className="font-bold text-lg">{username}</h3>
+              <p className="text-sm text-muted-foreground">No data available</p>
+            </div>
           </div>
+        </CardHeader>
+        <CardContent className="pt-4">
           <Button
             variant="outline"
             size="sm"
             onClick={handleRetry}
             disabled={isLoadingAnyData}
-            className="w-full text-xs"
+            className="w-full"
           >
             {isLoadingAnyData ? (
               <>
@@ -220,7 +333,7 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
   const avatarUrl = latestMessage?.user_pic ?? profile?.avatar ?? undefined
 
   return (
-    <Card className={`w-96 shadow-lg border-2 ${className}`}>
+    <Card className={`w-96 shadow-lg border-2 animate-in fade-in slide-in-from-bottom-2 duration-200 ${className}`}>
       <CardHeader className="pb-0">
         <div className="flex items-center gap-3">
           <Avatar className="h-12 w-12 border-3 border-primary/40 shadow-md ring-2 ring-primary/25 hover:border-primary/60 hover:ring-3 hover:ring-primary/35 transition-all duration-200">
@@ -242,8 +355,11 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
             <div className="flex items-center gap-2 flex-wrap mb-2">
               <h3 className="font-bold text-lg truncate">{username}</h3>
               {isLoadingAnyData && (
-                <Badge variant="outline" className="text-xs animate-pulse">
-                  Loading...
+                <Badge variant="outline" className="text-xs bg-primary/5 border-primary/20">
+                  <div className="flex items-center gap-1">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                    <span className="text-muted-foreground">Syncing</span>
+                  </div>
                 </Badge>
               )}
               {isModerator && (
@@ -264,7 +380,7 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
             
             {/* TradingView Profile Stats */}
             {profile && (
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 animate-in fade-in duration-300">
                 {profile.followers !== null && (
                   <div className="flex flex-col gap-0.5">
                     <span className="text-xs text-muted-foreground">Followers</span>
@@ -294,28 +410,29 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                 )}
               </div>
             )}
+            
+            {/* Stats skeleton while profile loading */}
+            {profileLoading && !profile && (
+              <div className="flex items-center gap-4">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <Skeleton className="h-3 w-10" />
+                    <Skeleton className="h-4 w-6" />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4 pt-0">
+      <CardContent className="space-y-4 pt-4">
         {/* Separator after profile stats */}
-        {profile && <Separator />}
-        
-        {profileLoading && !profile && (
-          <>
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">
-                Loading TradingView data...
-              </div>
-            </div>
-            <Separator />
-          </>
-        )}
+        <Separator />
         
         {/* 30-Day Activity Calendar (if data available) */}
         {activities && activities.length > 0 && (
-          <>
+          <div className="animate-in fade-in slide-in-from-bottom-1 duration-300">
             <div className="space-y-2 relative">
               {activityLoading && (
                 <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex items-center justify-center z-10 rounded">
@@ -332,13 +449,33 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                 compactMode={false}
               />
             </div>
-            <Separator />
-          </>
+            <Separator className="mt-4" />
+          </div>
+        )}
+        
+        {/* Activity grid skeleton while loading */}
+        {activityLoading && !activities?.length && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({ length: 35 }).map((_, i) => (
+                <Skeleton 
+                  key={i} 
+                  className="h-3 w-3 rounded-sm"
+                  style={{ opacity: 0.3 + (Math.random() * 0.4) }}
+                />
+              ))}
+            </div>
+            <Separator className="mt-4" />
+          </div>
         )}
         
         {/* 24-Hour Activity Chart (if data available) */}
         {activityPatterns && (
-          <>
+          <div className="animate-in fade-in slide-in-from-bottom-1 duration-300 delay-100">
             <div className="space-y-2 relative">
               {activityLoading && (
                 <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex items-center justify-center z-10 rounded">
@@ -354,15 +491,33 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                 height={100}
               />
             </div>
-            <Separator />
-          </>
+            <Separator className="mt-4" />
+          </div>
         )}
         
+        {/* Activity chart skeleton while loading */}
+        {activityLoading && !activityPatterns && (
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-24" />
+            <div className="flex items-end gap-0.5 h-[100px]">
+              {Array.from({ length: 24 }).map((_, i) => (
+                <Skeleton 
+                  key={i} 
+                  className="flex-1 rounded-t"
+                  style={{ height: `${20 + Math.random() * 60}%` }}
+                />
+              ))}
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>0h</span>
+              <span>12h</span>
+              <span>23h</span>
+            </div>
+            <Separator className="mt-4" />
+          </div>
+        )}
 
       </CardContent>
     </Card>
   )
 }
-
-
-

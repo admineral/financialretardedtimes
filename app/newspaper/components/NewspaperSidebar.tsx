@@ -3,22 +3,13 @@
  * 
  * Left sidebar displaying top contributors, active chatters, and trending topics.
  * 
- * LOCAL: Renders a sticky sidebar with three sections:
- * 1. Top Contributors - AI-selected 3 most interesting/valuable users with avatars
- * 2. Active Chatters - Top users by message count with avatars (fetched from Supabase)
- * 3. Trending Topics - Lists 3-5 discussion topics as clickable hashtags
- * 
- * GLOBAL: Receives data from the parent page component (shared with NewspaperContent).
- * Fetches active chatters directly from Supabase based on selectedDate.
- * Shows user profile hover cards with activity stats when hovering over chatters.
+ * OPTIMIZED VERSION:
+ * - Initially fetches only 5 chatters (lightweight initial load)
+ * - Fetches remaining chatters on "weitere anzeigen" click
+ * - NO eager profile fetching - all profiles load on hover only
+ * - Avatars come from chatters endpoint or use fallback
  * 
  * EXPORTS: NewspaperSidebar (React component)
- * 
- * PROPS:
- * - data: Partial<UnifiedNewspaperData> | undefined - Shared newspaper data
- * - isLoading: boolean - Whether content is currently loading
- * - selectedDate: string | null - Selected date for fetching chatters
- * - selectedDates: string[] - Selected dates for multi-day view
  */
 
 'use client'
@@ -28,9 +19,7 @@ import { useRouter } from 'next/navigation'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from './ui/Skeleton'
-import { createClient } from '@/lib/supabase/client'
 import { UserHoverCard } from '@/app/Test/components/UserHoverCard'
-import type { ChatMessage } from '@/app/Test/types'
 import type { UnifiedNewspaperData, ActiveChatter } from '../lib/types'
 
 interface NewspaperSidebarProps {
@@ -45,136 +34,131 @@ const INITIAL_CHATTERS_COUNT = 5
 export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates }: NewspaperSidebarProps) {
   const router = useRouter()
   
-  // Fetch active chatters directly from Supabase
-  const [allChatters, setAllChatters] = useState<ActiveChatter[]>([])
-  const [allMessages, setAllMessages] = useState<ChatMessage[]>([])
-  const [isLoadingChatters, setIsLoadingChatters] = useState(false)
+  // Active chatters state - staged loading
+  const [initialChatters, setInitialChatters] = useState<ActiveChatter[]>([]) // First 5
+  const [additionalChatters, setAdditionalChatters] = useState<ActiveChatter[]>([]) // Rest
+  const [totalChattersCount, setTotalChattersCount] = useState<number>(0)
+  const [isLoadingInitial, setIsLoadingInitial] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [showAllChatters, setShowAllChatters] = useState(false)
+  const [hasFetchedMore, setHasFetchedMore] = useState(false)
   const [clickedUser, setClickedUser] = useState<string | null>(null)
   
-  // Reset clicked state when component mounts or dates change (e.g., after navigation back)
+  // Reset state when dates change
   useEffect(() => {
     setClickedUser(null)
+    setShowAllChatters(false)
+    setHasFetchedMore(false)
+    setAdditionalChatters([])
   }, [selectedDate, selectedDates])
   
-  // Navigate to user profile in chat-archive immediately
+  // Navigate to user profile
   const handleUserClick = useCallback((username: string, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    
-    // Set clicked state for visual feedback (will show during navigation)
     setClickedUser(username)
-    
-    // Navigate immediately - Next.js will handle the transition
     router.push(`/chat-archive?username=${encodeURIComponent(username)}&room=bitcoin_de_DE`)
   }, [router])
 
+  // Combine all chatters for display
+  const allChatters = useMemo(() => {
+    return [...initialChatters, ...additionalChatters]
+  }, [initialChatters, additionalChatters])
+
   // Displayed chatters (limited or all)
-  const activeChatters = showAllChatters ? allChatters : allChatters.slice(0, INITIAL_CHATTERS_COUNT)
-  const hasMoreChatters = allChatters.length > INITIAL_CHATTERS_COUNT
+  const activeChatters = showAllChatters ? allChatters : initialChatters
+  const hasMoreChatters = totalChattersCount > INITIAL_CHATTERS_COUNT
 
-  // Build a map of username -> messages for hover cards
-  const messagesByUser = useMemo(() => {
-    const map = new Map<string, ChatMessage[]>()
-    for (const msg of allMessages) {
-      const existing = map.get(msg.username)
-      if (existing) {
-        existing.push(msg)
-      } else {
-        map.set(msg.username, [msg])
-      }
-    }
-    return map
-  }, [allMessages])
-
-  // Fetch chatters and messages when date changes
+  // Fetch INITIAL chatters (first 5) - runs on page load
   useEffect(() => {
-    const fetchChatters = async () => {
-      // Use selectedDates if available, otherwise fall back to selectedDate
+    const fetchInitialChatters = async () => {
       const dates = selectedDates?.length ? selectedDates : (selectedDate ? [selectedDate] : [])
       if (dates.length === 0) return
 
-      setIsLoadingChatters(true)
-      setShowAllChatters(false) // Reset when date changes
+      setIsLoadingInitial(true)
+      
       try {
-        const supabase = createClient()
+        // Only fetch first 5 chatters + get total count
+        const response = await fetch(`/api/date-chatters?dates=${dates.join(',')}&limit=${INITIAL_CHATTERS_COUNT}`)
         
-        // Build date ranges for all selected dates
-        const dateRanges = dates.map(date => ({
-          start: `${date}T00:00:00.000Z`,
-          end: `${date}T23:59:59.999Z`
-        }))
-
-        // Fetch messages for all dates (with full message data for hover cards)
-        const userMap = new Map<string, { avatar?: string; count: number }>()
-        const fetchedMessages: ChatMessage[] = []
-        
-        for (const range of dateRanges) {
-          const { data: messages, error } = await supabase
-            .from('tv_chat_messages')
-            .select('id, username, text, time, user_pic, user_id, is_moderator, badges, meta, symbol')
-            .gte('time', range.start)
-            .lte('time', range.end)
-            .order('time', { ascending: true })
-          
-          if (error) {
-            console.error('[NewspaperSidebar] Error fetching chatters:', error)
-            continue
-          }
-
-          // Aggregate user data and collect messages
-          for (const msg of messages || []) {
-            const existing = userMap.get(msg.username)
-            if (existing) {
-              existing.count++
-              if (!existing.avatar && msg.user_pic) {
-                existing.avatar = msg.user_pic
-              }
-            } else {
-              userMap.set(msg.username, {
-                avatar: msg.user_pic || undefined,
-                count: 1
-              })
-            }
-            
-            // Add to messages array for hover cards
-            fetchedMessages.push({
-              id: msg.id,
-              username: msg.username,
-              text: msg.text,
-              time: msg.time,
-              user_pic: msg.user_pic || undefined,
-              user_id: msg.user_id || undefined,
-              is_moderator: msg.is_moderator || false,
-              badges: msg.badges || [],
-              meta: msg.meta || undefined,
-              symbol: msg.symbol || undefined
-            })
-          }
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`)
         }
 
-        // Convert to array, sort by count (no limit - we'll slice in render)
-        const chatters: ActiveChatter[] = Array.from(userMap.entries())
-          .map(([username, data]) => ({
-            username,
-            avatar: data.avatar,
-            messageCount: data.count
+        const result = await response.json()
+        
+        if (result.chatters) {
+          const chatters: ActiveChatter[] = result.chatters.map((c: { username: string; avatar: string | null; messageCount: number }) => ({
+            username: c.username,
+            avatar: c.avatar || undefined,
+            messageCount: c.messageCount
           }))
-          .sort((a, b) => b.messageCount - a.messageCount)
-
-        setAllChatters(chatters)
-        setAllMessages(fetchedMessages)
+          
+          setInitialChatters(chatters)
+          // userCount from API tells us total unique users
+          setTotalChattersCount(result.userCount || chatters.length)
+        }
       } catch (err) {
-        console.error('[NewspaperSidebar] Error:', err)
+        console.error('[NewspaperSidebar] Error fetching initial chatters:', err)
       } finally {
-        setIsLoadingChatters(false)
+        setIsLoadingInitial(false)
       }
     }
 
-    fetchChatters()
+    fetchInitialChatters()
   }, [selectedDate, selectedDates])
 
-  // Build avatar lookup from allChatters to enrich topContributors
+  // Fetch MORE chatters - only when "weitere anzeigen" is clicked
+  const fetchMoreChatters = useCallback(async () => {
+    if (hasFetchedMore || isLoadingMore) return
+    
+    const dates = selectedDates?.length ? selectedDates : (selectedDate ? [selectedDate] : [])
+    if (dates.length === 0) return
+
+    setIsLoadingMore(true)
+    
+    try {
+      // Fetch all chatters (up to 100)
+      const response = await fetch(`/api/date-chatters?dates=${dates.join(',')}&limit=100`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`)
+      }
+
+      const result = await response.json()
+      
+      if (result.chatters) {
+        const allFetched: ActiveChatter[] = result.chatters.map((c: { username: string; avatar: string | null; messageCount: number }) => ({
+          username: c.username,
+          avatar: c.avatar || undefined,
+          messageCount: c.messageCount
+        }))
+        
+        // Only add chatters that aren't in initial set
+        const initialUsernames = new Set(initialChatters.map(c => c.username))
+        const additional = allFetched.filter(c => !initialUsernames.has(c.username))
+        
+        setAdditionalChatters(additional)
+        setTotalChattersCount(result.userCount || allFetched.length)
+        setHasFetchedMore(true)
+      }
+    } catch (err) {
+      console.error('[NewspaperSidebar] Error fetching more chatters:', err)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [selectedDate, selectedDates, initialChatters, hasFetchedMore, isLoadingMore])
+
+  // Handle show more click
+  const handleShowMore = useCallback(() => {
+    if (!showAllChatters && !hasFetchedMore) {
+      // First time clicking "show more" - fetch additional chatters
+      fetchMoreChatters()
+    }
+    setShowAllChatters(!showAllChatters)
+  }, [showAllChatters, hasFetchedMore, fetchMoreChatters])
+
+  // Build avatar lookup from chatters - NO additional API calls
   const chatterAvatarMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const chatter of allChatters) {
@@ -185,48 +169,15 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     return map
   }, [allChatters])
 
-  // State to store fetched profile avatars for contributors not in today's chatters
-  const [fetchedAvatars, setFetchedAvatars] = useState<Map<string, string>>(new Map())
-
-  // Fetch profiles for top contributors who don't have avatars from today's messages
-  useEffect(() => {
-    const fetchMissingAvatars = async () => {
-      if (!data?.topContributors) return
-      
-      // Find contributors without avatars
-      const missingAvatarUsers = data.topContributors.filter(
-        c => !c.avatar && !chatterAvatarMap.has(c.username) && !fetchedAvatars.has(c.username)
-      )
-      
-      if (missingAvatarUsers.length === 0) return
-      
-      // Fetch profiles for missing users
-      for (const user of missingAvatarUsers) {
-        try {
-          const response = await fetch(`/Test/api/user-profile?username=${encodeURIComponent(user.username)}`)
-          if (response.ok) {
-            const profile = await response.json()
-            if (profile?.avatar) {
-              setFetchedAvatars(prev => new Map(prev).set(user.username, profile.avatar))
-            }
-          }
-        } catch (err) {
-          console.error(`[NewspaperSidebar] Failed to fetch profile for ${user.username}:`, err)
-        }
-      }
-    }
-    
-    fetchMissingAvatars()
-  }, [data?.topContributors, chatterAvatarMap, fetchedAvatars])
-
-  // Enrich topContributors with avatars from activeChatters OR fetched profiles
+  // Enrich contributors with avatars from chatters ONLY (no eager profile fetching)
   const enrichedContributors = useMemo(() => {
     if (!data?.topContributors) return undefined
     return data.topContributors.map(contributor => ({
       ...contributor,
-      avatar: contributor.avatar || chatterAvatarMap.get(contributor.username) || fetchedAvatars.get(contributor.username)
+      // Use avatar from: 1) contributor data, 2) chatter map, 3) undefined (fallback shown)
+      avatar: contributor.avatar || chatterAvatarMap.get(contributor.username)
     }))
-  }, [data?.topContributors, chatterAvatarMap, fetchedAvatars])
+  }, [data?.topContributors, chatterAvatarMap])
 
   return (
     <aside className="lg:col-span-2 hidden lg:block">
@@ -243,7 +194,7 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
                 <UserHoverCard
                   key={idx}
                   username={contributor.username}
-                  userMessages={messagesByUser.get(contributor.username) || []}
+                  userMessages={[]}
                   side="right"
                   align="start"
                   onClick={(e) => handleUserClick(contributor.username, e)}
@@ -325,25 +276,25 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
           )}
         </ul>
 
-        {/* Active Chatters Section - By message count (fetched from Supabase) */}
+        {/* Active Chatters Section */}
         <h3 className="font-headline text-xs uppercase tracking-widest text-muted-foreground mt-8 mb-4 pb-2 border-b border-foreground/20">
           Aktive Chatter
-          {allChatters.length > 0 && (
+          {totalChattersCount > 0 && (
             <span className="ml-2 text-[10px] font-normal text-muted-foreground/60">
-              ({allChatters.length})
+              ({totalChattersCount})
             </span>
           )}
         </h3>
         <ul className="space-y-2 font-body text-sm">
-          {!isLoadingChatters && activeChatters.length > 0 ? (
+          {!isLoadingInitial && activeChatters.length > 0 ? (
             <>
               {activeChatters.map((chatter, idx) => {
                 const isClicked = clickedUser === chatter.username
                 return (
                   <UserHoverCard
-                    key={idx}
+                    key={`${chatter.username}-${idx}`}
                     username={chatter.username}
-                    userMessages={messagesByUser.get(chatter.username) || []}
+                    userMessages={[]}
                     side="right"
                     align="start"
                     onClick={(e) => handleUserClick(chatter.username, e)}
@@ -387,16 +338,25 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
                   </UserHoverCard>
                 )
               })}
+              
+              {/* Show more button */}
               {hasMoreChatters && (
                 <li>
                   <button
-                    onClick={() => setShowAllChatters(!showAllChatters)}
-                    className="text-xs text-primary hover:underline cursor-pointer w-full text-left py-1"
+                    onClick={handleShowMore}
+                    disabled={isLoadingMore}
+                    className="text-xs text-primary hover:underline cursor-pointer w-full text-left py-1 flex items-center gap-1.5 disabled:opacity-50"
                   >
-                    {showAllChatters 
-                      ? '↑ Weniger anzeigen' 
-                      : `↓ ${allChatters.length - INITIAL_CHATTERS_COUNT} weitere anzeigen`
-                    }
+                    {isLoadingMore ? (
+                      <>
+                        <div className="h-2.5 w-2.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        <span>Lade weitere...</span>
+                      </>
+                    ) : showAllChatters ? (
+                      <>↑ Weniger anzeigen</>
+                    ) : (
+                      <>↓ {totalChattersCount - INITIAL_CHATTERS_COUNT} weitere anzeigen</>
+                    )}
                   </button>
                 </li>
               )}
@@ -435,4 +395,3 @@ export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates 
     </aside>
   )
 }
-

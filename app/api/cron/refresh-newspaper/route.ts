@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { headers } from 'next/headers'
+import { cronLogger as log } from '@/lib/logger'
 
 export const maxDuration = 60 // Allow up to 60 seconds for AI generation
 
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
     // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split('T')[0]
     
-    console.log(`[CRON] 🗞️ Refreshing newspaper for ${today}...`)
+    log.info('Starting newspaper refresh', { date: today })
     
     // Get the base URL for internal API call
     const protocol = process.env.VERCEL_ENV === 'production' ? 'https' : 'http'
@@ -49,7 +50,6 @@ export async function GET(request: NextRequest) {
     const baseUrl = `${protocol}://${host}`
     
     // Call the summarize endpoint for today (1-day summary only)
-    console.log(`[CRON] 📅 Generating 1-day summary for: ${today}`)
     
     const response = await fetch(`${baseUrl}/newspaper/api/summarize`, {
       method: 'POST',
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[CRON] ❌ Refresh failed:`, errorText)
+      log.error('Newspaper refresh failed', new Error(errorText))
       return NextResponse.json({ success: false, error: errorText }, { status: 500 })
     }
     
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log(`[CRON] ✅ Newspaper refreshed successfully for ${today}`)
+    log.info('Newspaper refresh completed', { date: today })
     
     return NextResponse.json({
       success: true,
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('[CRON] ❌ Newspaper refresh error:', error)
+    log.error('Newspaper refresh error', error)
     return NextResponse.json(
       { 
         success: false, 

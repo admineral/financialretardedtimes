@@ -34,6 +34,7 @@
 import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { newspaperLogger as log } from '@/lib/logger'
 import type { DateStats } from '../../lib/types'
 
 // Cache duration for "today's" data in milliseconds (5 minutes)
@@ -54,7 +55,6 @@ function isCacheValid(updatedAt: string, dates: DateStats[]): boolean {
   // If cache doesn't contain today's data, it's stale - a new day has started
   // We need to refresh to check if there are messages for today
   if (mostRecentDateInCache < today) {
-    console.log(`[AVAILABLE-DATES API] Cache stale: most recent date ${mostRecentDateInCache} < today ${today}`)
     return false
   }
   
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
         .single()
       
       if (!cacheError && cachedData && isCacheValid(cachedData.updated_at, cachedData.dates)) {
-        console.log('[AVAILABLE-DATES API] Returning cached data')
+        log.debug('Cache hit for available dates')
         return Response.json({
           dates: cachedData.dates,
           totalDays: cachedData.total_days,
@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log('[AVAILABLE-DATES API] Cache miss or refresh requested, fetching fresh data')
+    log.debug('Fetching fresh available dates')
     
     // Paginate to get all messages (Supabase limits to 1000 per request)
     const allMessages: Array<{ time: string; username: string }> = []
@@ -179,7 +179,7 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log(`[AVAILABLE-DATES API] Fetched ${allMessages.length} messages total`)
+    log.info('Fetched messages for date stats', { count: allMessages.length })
     
     // Calculate statistics
     const { dates, cumulativeUsers, totalMessages } = calculateStats(allMessages)
@@ -199,10 +199,7 @@ export async function GET(request: NextRequest) {
       })
     
     if (upsertError) {
-      console.warn('[AVAILABLE-DATES API] Failed to update cache:', upsertError.message)
-      // Continue anyway, just return the fresh data
-    } else {
-      console.log('[AVAILABLE-DATES API] Cache updated successfully')
+      log.warn('Failed to update date stats cache', { error: upsertError.message })
     }
     
     return Response.json({ 
@@ -214,7 +211,7 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('[AVAILABLE-DATES API] Error:', error)
+    log.error('Failed to fetch available dates', error)
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
