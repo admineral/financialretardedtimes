@@ -36,6 +36,7 @@ import {
   ChatSection,
   NewspaperTimeline,
 } from './components'
+import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedWidget } from '@/app/test-fg/components'
 import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
@@ -360,23 +361,13 @@ export default function NewspaperPage() {
         </div>
       </div>
 
-      {/* Timeline Section - Shows older cached editions */}
+      {/* Chat History Timeline Section */}
       {dayRange === 1 && !isLoading && (
         <div className="w-full border-t-4 border-double border-foreground/30 mt-12">
           <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-8">
-            {/* Section Header */}
-            <div className="text-center mb-8">
-              <h2 className="font-masthead text-2xl sm:text-3xl text-foreground/80 mb-2">
-                Ältere Ausgaben
-              </h2>
-              <p className="text-sm text-muted-foreground font-body">
-                Scrolle nach unten für die Archive der vergangenen Tage
-              </p>
-            </div>
-            
             {/* Timeline Component */}
-            <div className="max-w-4xl mx-auto">
-              <NewspaperTimeline currentDate={selectedDate} />
+            <div className="border border-foreground/10 rounded-lg p-4 sm:p-6 bg-card/50">
+              <ChatHistoryTimeline autoStart showRefreshButton />
             </div>
           </div>
         </div>
