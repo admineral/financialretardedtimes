@@ -1971,9 +1971,10 @@ export default function RateChartPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-lg">📅</span>
                     <div className="text-xs uppercase tracking-widest text-purple-400 font-bold">Yesterday</div>
-                    {(yesterdayResults?.total_participants || leaderboard.length) > 0 && (
+                    {/* During Active Game (08:00+): show saved results count, During Winners Period: show leaderboard count */}
+                    {(isPastMidnight ? leaderboard.length > 0 : yesterdayResults?.total_participants) && (
                       <div className="text-[10px] text-zinc-500">
-                        ({yesterdayResults?.total_participants || leaderboard.length} players)
+                        ({isPastMidnight ? leaderboard.length : yesterdayResults?.total_participants} players)
                       </div>
                     )}
                   </div>
@@ -1983,91 +1984,146 @@ export default function RateChartPage() {
                   <div className="flex items-center justify-center py-4">
                     <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
                   </div>
-                ) : (yesterdayResults || leaderboard.length > 0) ? (
-                  <div className="space-y-2">
-                    {/* Show all participants from leaderboard (which is calculated from DB messages) */}
-                    {leaderboard.slice(0, yesterdayShowCount).map((entry, index) => {
-                      // Calculate points with time bonus for all participants
-                      const timeBonus = entry.guesses[0]?.timeBonus || 0
-                      let basePoints = 0
-                      if (index === 0) basePoints = 3
-                      else if (index === 1) basePoints = 2
-                      else if (index === 2) basePoints = 1
-                      // No points for #4 and below
-                      
-                      // Use saved points for top 3 if available, otherwise calculate
-                      let pts = basePoints * (1 + timeBonus)
-                      if (index === 0 && yesterdayResults?.winner_total_points) pts = yesterdayResults.winner_total_points
-                      else if (index === 1 && yesterdayResults?.second_total_points) pts = yesterdayResults.second_total_points
-                      else if (index === 2 && yesterdayResults?.third_total_points) pts = yesterdayResults.third_total_points
-                      
-                      return (
-                        <div 
-                          key={entry.username}
-                          className={`flex items-center gap-2 p-2 rounded-lg ${
-                            index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
-                            index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
-                            index === 2 ? 'bg-orange-900/10 border border-orange-900/30' :
-                            'bg-zinc-800/50 border border-zinc-700/50'
-                          }`}
-                        >
-                          <span className="text-base w-6 text-center">
-                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
-                          </span>
-                          <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
-                            index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
-                            index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
-                            index === 2 ? 'border-orange-700/50 ring-orange-700/30' :
-                            'border-zinc-600/50 ring-zinc-600/30'
-                          }`}>
-                            <AvatarImage 
-                              src={entry.avatar || undefined} 
-                              alt={entry.username}
-                              className="rounded-full object-cover"
-                            />
-                            <AvatarFallback className={`text-[10px] rounded-full ${
-                              index === 0 ? 'bg-amber-900/50 text-amber-200' :
-                              index === 1 ? 'bg-zinc-600 text-zinc-200' :
-                              index === 2 ? 'bg-orange-900/50 text-orange-200' :
-                              'bg-zinc-700 text-zinc-300'
+                ) : isPastMidnight ? (
+                  /* WINNERS PERIOD (00:00-08:00): Show live leaderboard (yesterday's game being calculated) */
+                  leaderboard.length > 0 ? (
+                    <div className="space-y-2">
+                      {leaderboard.slice(0, yesterdayShowCount).map((entry, index) => {
+                        const timeBonus = entry.guesses[0]?.timeBonus || 0
+                        let basePoints = 0
+                        if (index === 0) basePoints = 3
+                        else if (index === 1) basePoints = 2
+                        else if (index === 2) basePoints = 1
+                        
+                        let pts = basePoints * (1 + timeBonus)
+                        if (index === 0 && yesterdayResults?.winner_total_points) pts = yesterdayResults.winner_total_points
+                        else if (index === 1 && yesterdayResults?.second_total_points) pts = yesterdayResults.second_total_points
+                        else if (index === 2 && yesterdayResults?.third_total_points) pts = yesterdayResults.third_total_points
+                        
+                        return (
+                          <div 
+                            key={entry.username}
+                            className={`flex items-center gap-2 p-2 rounded-lg ${
+                              index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
+                              index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
+                              index === 2 ? 'bg-orange-900/10 border border-orange-900/30' :
+                              'bg-zinc-800/50 border border-zinc-700/50'
+                            }`}
+                          >
+                            <span className="text-base w-6 text-center">
+                              {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                            </span>
+                            <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
+                              index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
+                              index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
+                              index === 2 ? 'border-orange-700/50 ring-orange-700/30' :
+                              'border-zinc-600/50 ring-zinc-600/30'
                             }`}>
-                              {entry.username.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{entry.username}</div>
-                            <div className="text-[10px] text-zinc-500">
-                              ${entry.latestGuess?.toLocaleString()} • {format(new Date(entry.earliestTimestamp), 'HH:mm:ss')}
+                              <AvatarImage 
+                                src={entry.avatar || undefined} 
+                                alt={entry.username}
+                                className="rounded-full object-cover"
+                              />
+                              <AvatarFallback className={`text-[10px] rounded-full ${
+                                index === 0 ? 'bg-amber-900/50 text-amber-200' :
+                                index === 1 ? 'bg-zinc-600 text-zinc-200' :
+                                index === 2 ? 'bg-orange-900/50 text-orange-200' :
+                                'bg-zinc-700 text-zinc-300'
+                              }`}>
+                                {entry.username.slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium truncate">{entry.username}</div>
+                              <div className="text-[10px] text-zinc-500">
+                                ${entry.latestGuess?.toLocaleString()} • {format(new Date(entry.earliestTimestamp), 'HH:mm:ss')}
+                              </div>
+                            </div>
+                            <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+                              index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
+                              index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
+                              index === 2 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
+                              'bg-zinc-800/50 text-zinc-500 ring-1 ring-zinc-700/50'
+                            }`}>
+                              {pts > 0 ? `+${pts % 1 === 0 ? pts : pts.toFixed(1)}` : '0'}
                             </div>
                           </div>
-                          {/* Points badge for everyone */}
-                          <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
-                            index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
-                            index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
-                            index === 2 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
-                            'bg-zinc-800/50 text-zinc-500 ring-1 ring-zinc-700/50'
+                        )
+                      })}
+                      
+                      {leaderboard.length > 10 && (
+                        <button
+                          onClick={() => setYesterdayShowCount(
+                            yesterdayShowCount <= 10 ? leaderboard.length : 10
+                          )}
+                          className="w-full py-2 text-center text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                        >
+                          {yesterdayShowCount <= 10 ? (
+                            <span>📊 Show all {leaderboard.length} participants...</span>
+                          ) : (
+                            <span>▲ Show top 10</span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <div className="text-zinc-500 text-xs">No predictions yet</div>
+                    </div>
+                  )
+                ) : yesterdayResults ? (
+                  /* ACTIVE GAME (08:00-23:59): Show saved database results from yesterday */
+                  <div className="space-y-2">
+                    {/* Build array from yesterdayResults for top 3 */}
+                    {[
+                      { username: yesterdayResults.winner_username, avatar: yesterdayResults.winner_avatar, prediction: yesterdayResults.winner_prediction, timestamp: yesterdayResults.winner_timestamp, pts: yesterdayResults.winner_total_points || 3 },
+                      yesterdayResults.second_username ? { username: yesterdayResults.second_username, avatar: yesterdayResults.second_avatar, prediction: yesterdayResults.second_prediction, timestamp: yesterdayResults.second_timestamp, pts: yesterdayResults.second_total_points || 2 } : null,
+                      yesterdayResults.third_username ? { username: yesterdayResults.third_username, avatar: yesterdayResults.third_avatar, prediction: yesterdayResults.third_prediction, timestamp: yesterdayResults.third_timestamp, pts: yesterdayResults.third_total_points || 1 } : null,
+                    ].filter(Boolean).map((entry, index) => (
+                      <div 
+                        key={entry!.username}
+                        className={`flex items-center gap-2 p-2 rounded-lg ${
+                          index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
+                          index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
+                          'bg-orange-900/10 border border-orange-900/30'
+                        }`}
+                      >
+                        <span className="text-base w-6 text-center">
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                        </span>
+                        <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
+                          index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
+                          index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
+                          'border-orange-700/50 ring-orange-700/30'
+                        }`}>
+                          <AvatarImage 
+                            src={entry!.avatar || undefined} 
+                            alt={entry!.username}
+                            className="rounded-full object-cover"
+                          />
+                          <AvatarFallback className={`text-[10px] rounded-full ${
+                            index === 0 ? 'bg-amber-900/50 text-amber-200' :
+                            index === 1 ? 'bg-zinc-600 text-zinc-200' :
+                            'bg-orange-900/50 text-orange-200'
                           }`}>
-                            {pts > 0 ? `+${pts % 1 === 0 ? pts : pts.toFixed(1)}` : '0'}
+                            {entry!.username.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium truncate">{entry!.username}</div>
+                          <div className="text-[10px] text-zinc-500">
+                            ${entry!.prediction?.toLocaleString()}{entry!.timestamp ? ` • ${format(new Date(entry!.timestamp), 'HH:mm:ss')}` : ''}
                           </div>
                         </div>
-                      )
-                    })}
-                    
-                    {/* Show All / Show Less buttons */}
-                    {leaderboard.length > 10 && (
-                      <button
-                        onClick={() => setYesterdayShowCount(
-                          yesterdayShowCount <= 10 ? leaderboard.length : 10
-                        )}
-                        className="w-full py-2 text-center text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
-                      >
-                        {yesterdayShowCount <= 10 ? (
-                          <span>📊 Show all {leaderboard.length} participants...</span>
-                        ) : (
-                          <span>▲ Show top 10</span>
-                        )}
-                      </button>
-                    )}
+                        <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+                          index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
+                          index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
+                          'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50'
+                        }`}>
+                          +{entry!.pts % 1 === 0 ? entry!.pts : entry!.pts.toFixed(1)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="text-center py-4">
