@@ -40,6 +40,7 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.86.0",
     "@tailwindcss/postcss": "^4.1.17",
+    "@vercel/analytics": "^1.6.1",
     "ai": "^5.0.105",
     "cheerio": "^1.1.2",
     "class-variance-authority": "^0.7.1",
