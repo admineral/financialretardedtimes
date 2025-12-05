@@ -89,6 +89,10 @@ export async function GET() {
       dateRangeStart: cache.date_range_start,
       dateRangeEnd: cache.date_range_end,
       updatedAt: cache.updated_at
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      }
     })
     
   } catch (error) {
@@ -213,6 +217,10 @@ export async function POST() {
       dateRangeStart,
       dateRangeEnd,
       updatedAt: new Date().toISOString()
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      }
     })
     
   } catch (error) {

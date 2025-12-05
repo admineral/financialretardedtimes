@@ -37,6 +37,7 @@ interface ChatHistoryTimelineProps {
   title?: string
   autoStart?: boolean
   showRefreshButton?: boolean
+  compact?: boolean // Minimal version for top placement
 }
 
 interface CacheResponse {
@@ -177,6 +178,115 @@ function TimelineCard({
 }
 
 /**
+ * Compact event card for mini timeline - inline display with hover expand
+ * Has delayed close so moving between cards feels smooth
+ */
+function CompactTimelineCard({ event }: { event: ChatEvent }) {
+  const style = getEventStyle(event.type)
+  
+  return (
+    <div className="group relative flex items-center">
+      {/* Dot on timeline */}
+      <div className={`absolute -bottom-[17px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${style.bg} border ${style.border} z-10
+        transition-transform duration-200 delay-300 group-hover:delay-0 group-hover:scale-125`} />
+      
+      {/* Card - compact, expands on hover with delayed close */}
+      <div className={`px-2 py-1.5 rounded border ${style.bg} ${style.border} backdrop-blur-sm 
+        cursor-default 
+        min-w-[140px] max-w-[180px] group-hover:min-w-[220px] group-hover:max-w-[260px]
+        group-hover:shadow-lg group-hover:z-20
+        transition-all duration-200 ease-out
+        delay-500 group-hover:delay-0`}
+      >
+        {/* Type label and time */}
+        <div className="flex items-center justify-between gap-2 mb-0.5">
+          <span className={`text-[8px] font-bold uppercase tracking-wider ${style.text}`}>
+            {style.label}
+          </span>
+          <span className="text-[9px] font-mono text-muted-foreground">
+            {event.time}
+          </span>
+        </div>
+        
+        {/* Title - truncated, expands on hover */}
+        <p className="text-[10px] font-medium leading-tight line-clamp-2 group-hover:line-clamp-none
+          transition-all duration-200 delay-500 group-hover:delay-0">
+          {event.title}
+        </p>
+        
+        {/* Description - hidden, shows on hover with delayed close */}
+        <div className="max-h-0 overflow-hidden opacity-0 
+          group-hover:max-h-20 group-hover:opacity-100 
+          transition-all duration-200 ease-out
+          delay-500 group-hover:delay-0">
+          <p className="text-[9px] text-muted-foreground leading-snug mt-1.5 line-clamp-3">
+            {event.description}
+          </p>
+          
+          {/* Participants */}
+          {event.participants.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {event.participants.slice(0, 3).map((p, i) => (
+                <span key={i} className="text-[8px] px-1 py-0.5 bg-background/50 rounded">@{p}</span>
+              ))}
+              {event.participants.length > 3 && (
+                <span className="text-[8px] text-muted-foreground">+{event.participants.length - 3}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Compact date marker for mini timeline
+ */
+function CompactDateMarker({ date, messageCount }: { date: string; messageCount?: number }) {
+  const d = new Date(date + 'T12:00:00')
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  
+  const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
+  
+  const day = d.getDate()
+  const month = d.toLocaleDateString('de-DE', { month: 'short' })
+  
+  let relativeLabel = ''
+  if (diffDays === 0) relativeLabel = 'HEUTE'
+  else if (diffDays === 1) relativeLabel = 'GESTERN'
+  
+  const isToday = diffDays === 0
+  
+  return (
+    <div className="flex flex-col items-center mx-2 min-w-[50px]">
+      <div className={`px-2 py-1 rounded text-center ${
+        isToday ? 'bg-primary/20 border border-primary/40' : 'bg-muted/50'
+      }`}>
+        {relativeLabel ? (
+          <div className={`text-[8px] font-bold uppercase tracking-wider ${
+            isToday ? 'text-primary' : 'text-muted-foreground'
+          }`}>
+            {relativeLabel}
+          </div>
+        ) : null}
+        <div className={`text-sm font-bold font-mono leading-none ${
+          isToday ? 'text-primary' : 'text-foreground'
+        }`}>
+          {day} {month}
+        </div>
+        {messageCount && (
+          <div className="text-[8px] text-muted-foreground/60">
+            {messageCount} msgs
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
  * Date marker on the timeline - prominent display
  */
 function DateMarker({ date, messageCount }: { date: string; messageCount?: number }) {
@@ -242,7 +352,7 @@ function DateMarker({ date, messageCount }: { date: string; messageCount?: numbe
 }
 
 /**
- * Format time ago in German
+ * Format time ago in German - short version
  */
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString)
@@ -259,13 +369,40 @@ function formatTimeAgo(dateString: string): string {
 }
 
 /**
+ * Format time ago with detailed breakdown (e.g., "1d 4h 5m ago")
+ */
+function formatDetailedTimeAgo(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  
+  if (diffMins < 1) return 'just now'
+  
+  const days = diffDays
+  const hours = diffHours % 24
+  const mins = diffMins % 60
+  
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (mins > 0 && days === 0) parts.push(`${mins}m`) // Only show mins if less than a day
+  
+  return parts.length > 0 ? `${parts.join(' ')} ago` : 'just now'
+}
+
+/**
  * Main Chat History Timeline Component
  */
 export function ChatHistoryTimeline({ 
   className = '',
   title = 'Chat-Chronik',
   autoStart = false,
-  showRefreshButton = true
+  showRefreshButton = true,
+  compact = false
 }: ChatHistoryTimelineProps) {
   const [events, setEvents] = useState<ChatEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -314,8 +451,10 @@ export function ChatHistoryTimeline({
     setError(null)
     
     try {
-      // Try to get from cache first
-      const cacheRes = await fetch('/test-timeline/api/cache')
+      // Try to get from cache first (with cache-busting)
+      const cacheRes = await fetch(`/test-timeline/api/cache?_t=${Date.now()}`, {
+        cache: 'no-store'
+      })
       
       if (cacheRes.ok) {
         const cacheData: CacheResponse = await cacheRes.json()
@@ -342,7 +481,7 @@ export function ChatHistoryTimeline({
     }
   }, [isLoading, isRefreshing])
 
-  // Refresh timeline (regenerate from newspaper cache)
+  // Refresh timeline - regenerate newspaper (AI call) then extract timeline events
   const refreshTimeline = useCallback(async () => {
     if (isRefreshing) return // Prevent duplicate calls
     
@@ -350,7 +489,31 @@ export function ChatHistoryTimeline({
     setError(null)
     
     try {
-      const res = await fetch('/test-timeline/api/cache', { method: 'POST' })
+      // Step 1: Regenerate today's newspaper via AI (this fetches fresh chat data)
+      const today = new Date().toISOString().split('T')[0]
+      console.log('[ChatTimeline] Step 1: Regenerating newspaper for', today)
+      
+      const summarizeRes = await fetch('/newspaper/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selectedDates: [today], dayRange: 1 }),
+        cache: 'no-store'
+      })
+      
+      if (!summarizeRes.ok) {
+        console.warn('[ChatTimeline] Newspaper generation failed, continuing with cached data')
+      } else {
+        // Wait for streaming to complete by consuming the response
+        await summarizeRes.text()
+        console.log('[ChatTimeline] Newspaper regenerated successfully')
+      }
+      
+      // Step 2: Now regenerate timeline from the updated newspaper cache
+      console.log('[ChatTimeline] Step 2: Extracting timeline events')
+      const res = await fetch(`/test-timeline/api/cache?_t=${Date.now()}`, { 
+        method: 'POST',
+        cache: 'no-store'
+      })
       
       if (!res.ok) {
         const errData = await res.json()
@@ -361,7 +524,7 @@ export function ChatHistoryTimeline({
       setEvents(data.events)
       setCacheInfo({ updatedAt: data.updatedAt })
       setHasLoaded(true)
-      console.log('[ChatTimeline] Refreshed:', data.eventCount, 'events')
+      console.log('[ChatTimeline] Complete! Extracted', data.eventCount, 'events')
       
     } catch (err) {
       console.error('[ChatTimeline] Refresh error:', err)
@@ -393,6 +556,124 @@ export function ChatHistoryTimeline({
     new Date(b).getTime() - new Date(a).getTime()
   )
 
+  // ========== COMPACT MODE ==========
+  if (compact) {
+    return (
+      <div className={`relative flex items-center ${className}`}>
+        {/* Left side: Refresh button and cache age - stacked */}
+        <div className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 px-2 border-r border-foreground/10">
+          {/* Refresh button */}
+          <button
+            onClick={refreshTimeline}
+            disabled={isRefreshing || isLoading}
+            className="p-1 rounded hover:bg-muted disabled:opacity-50 transition-all"
+            title="Timeline aktualisieren"
+          >
+            <RefreshCw className={`w-3 h-3 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+          
+          {/* Cache age */}
+          {cacheInfo && !isLoading && !isRefreshing && (
+            <span className="text-[8px] text-muted-foreground/60 whitespace-nowrap leading-none">
+              {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+            </span>
+          )}
+          {(isLoading || isRefreshing) && (
+            <span className="text-[8px] text-muted-foreground/50 whitespace-nowrap leading-none">
+              ...
+            </span>
+          )}
+        </div>
+
+        {/* Right side: Timeline content */}
+        <div className="flex-1 min-w-0 relative">
+          {/* Compact: Loading */}
+          {isLoading && !hasLoaded && (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {/* Compact: Timeline content */}
+          {hasLoaded && events.length > 0 && !isLoading && (
+            <div className="relative">
+              {/* Gradient overlays */}
+              {canScrollLeft && (
+                <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-20 pointer-events-none" />
+              )}
+              {canScrollRight && (
+                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-20 pointer-events-none" />
+              )}
+              
+              {/* Scroll buttons - floating on sides */}
+              {canScrollLeft && (
+                <button
+                  onClick={() => scroll('left')}
+                  className="absolute left-1 top-1/2 -translate-y-1/2 z-30 p-1 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                </button>
+              )}
+              {canScrollRight && (
+                <button
+                  onClick={() => scroll('right')}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 z-30 p-1 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+                >
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              )}
+              
+              {/* Scrollable container */}
+              <div 
+                ref={scrollRef}
+                className="overflow-x-auto"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                <div className="relative min-w-max px-6 py-3">
+                  {/* Main timeline line */}
+                  <div className="absolute left-0 right-0 bottom-3 h-px bg-gradient-to-r from-foreground/5 via-foreground/15 to-foreground/5" />
+                  
+                  {/* Events inline */}
+                  <div className="relative flex items-end gap-3">
+                    {sortedDates.map((date, dateIdx) => {
+                      const dateEvents = eventsByDate[date]
+                      const firstEvent = dateEvents[0]
+                      
+                      return (
+                        <div key={date} className="flex items-end gap-2">
+                          {/* Compact date marker */}
+                          <CompactDateMarker date={date} messageCount={firstEvent?.messageCount} />
+                          
+                          {/* Events for this date */}
+                          {dateEvents.map((event) => (
+                            <CompactTimelineCard key={event.id} event={event} />
+                          ))}
+                          
+                          {/* Spacer between dates */}
+                          {dateIdx < sortedDates.length - 1 && (
+                            <div className="w-4" />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Compact: Empty state - just show nothing or minimal text */}
+          {hasLoaded && events.length === 0 && !isLoading && !error && (
+            <div className="flex items-center justify-center py-3 text-[10px] text-muted-foreground/50">
+              Keine Chat-Events
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ========== FULL MODE ==========
   return (
     <div className={`relative ${className}`}>
       {/* Header */}

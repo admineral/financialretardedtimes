@@ -170,6 +170,7 @@ export function ContributorAvatar({
  */
 export function prefetchAvatars(usernames: string[]) {
   usernames.forEach(username => {
+    if (!username) return // Skip undefined/null usernames
     const lowerUsername = username.toLowerCase()
     
     // Skip if already cached or request in flight

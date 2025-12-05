@@ -236,34 +236,34 @@ export default function NewspaperPage() {
       </div>
 
       {/* Masthead */}
-      <header className="w-full py-4 sm:py-6 border-b-4 border-double border-foreground/60">
+      <header className="w-full py-2 sm:py-3 border-b-2 border-double border-foreground/60">
         <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 text-center">
           <Link href="/newspaper" className="inline-block">
-            <h1 className="font-masthead text-3xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl tracking-wide text-foreground hover:text-primary transition-colors">
+            <h1 className="font-masthead text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl tracking-wide text-foreground hover:text-primary transition-colors">
               Financial Retarded Times
             </h1>
           </Link>
-          <p className="font-headline text-[10px] sm:text-xs md:text-sm lg:text-base tracking-[0.2em] sm:tracking-[0.3em] uppercase text-muted-foreground mt-1 sm:mt-2">
+          <p className="font-headline text-[9px] sm:text-[10px] md:text-xs tracking-[0.15em] sm:tracking-[0.2em] uppercase text-muted-foreground mt-0.5 sm:mt-1">
             Community Edition • Chat-Highlights & Diskussionen
           </p>
           
           {/* BTC Price Ticker */}
           {btcData && (
-            <div className="mt-3 sm:mt-4 flex items-center justify-center gap-2 sm:gap-4 flex-wrap">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded">
-                <span className="text-amber-500 font-bold text-sm sm:text-base">₿</span>
-                <span className="font-mono font-semibold text-sm sm:text-base">
+            <div className="mt-2 sm:mt-3 flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded">
+                <span className="text-amber-500 font-bold text-xs sm:text-sm">₿</span>
+                <span className="font-mono font-semibold text-xs sm:text-sm">
                   ${btcData.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                 </span>
               </div>
-              <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs font-mono">
-                <span className={`px-1.5 py-0.5 rounded ${btcData.change24h >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] font-mono">
+                <span className={`px-1 py-0.5 rounded ${btcData.change24h >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                   24h: {btcData.change24h >= 0 ? '+' : ''}{btcData.change24h.toFixed(1)}%
                 </span>
-                <span className={`px-1.5 py-0.5 rounded ${btcData.change7d >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                <span className={`px-1 py-0.5 rounded ${btcData.change7d >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                   7d: {btcData.change7d >= 0 ? '+' : ''}{btcData.change7d.toFixed(1)}%
                 </span>
-                <span className={`hidden sm:inline px-1.5 py-0.5 rounded ${btcData.change30d >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                <span className={`hidden sm:inline px-1 py-0.5 rounded ${btcData.change30d >= 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                   30d: {btcData.change30d >= 0 ? '+' : ''}{btcData.change30d.toFixed(1)}%
                 </span>
               </div>
@@ -285,6 +285,13 @@ export default function NewspaperPage() {
           cumulativeUsers={cumulativeUsers}
         />
       </div>
+
+      {/* Compact Chat History Timeline - Top placement */}
+      {dayRange === 1 && !isLoading && (
+        <div className="w-full border-b border-foreground/10 bg-muted/20">
+          <ChatHistoryTimeline autoStart compact />
+        </div>
+      )}
 
       {/* Main Content Grid */}
       <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8">
@@ -354,18 +361,6 @@ export default function NewspaperPage() {
           </aside>
         </div>
       </div>
-
-      {/* Chat History Timeline Section */}
-      {dayRange === 1 && !isLoading && (
-        <div className="w-full border-t-4 border-double border-foreground/30 mt-12">
-          <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-8">
-            {/* Chat Chronik Timeline Component */}
-            <div className="border border-foreground/10 rounded-lg p-4 sm:p-6 bg-card/50">
-              <ChatHistoryTimeline autoStart showRefreshButton />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Older Editions Section */}
       {dayRange === 1 && !isLoading && (
