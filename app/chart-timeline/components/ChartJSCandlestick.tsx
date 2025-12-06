@@ -59,6 +59,7 @@ interface ChartJSCandlestickProps {
   events: TimelineEvent[]
   timeframe: Timeframe
   disableZoom?: boolean
+  minLineLength?: number  // Minimum line length as percentage of price range (default: 0.15 = 15%)
 }
 
 function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OHLCData | null {
@@ -80,7 +81,7 @@ function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OH
   return closest
 }
 
-export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = false }: ChartJSCandlestickProps) {
+export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = false, minLineLength = 0.20 }: ChartJSCandlestickProps) {
   const chartRef = useRef<ChartJS>(null)
   const [isMounted, setIsMounted] = useState(false)
 
@@ -129,8 +130,13 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       ? Math.max(...ohlcData.map(c => c.high)) - Math.min(...ohlcData.map(c => c.low))
       : 1000
     
-    // Track occupied positions to avoid overlaps
-    const occupiedSlots: { x: number; yLevel: number }[] = []
+    // Time window for overlap detection - wider to catch visual overlaps
+    const overlapWindowMs = timeframe === '15m' ? 3600000 * 12 :  // 12 hours for 15m
+                            timeframe === '1H' ? 3600000 * 18 :   // 18 hours for 1H
+                            3600000 * 36                          // 36 hours for others
+    
+    // Track occupied positions - x position, isAbove, and stack level
+    const occupiedSlots: { x: number; isAbove: boolean; stackLevel: number }[] = []
     
     events
       .filter(e => e.title && e.date && e.time)
@@ -142,38 +148,57 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         const config = typeConfig[event.priceContext as keyof typeof typeConfig] || typeConfig.analysis
         const pricePoint = event.priceAtQuote || candle.close
         
-        // Determine position - alternate above/below and find non-overlapping level
-        let isAbove = idx % 2 === 0
-        let level = 0
+        // Find nearby events that would overlap
+        const nearbySlots = occupiedSlots.filter(slot => 
+          Math.abs(slot.x - candle.timestamp) < overlapWindowMs
+        )
         
-        // Check for overlaps
-        for (let l = 0; l < 4; l++) {
-          const hasOverlap = occupiedSlots.some(slot => 
-            Math.abs(slot.x - candle.timestamp) < (3600000 * 4) && // Within 4 hours
-            slot.yLevel === (isAbove ? l : -l)
-          )
-          if (!hasOverlap) {
-            level = l
-            break
-          }
-          if (l === 0) isAbove = !isAbove
+        // Alternate above/below by index, but check for overlaps
+        let isAbove = idx % 2 === 0
+        
+        // Count how many nearby slots are in the same direction
+        const sameDirectionSlots = nearbySlots.filter(s => s.isAbove === isAbove)
+        const oppositeDirectionSlots = nearbySlots.filter(s => s.isAbove !== isAbove)
+        
+        // If same direction is more crowded, flip to opposite (if it's less crowded)
+        if (sameDirectionSlots.length > 0 && oppositeDirectionSlots.length < sameDirectionSlots.length) {
+          isAbove = !isAbove
         }
         
-        occupiedSlots.push({ x: candle.timestamp, yLevel: isAbove ? level : -level })
+        // Recalculate slots in the chosen direction
+        const slotsInDirection = nearbySlots.filter(s => s.isAbove === isAbove)
+        const stackLevel = slotsInDirection.length
         
-        // Much larger offset to keep cards far from candles
-        const baseOffset = priceRange * 0.20
-        const levelOffset = priceRange * 0.08 * level
-        const totalOffset = baseOffset + levelOffset
+        occupiedSlots.push({ x: candle.timestamp, isAbove, stackLevel })
+        
+        const absLevel = stackLevel
+        
+        // Offset calculation - stack cards above/below candles
+        // minLineLength controls the base distance, stackOffset adds space for stacking
+        const baseOffset = priceRange * minLineLength
+        const stackOffset = priceRange * 0.15 * absLevel  // Gap between stacked cards
+        const totalOffset = baseOffset + stackOffset
         const labelY = isAbove ? pricePoint + totalOffset : pricePoint - totalOffset
+        
+        // Horizontal offset - alternate left/right to avoid covering candles
+        // Calculate time span for offset (roughly 2-4 hours depending on timeframe)
+        const timeOffsetMs = timeframe === '15m' ? 3600000 * 2 :   // 2 hours
+                            timeframe === '1H' ? 3600000 * 4 :     // 4 hours
+                            timeframe === '4H' ? 3600000 * 8 :     // 8 hours
+                            3600000 * 12                           // 12 hours
+        
+        // Alternate left (-1) and right (+1), also vary by stack level
+        const xDirection = ((idx + absLevel) % 2 === 0) ? -1 : 1
+        const xOffset = timeOffsetMs * xDirection
+        const labelX = candle.timestamp + xOffset
 
-        // Vertical line annotation - longer dashed line
+        // Angled line annotation - from candle to label
         result[`line-${event.id}`] = {
           type: 'line',
           xMin: candle.timestamp,
-          xMax: candle.timestamp,
-          yMin: isAbove ? pricePoint : labelY - (priceRange * 0.02),
-          yMax: isAbove ? labelY + (priceRange * 0.02) : pricePoint,
+          xMax: labelX,
+          yMin: pricePoint,
+          yMax: labelY,
           borderColor: config.dotColor,
           borderWidth: 1.5,
           borderDash: [5, 5],
@@ -190,11 +215,11 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
           borderWidth: 2,
         }
 
-        // Label annotation (the quote card) - better styling
+        // Label annotation (the quote card) - positioned with offset
         const truncatedQuote = event.title.length > 32 ? event.title.slice(0, 32) + '...' : event.title
         result[`label-${event.id}`] = {
           type: 'label',
-          xValue: candle.timestamp,
+          xValue: labelX,
           yValue: labelY,
           backgroundColor: config.bg,
           borderColor: config.dotColor,
@@ -217,7 +242,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       })
 
     return result
-  }, [events, ohlcData])
+  }, [events, ohlcData, timeframe, minLineLength])
 
   // Chart options
   const options = useMemo(() => ({
