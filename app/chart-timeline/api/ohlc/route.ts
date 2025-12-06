@@ -1,16 +1,18 @@
 /**
  * route.ts (OHLC API)
  * 
- * Fetches BTC OHLC (candlestick) data from CoinGecko API.
+ * Fetches BTC OHLC (candlestick) data from Binance API (free, no auth).
+ * Supports fine granularity: 15m, 1H, 4H, 1D, 1W
  * 
- * ENDPOINT: GET /chart-timeline/api/ohlc?timeframe=1D|1W|1M
+ * ENDPOINT: GET /chart-timeline/api/ohlc?timeframe=15m|1H|4H|1D|1W&force=true
  * 
  * RESPONSE:
- * - 200: { ohlc: OHLCData[], count: number, timeframe: string }
+ * - 200: { ohlc: OHLCData[], count: number, timeframe: string, cached: boolean, fetchedAt: string }
  * - 500: Error fetching data
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
 interface OHLCData {
   timestamp: number
@@ -20,130 +22,208 @@ interface OHLCData {
   close: number
 }
 
-// CoinGecko OHLC endpoint returns data in format: [timestamp, open, high, low, close]
-type CoinGeckoOHLC = [number, number, number, number, number]
+// Binance kline response format:
+// [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBase, takerBuyQuote, ignore]
+type BinanceKline = [number, string, string, string, string, string, number, string, number, string, string, string]
+
+// Cache validity in minutes
+const CACHE_TTL_MINUTES = 5
 
 /**
- * Map timeframe to CoinGecko days parameter
- * CoinGecko OHLC granularity:
- * - 1-2 days: 30-minute candles
- * - 3-30 days: 4-hour candles  
- * - 31+ days: 4-day candles (we aggregate for daily/weekly/monthly)
- * 
- * For 15m: Use 7 days (4H candles) - best balance of granularity and history
- * For 1H: Use 14 days of 4H candles
- * For 1D: Use 90 days
- * For 1W/1M: Aggregate daily candles
+ * Check if cache is still valid (within TTL)
  */
-function getTimeframeParams(timeframe: string): { days: string; aggregate?: number; isHourly?: boolean } {
+function isCacheValid(updatedAt: string, ttlMinutes: number = CACHE_TTL_MINUTES): boolean {
+  const cacheTime = new Date(updatedAt).getTime()
+  const now = Date.now()
+  const diffMinutes = (now - cacheTime) / (1000 * 60)
+  return diffMinutes < ttlMinutes
+}
+
+/**
+ * Map timeframe to Binance interval and limit
+ * Binance intervals: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
+ */
+function getTimeframeParams(timeframe: string): { interval: string; limit: number } {
   switch (timeframe) {
     case '15m':
-      return { days: '7' } // 7 days of 4H candles (more history, shows context)
+      // 15-minute candles, ~7 days = 672 candles
+      return { interval: '15m', limit: 672 }
     case '1H':
-      return { days: '14', isHourly: true } // 14 days of 4H candles
+      // 1-hour candles, ~14 days = 336 candles
+      return { interval: '1h', limit: 336 }
+    case '4H':
+      // 4-hour candles, ~30 days = 180 candles
+      return { interval: '4h', limit: 180 }
     case '1D':
-      return { days: '90' } // 90 daily candles
+      // Daily candles, ~90 days
+      return { interval: '1d', limit: 90 }
     case '1W':
-      return { days: '365', aggregate: 7 } // ~52 weekly candles
-    case '1M':
-      return { days: 'max', aggregate: 30 } // Monthly candles
+      // Weekly candles, ~52 weeks
+      return { interval: '1w', limit: 52 }
     default:
-      return { days: '7' }
+      return { interval: '15m', limit: 672 }
   }
 }
 
 /**
- * Aggregate OHLC data into larger timeframes
+ * Fetch OHLC data from Binance API (free, no auth required)
  */
-function aggregateOHLC(data: OHLCData[], period: number): OHLCData[] {
-  if (period <= 1) return data
+async function fetchFromBinance(timeframe: string): Promise<OHLCData[]> {
+  const { interval, limit } = getTimeframeParams(timeframe)
   
-  const result: OHLCData[] = []
+  // Binance public API - no authentication needed!
+  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`
   
-  for (let i = 0; i < data.length; i += period) {
-    const chunk = data.slice(i, Math.min(i + period, data.length))
-    if (chunk.length === 0) continue
-    
-    result.push({
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map(c => c.high)),
-      low: Math.min(...chunk.map(c => c.low)),
-      close: chunk[chunk.length - 1].close
-    })
+  console.log(`[OHLC API] Fetching from Binance: ${url}`)
+  
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json' },
+    cache: 'no-store'
+  })
+  
+  if (!response.ok) {
+    // Check for rate limiting
+    if (response.status === 429) {
+      throw new Error('Rate limited by Binance')
+    }
+    // Check for IP ban
+    if (response.status === 418) {
+      throw new Error('IP banned by Binance - too many requests')
+    }
+    throw new Error(`Binance API error: ${response.status}`)
   }
   
-  return result
+  const rawData: BinanceKline[] = await response.json()
+  
+  // Transform Binance format to our format
+  // Binance: [openTime, open, high, low, close, volume, closeTime, ...]
+  const ohlcData: OHLCData[] = rawData.map(kline => ({
+    timestamp: kline[0], // openTime in ms
+    open: parseFloat(kline[1]),
+    high: parseFloat(kline[2]),
+    low: parseFloat(kline[3]),
+    close: parseFloat(kline[4])
+  }))
+  
+  console.log(`[OHLC API] Received ${ohlcData.length} candles from Binance`)
+  
+  return ohlcData
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const timeframe = searchParams.get('timeframe') || '1D'
+  const timeframe = searchParams.get('timeframe') || '15m' // Default to 15m now
+  const forceRefresh = searchParams.get('force') === 'true'
   
   try {
-    const { days, aggregate } = getTimeframeParams(timeframe)
+    const supabase = await createClient()
     
-    // CoinGecko OHLC endpoint
-    // Note: Free tier has rate limits, but should be fine for this use case
-    const url = `https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=${days}`
-    
-    console.log(`[OHLC API] Fetching ${timeframe} data from CoinGecko: ${url}`)
-    
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
-      },
-      // Cache for 5 minutes
-      next: { revalidate: 300 }
-    })
-    
-    if (!response.ok) {
-      // Check for rate limiting
-      if (response.status === 429) {
-        console.error('[OHLC API] Rate limited by CoinGecko')
-        return NextResponse.json(
-          { error: 'Rate limited, please try again later' },
-          { status: 429 }
-        )
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+      console.log(`[OHLC API] Checking cache for timeframe: ${timeframe}`)
+      
+      const { data: cached, error: cacheError } = await supabase
+        .from('chart_timeline_ohlc_cache')
+        .select('*')
+        .eq('timeframe', timeframe)
+        .single()
+      
+      if (!cacheError && cached && isCacheValid(cached.updated_at)) {
+        console.log(`[OHLC API] Cache hit! Returning ${cached.candle_count} cached candles`)
+        
+        return NextResponse.json({
+          ohlc: cached.candles as OHLCData[],
+          count: cached.candle_count,
+          timeframe,
+          cached: true,
+          fetchedAt: cached.updated_at,
+          source: 'binance'
+        }, {
+          headers: {
+            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+          }
+        })
       }
-      throw new Error(`CoinGecko API error: ${response.status}`)
+      
+      console.log(`[OHLC API] Cache miss or stale for ${timeframe}`)
+    } else {
+      console.log(`[OHLC API] Force refresh requested for ${timeframe}`)
     }
     
-    const rawData: CoinGeckoOHLC[] = await response.json()
+    // Fetch fresh data from Binance
+    const ohlcData = await fetchFromBinance(timeframe)
     
-    // Transform to our format
-    let ohlcData: OHLCData[] = rawData.map(([timestamp, open, high, low, close]) => ({
-      timestamp,
-      open,
-      high,
-      low,
-      close
-    }))
+    // Calculate metadata
+    const firstTimestamp = ohlcData.length > 0 ? ohlcData[0].timestamp : null
+    const lastTimestamp = ohlcData.length > 0 ? ohlcData[ohlcData.length - 1].timestamp : null
     
-    // Aggregate if needed for larger timeframes
-    if (aggregate && aggregate > 1) {
-      ohlcData = aggregateOHLC(ohlcData, aggregate)
+    // Store in cache (upsert)
+    const { error: upsertError } = await supabase
+      .from('chart_timeline_ohlc_cache')
+      .upsert({
+        timeframe,
+        candles: ohlcData,
+        candle_count: ohlcData.length,
+        first_timestamp: firstTimestamp,
+        last_timestamp: lastTimestamp,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'timeframe'
+      })
+    
+    if (upsertError) {
+      console.error('[OHLC API] Cache upsert error:', upsertError)
+    } else {
+      console.log(`[OHLC API] Cached ${ohlcData.length} candles for ${timeframe}`)
     }
     
-    console.log(`[OHLC API] Returning ${ohlcData.length} ${timeframe} candles`)
+    const fetchedAt = new Date().toISOString()
     
     return NextResponse.json({
       ohlc: ohlcData,
       count: ohlcData.length,
       timeframe,
-      fetchedAt: new Date().toISOString()
+      cached: false,
+      fetchedAt,
+      source: 'binance'
     }, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
       }
     })
     
   } catch (error) {
     console.error('[OHLC API] Error:', error)
+    
+    // On error, try to return stale cache
+    try {
+      const supabase = await createClient()
+      const { data: staleCache } = await supabase
+        .from('chart_timeline_ohlc_cache')
+        .select('*')
+        .eq('timeframe', timeframe)
+        .single()
+      
+      if (staleCache) {
+        console.log('[OHLC API] Returning stale cache due to error')
+        return NextResponse.json({
+          ohlc: staleCache.candles as OHLCData[],
+          count: staleCache.candle_count,
+          timeframe,
+          cached: true,
+          stale: true,
+          fetchedAt: staleCache.updated_at,
+          source: 'binance',
+          error: 'Using stale cache due to fetch error'
+        })
+      }
+    } catch {
+      // Ignore cache fallback errors
+    }
+    
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to fetch OHLC data' },
       { status: 500 }
     )
   }
 }
-

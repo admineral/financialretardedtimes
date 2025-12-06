@@ -52,12 +52,13 @@ interface TimelineEvent {
   priceAtQuote?: number
 }
 
-type Timeframe = '15m' | '1H' | '1D' | '1W' | '1M'
+type Timeframe = '15m' | '1H' | '4H' | '1D' | '1W'
 
 interface ChartJSCandlestickProps {
   ohlcData: OHLCData[]
   events: TimelineEvent[]
   timeframe: Timeframe
+  disableZoom?: boolean
 }
 
 function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OHLCData | null {
@@ -79,13 +80,20 @@ function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OH
   return closest
 }
 
-export function ChartJSCandlestick({ ohlcData, events, timeframe }: ChartJSCandlestickProps) {
+export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = false }: ChartJSCandlestickProps) {
   const chartRef = useRef<ChartJS>(null)
   const [isMounted, setIsMounted] = useState(false)
 
   useEffect(() => {
     setIsMounted(true)
   }, [])
+
+  // Reset zoom function
+  const resetZoom = () => {
+    if (chartRef.current) {
+      chartRef.current.resetZoom()
+    }
+  }
 
   // Transform data for Chart.js financial charts
   const chartData = useMemo(() => {
@@ -220,7 +228,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe }: ChartJSCandl
       x: {
         type: 'time' as const,
         time: {
-          unit: (timeframe === '15m' ? 'hour' : timeframe === '1H' ? 'day' : 'week') as 'hour' | 'day' | 'week',
+          unit: (timeframe === '15m' ? 'hour' : timeframe === '1H' || timeframe === '4H' ? 'day' : 'week') as 'hour' | 'day' | 'week',
           displayFormats: {
             hour: 'HH:mm',
             day: 'dd MMM',
@@ -254,7 +262,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe }: ChartJSCandl
         display: false,
       },
       tooltip: {
-        enabled: true,
+        enabled: !disableZoom,  // Disable tooltip when zoom is disabled (embedded view)
         backgroundColor: 'rgba(24, 24, 27, 0.98)',
         borderColor: '#3f3f46',
         borderWidth: 1,
@@ -302,23 +310,40 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe }: ChartJSCandl
       annotation: {
         annotations,
       },
-      zoom: {
+      zoom: disableZoom ? {
+        pan: { enabled: false },
+        zoom: { wheel: { enabled: false }, pinch: { enabled: false }, drag: { enabled: false } },
+      } : {
         pan: {
           enabled: true,
-          mode: 'xy' as const,
+          mode: 'x' as const,  // Only pan horizontally (more natural for charts)
+          threshold: 5,        // Minimum pixels before pan starts
         },
         zoom: {
           wheel: {
             enabled: true,
+            speed: 0.1,        // Slower zoom for more control
           },
           pinch: {
             enabled: true,
           },
-          mode: 'xy' as const,
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(59, 130, 246, 0.2)',
+            borderColor: 'rgba(59, 130, 246, 0.8)',
+            borderWidth: 1,
+            modifierKey: 'shift' as const,  // Hold Shift to drag-zoom
+          },
+          mode: 'x' as const,  // Only zoom horizontally
+        },
+        limits: {
+          x: {
+            minRange: 1000 * 60 * 60 * 4,  // Minimum 4 hours visible
+          },
         },
       },
     },
-  }), [annotations, timeframe])
+  }), [annotations, timeframe, disableZoom])
 
   if (!isMounted || ohlcData.length === 0) {
     return (
@@ -331,7 +356,22 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe }: ChartJSCandl
   }
 
   return (
-    <div className="w-full h-[600px] bg-zinc-950 rounded-lg p-4">
+    <div className="w-full h-[600px] bg-zinc-950 rounded-lg p-4 relative">
+      {/* Chart Controls - only show when zoom is enabled */}
+      {!disableZoom && (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500 hidden sm:inline">
+            Drag: Pan • Scroll: Zoom • Shift+Drag: Select
+          </span>
+          <button
+            onClick={resetZoom}
+            className="px-2 py-1 text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors"
+          >
+            Reset Zoom
+          </button>
+        </div>
+      )}
+      
       <Chart
         ref={chartRef}
         type="candlestick"

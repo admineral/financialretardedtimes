@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { RefreshCw, TrendingUp, TrendingDown, Clock, Sparkles, Quote, Trophy, Skull } from 'lucide-react'
+import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database } from 'lucide-react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import dynamic from 'next/dynamic'
@@ -18,7 +18,7 @@ const ChartQuoteSchema = z.object({
   id: z.string(),
   timestamp: z.string(),
   username: z.string(),
-  quote: z.string(),
+  quote: z.string(), // Max 50 chars for chart labels
   priceContext: z.enum([
     'pump_call', 'dump_call', 'top_call', 'bottom_call',
     'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
@@ -29,15 +29,15 @@ const ChartQuoteSchema = z.object({
 })
 
 const AnalysisResponseSchema = z.object({
-  headline: z.string(),
-  subheadline: z.string(),
+  headline: z.string(), // Max 60 chars
+  subheadline: z.string(), // Max 100 chars
   priceChange: z.object({
     startPrice: z.number(),
     endPrice: z.number(),
     changePercent: z.number(),
     trend: z.enum(['bullish', 'bearish', 'sideways'])
   }),
-  quotes: z.array(ChartQuoteSchema),
+  quotes: z.array(ChartQuoteSchema), // 6-12 quality predictions
   bestCall: z.object({
     username: z.string(),
     quote: z.string(),
@@ -51,6 +51,7 @@ const AnalysisResponseSchema = z.object({
 })
 
 type ChartQuote = z.infer<typeof ChartQuoteSchema>
+type AnalysisResponse = z.infer<typeof AnalysisResponseSchema>
 
 // Types
 interface TimelineEvent {
@@ -75,7 +76,7 @@ interface OHLCData {
   close: number
 }
 
-type Timeframe = '15m' | '1H' | '1D' | '1W' | '1M'
+type Timeframe = '15m' | '1H' | '4H' | '1D' | '1W'
 
 // Skeleton loader
 function ChartSkeleton() {
@@ -88,7 +89,7 @@ function ChartSkeleton() {
 
 // Timeframe selector
 function TimeframeSelector({ value, onChange }: { value: Timeframe; onChange: (tf: Timeframe) => void }) {
-  const options: Timeframe[] = ['15m', '1H', '1D', '1W', '1M']
+  const options: Timeframe[] = ['15m', '1H', '4H', '1D', '1W']
   
   return (
     <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-1">
@@ -107,6 +108,23 @@ function TimeframeSelector({ value, onChange }: { value: Timeframe; onChange: (t
       ))}
     </div>
   )
+}
+
+// Relative time display
+function formatRelativeTime(isoString: string | null): string {
+  if (!isoString) return 'Nie'
+  
+  const date = new Date(isoString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / (1000 * 60))
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  
+  if (diffMins < 1) return 'Gerade eben'
+  if (diffMins < 60) return `vor ${diffMins} Min.`
+  if (diffHours < 24) return `vor ${diffHours} Std.`
+  return `vor ${diffDays} Tag${diffDays > 1 ? 'en' : ''}`
 }
 
 // Get style for price context
@@ -134,17 +152,28 @@ function getContextStyle(context: string) {
 }
 
 export default function ChartTimelinePage() {
-  const [timeframe, setTimeframe] = useState<Timeframe>('1H')
+  const [timeframe, setTimeframe] = useState<Timeframe>('15m')
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  // AI Analysis with streaming - default mode
-  const { object: aiAnalysis, isLoading: isAnalyzing, submit: runAnalysis } = useObject({
-    api: '/chart-timeline/api/analyze',
+  // Cache timestamps
+  const [ohlcFetchedAt, setOhlcFetchedAt] = useState<string | null>(null)
+  const [analysisFetchedAt, setAnalysisFetchedAt] = useState<string | null>(null)
+  const [isCached, setIsCached] = useState<boolean>(false)
+  
+  // Cached analysis (loaded on mount)
+  const [cachedAnalysis, setCachedAnalysis] = useState<AnalysisResponse | null>(null)
+  
+  // AI Analysis with streaming - for fresh generation
+  const { object: streamingAnalysis, isLoading: isAnalyzing, submit: runAnalysis } = useObject({
+    api: '/chart-timeline/api/analyze?force=true',
     schema: AnalysisResponseSchema,
   })
+  
+  // Use streaming analysis if available, otherwise cached
+  const aiAnalysis = streamingAnalysis || cachedAnalysis
 
   // Convert AI quotes to TimelineEvents for chart
   const aiEvents: TimelineEvent[] = (aiAnalysis?.quotes || [])
@@ -193,12 +222,15 @@ export default function ChartTimelinePage() {
     }
   }
 
-  // Fetch OHLC data
-  const fetchOHLC = useCallback(async (tf: Timeframe) => {
+  // Fetch OHLC data (uses cache by default)
+  const fetchOHLC = useCallback(async (tf: Timeframe, force: boolean = false) => {
     try {
-      const response = await fetch(`/chart-timeline/api/ohlc?timeframe=${tf}`)
+      const url = `/chart-timeline/api/ohlc?timeframe=${tf}${force ? '&force=true' : ''}`
+      const response = await fetch(url)
       if (!response.ok) throw new Error('Failed to fetch OHLC data')
       const data = await response.json()
+      setOhlcFetchedAt(data.fetchedAt)
+      setIsCached(data.cached || false)
       return data.ohlc as OHLCData[]
     } catch (err) {
       console.error('[ChartTimeline] OHLC fetch error:', err)
@@ -206,39 +238,83 @@ export default function ChartTimelinePage() {
     }
   }, [])
 
-  // Load data and auto-start AI analysis
-  const loadData = useCallback(async (refresh = false) => {
-    if (refresh) setIsRefreshing(true)
-    else setIsLoading(true)
+  // Fetch cached analysis
+  const fetchCachedAnalysis = useCallback(async () => {
+    try {
+      const response = await fetch('/chart-timeline/api/analyze')
+      if (!response.ok) return null
+      const data = await response.json()
+      if (data.cached && data.analysis) {
+        setCachedAnalysis(data.analysis)
+        setAnalysisFetchedAt(data.fetchedAt)
+        return data.analysis
+      }
+      return null
+    } catch (err) {
+      console.error('[ChartTimeline] Cached analysis fetch error:', err)
+      return null
+    }
+  }, [])
+
+  // Initial load - fetch from cache
+  const loadData = useCallback(async () => {
+    setIsLoading(true)
     setError(null)
 
     try {
-      const ohlc = await fetchOHLC(timeframe)
+      // Fetch OHLC and cached analysis in parallel
+      const [ohlc] = await Promise.all([
+        fetchOHLC(timeframe, false),
+        fetchCachedAnalysis()
+      ])
       setOhlcData(ohlc)
-      
-      // Auto-start AI analysis if not already loaded
-      if (!aiAnalysis?.headline && !isAnalyzing) {
-        runAnalysis({})
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
       setIsLoading(false)
+    }
+  }, [timeframe, fetchOHLC, fetchCachedAnalysis])
+
+  // Force refresh - fetches fresh data from all sources
+  const forceRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    setError(null)
+
+    try {
+      // Fetch fresh OHLC data
+      const ohlc = await fetchOHLC(timeframe, true)
+      setOhlcData(ohlc)
+      
+      // Trigger fresh AI analysis
+      runAnalysis({})
+      setAnalysisFetchedAt(new Date().toISOString())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to refresh data')
+    } finally {
       setIsRefreshing(false)
     }
-  }, [timeframe, fetchOHLC, aiAnalysis, isAnalyzing, runAnalysis])
+  }, [timeframe, fetchOHLC, runAnalysis])
 
   // Initial load
   useEffect(() => {
     loadData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reload on timeframe change
+  // Reload OHLC on timeframe change
   useEffect(() => {
     if (!isLoading) {
-      fetchOHLC(timeframe).then(setOhlcData).catch(console.error)
+      fetchOHLC(timeframe, false).then(setOhlcData).catch(console.error)
     }
   }, [timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When streaming analysis completes, save to cachedAnalysis
+  useEffect(() => {
+    if (streamingAnalysis && !isAnalyzing && streamingAnalysis.quotes && streamingAnalysis.quotes.length > 0) {
+      console.log('[ChartTimeline] Streaming complete, saving to state:', streamingAnalysis.quotes?.length, 'quotes')
+      setCachedAnalysis(streamingAnalysis as AnalysisResponse)
+      setAnalysisFetchedAt(new Date().toISOString())
+    }
+  }, [streamingAnalysis, isAnalyzing])
 
   const priceChange = aiAnalysis?.priceChange
   const trendColor = priceChange?.trend === 'bullish' ? 'text-emerald-500' : priceChange?.trend === 'bearish' ? 'text-red-500' : 'text-amber-500'
@@ -300,29 +376,47 @@ export default function ChartTimelinePage() {
 
       {/* Controls */}
       <div className="w-full border-b border-foreground/10 py-3 bg-muted/10">
-        <div className="max-w-7xl mx-auto px-4 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 flex justify-between items-center flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <TimeframeSelector value={timeframe} onChange={setTimeframe} />
             <span className="text-xs text-muted-foreground">
               {ohlcData.length} candles • {aiEvents.length} Zitate
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          
+          <div className="flex items-center gap-3">
+            {/* Cache Status */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {isCached && (
+                <span className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 text-emerald-500 rounded">
+                  <Database className="w-3 h-3" />
+                  Cached
+                </span>
+              )}
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                OHLC: {formatRelativeTime(ohlcFetchedAt)}
+              </span>
+              {analysisFetchedAt && (
+                <span className="flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  Analyse: {formatRelativeTime(analysisFetchedAt)}
+                </span>
+              )}
+            </div>
+            
+            {/* Force Refresh Button */}
             <button
-              onClick={() => runAnalysis({})}
-              disabled={isAnalyzing}
+              onClick={forceRefresh}
+              disabled={isRefreshing || isAnalyzing}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded border transition-all
-                bg-amber-500/20 border-amber-500/50 text-amber-500 hover:bg-amber-500/30 disabled:opacity-50`}
+                ${isRefreshing || isAnalyzing 
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-500/70' 
+                  : 'border-amber-500/50 bg-amber-500/20 text-amber-500 hover:bg-amber-500/30'
+                } disabled:cursor-not-allowed`}
             >
-              <Sparkles className={`w-3 h-3 ${isAnalyzing ? 'animate-pulse' : ''}`} />
-              {isAnalyzing ? 'Analysiere...' : 'Neu analysieren'}
-            </button>
-            <button
-              onClick={() => loadData(true)}
-              disabled={isRefreshing}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs rounded border border-foreground/20 hover:bg-muted/50 disabled:opacity-50 transition-all"
-            >
-              <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${(isRefreshing || isAnalyzing) ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Lädt...' : isAnalyzing ? 'Analysiere...' : 'Neu laden'}
             </button>
           </div>
         </div>
@@ -432,6 +526,25 @@ export default function ChartTimelinePage() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* No Analysis Prompt */}
+      {!aiAnalysis && !isAnalyzing && !isLoading && (
+        <div className="max-w-7xl mx-auto px-4 pb-8">
+          <div className="p-6 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/5 text-center">
+            <Sparkles className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+            <h3 className="font-medium mb-2">Keine Analyse verfügbar</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Klicke auf „Neu laden" um eine frische AI-Analyse zu generieren.
+            </p>
+            <button
+              onClick={forceRefresh}
+              className="px-4 py-2 text-sm rounded bg-amber-500/20 text-amber-500 border border-amber-500/50 hover:bg-amber-500/30 transition-all"
+            >
+              Analyse starten
+            </button>
           </div>
         </div>
       )}

@@ -30,6 +30,7 @@ import {
 } from './components'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedWidget } from '@/app/test-fg/components'
+import { ChartTimelineWidget } from '@/app/chart-timeline/components'
 import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats, UnifiedNewspaperData } from './lib/types'
@@ -386,9 +387,18 @@ export default function NewspaperPage() {
           </div>
         </div>
 
+        {/* Chart Timeline Section */}
+        {dayRange === 1 && !isLoading && (
+          <section className="border-t border-primary/10 mt-8 bg-card/20 relative z-10">
+            <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <ChartTimelineWidget autoStart />
+            </div>
+          </section>
+        )}
+
         {/* Older Editions Section */}
         {dayRange === 1 && !isLoading && (
-          <section className="border-t-2 border-primary/20 mt-12 bg-card/30 relative z-10">
+          <section className="border-t-2 border-primary/20 mt-4 bg-card/30 relative z-10">
             <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
               {/* Section Header */}
               <div className="text-center mb-12">
