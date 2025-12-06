@@ -279,14 +279,38 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
   return { text: lines.join('\n'), summary }
 }
 
-// Format chat for AI
+// Format chat for AI - GROUPED BY DAY so model sees full timeline
 function formatChatContext(messages: ChatMessage[]): string {
   const lines: string[] = []
-  lines.push(`## Chat-Nachrichten (${messages.length}):`)
+  lines.push(`## Chat-Nachrichten (${messages.length} total):`)
+  lines.push('')
   
+  // Group messages by day
+  const messagesByDay = new Map<string, ChatMessage[]>()
   for (const msg of messages) {
-    const text = msg.text.length > 300 ? msg.text.slice(0, 300) + '...' : msg.text
-    lines.push(`[${msg.time}] @${msg.username}: ${text}`)
+    const day = new Date(msg.time).toISOString().split('T')[0]
+    if (!messagesByDay.has(day)) messagesByDay.set(day, [])
+    messagesByDay.get(day)!.push(msg)
+  }
+  
+  // Sort days chronologically
+  const sortedDays = Array.from(messagesByDay.keys()).sort()
+  
+  for (const day of sortedDays) {
+    const dayMessages = messagesByDay.get(day)!
+    const dayFormatted = new Date(day).toLocaleDateString('de-DE', { 
+      weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' 
+    })
+    
+    lines.push(`### ${dayFormatted} (${dayMessages.length} Nachrichten):`)
+    lines.push('')
+    
+    for (const msg of dayMessages) {
+      const text = msg.text.length > 300 ? msg.text.slice(0, 300) + '...' : msg.text
+      const time = new Date(msg.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      lines.push(`[${time}] @${msg.username}: ${text}`)
+    }
+    lines.push('')  // Empty line between days
   }
   
   return lines.join('\n')
@@ -296,34 +320,46 @@ const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Finde die besten PREIS-VORHE
 
 ## ZIEL: Finde 12-18 QUALITÄTS-Zitate die auf einem BTC-Chart gut aussehen
 
-### WICHTIG: ZEITLICHE VERTEILUNG
-- Verteile Zitate GLEICHMÄSSIG über die letzten 7 Tage
-- Mindestens 1-2 Zitate pro Tag wenn möglich
-- HEUTE sollte mindestens 2-3 Zitate haben (aktuelle Relevanz!)
-- Vermeide Cluster: Keine 3+ Zitate innerhalb von 2 Stunden
+## ⚠️ KRITISCH: ZEITLICHE VERTEILUNG ÜBER 7 TAGE ⚠️
 
-### QUALITÄT > QUANTITÄT
+NICHT NUR NEUESTE NACHRICHTEN! Du MUSST Zitate aus ALLEN 7 TAGEN wählen!
+
+### PFLICHT-VERTEILUNG:
+- Tag 1-2 (vor 5-7 Tagen): Mindestens 2-3 Zitate
+- Tag 3-4 (vor 3-5 Tagen): Mindestens 2-3 Zitate  
+- Tag 5-6 (vor 1-3 Tagen): Mindestens 3-4 Zitate
+- Tag 7 (heute): Mindestens 2-3 Zitate
+
+### ANTI-CLUSTERING REGEL:
+- NIEMALS mehr als 2 Zitate innerhalb von 4 Stunden
+- Verteile Zitate über den GESAMTEN Chart-Zeitraum
+- Ältere Zitate sind GENAUSO WICHTIG wie neue!
+
+### WARUM DAS WICHTIG IST:
+Der Chart zeigt 7 Tage - wenn alle Zitate rechts am neuesten Ende clustern, sieht der Chart unausgewogen aus. Wir wollen eine schöne VISUELLE VERTEILUNG über den gesamten Chart!
+
+## QUALITÄT > QUANTITÄT
 - Lieber 12 starke Zitate als 18 schwache
 - BESTE Zitate: Klare Preis-Predictions die man verifizieren kann
 - Beispiel GUTES Zitat: "Long bei 89k, Ziel 95k" (konkret, verifizierbar)
 - Beispiel SCHLECHTES Zitat: "Interessant..." (vage, langweilig)
 
-### PRIORITÄT 1: Echte Predictions (pump_call, dump_call, top_call, bottom_call)
+## PRIORITÄT 1: Echte Predictions (pump_call, dump_call, top_call, bottom_call)
 - "Jetzt Long!" / "Short here!" / "Das ist der Boden" / "Top ist drin"
 - Preisprognosen: "100k kommt" / "Wir sehen 80k"
 → Setze wasCorrect=true/false basierend auf dem tatsächlichen Preisverlauf!
 
-### PRIORITÄT 2: Starke Reaktionen (fomo, panic, diamond_hands)
+## PRIORITÄT 2: Starke Reaktionen (fomo, panic, diamond_hands)
 - Extreme FOMO: "ALL IN JETZT!" / "Warum hab ich nicht gekauft?!"
 - Echte Panik: "Alles verkauft" / "RIP"
 - Diamond Hands in kritischen Momenten
 
-### PRIORITÄT 3: Gute Analysen (analysis, reversal)
+## PRIORITÄT 3: Gute Analysen (analysis, reversal)
 - Nur wenn sie KONKRET sind und sich auf Preis beziehen
 
 ## FORMAT für jedes Zitat:
 - quote: MAX 50 ZEICHEN! Nur der Kern. Kürze radikal.
-- timestamp: Exakt aus dem Chat (ISO format)
+- timestamp: Exakt aus dem Chat (ISO format) - NUTZE TIMESTAMPS AUS DER VOLLEN WOCHE!
 - priceAtQuote: BTC-Preis zu dem Zeitpunkt (aus Preis-Timeline schätzen)
 - wasCorrect: Bei Predictions IMMER setzen (true/false)
 - priceContext: Passende Kategorie wählen
@@ -435,14 +471,13 @@ export async function POST(request: NextRequest) {
       lastCandle: ohlcLast ? new Date(ohlcLast.timestamp).toISOString() : null,
     })
     
-    // Fetch chat messages
+    // Fetch ALL chat messages from the 7-day range
     const { data: messages, error, count } = await supabase
       .from('tv_chat_messages')
       .select('id, username, text, time, user_pic', { count: 'exact' })
       .gte('time', sevenDaysAgo.toISOString())
       .lte('time', now.toISOString())
-      .order('time', { ascending: false })
-      .limit(800)
+      .order('time', { ascending: true })  // Chronological order
     
     if (error) {
       console.error('[ANALYZE] Supabase error:', error)
@@ -452,12 +487,26 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    // Log message date range
-    const sortedMessages = [...(messages || [])].sort((a, b) => 
-      new Date(b.time).getTime() - new Date(a.time).getTime()
-    )
-    const newestMsg = sortedMessages[0]
-    const oldestMsg = sortedMessages[sortedMessages.length - 1]
+    if (!messages || messages.length === 0) {
+      console.error('[ANALYZE] No messages found in date range')
+      return new Response(JSON.stringify({ error: 'No messages found' }), { 
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+    
+    // Group messages by day for logging
+    const dayMs = 24 * 60 * 60 * 1000
+    const messagesByDay = new Map<string, number>()
+    for (const msg of messages) {
+      const day = new Date(msg.time).toISOString().split('T')[0]
+      messagesByDay.set(day, (messagesByDay.get(day) || 0) + 1)
+    }
+    console.log('[ANALYZE] Messages per day:', Object.fromEntries(messagesByDay))
+    
+    const sortedMessages = messages as ChatMessage[]  // Already sorted chronologically
+    const oldestMsg = sortedMessages[0]
+    const newestMsg = sortedMessages[sortedMessages.length - 1]
     
     console.log('[ANALYZE] Chat messages:', {
       fetched: messages?.length || 0,
@@ -475,7 +524,7 @@ export async function POST(request: NextRequest) {
     }
     
     const { text: priceContext, summary: priceSummary } = formatPriceContext(ohlcData)
-    const chatContext = formatChatContext(messages as ChatMessage[])
+    const chatContext = formatChatContext(sortedMessages)  // Sorted chronologically for AI
     const fullContext = `${priceContext}\n\n${chatContext}`
     
     // Log price data summary

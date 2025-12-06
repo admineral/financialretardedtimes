@@ -133,10 +133,25 @@ function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OH
 export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = false, minLineLength = 0.20 }: ChartJSCandlestickProps) {
   const chartRef = useRef<ChartJS>(null)
   const [isMounted, setIsMounted] = useState(false)
+  const hasInitialZoom = useRef(false)
 
   useEffect(() => {
     setIsMounted(true)
   }, [])
+
+  // Set default zoom 2 steps out so all text boxes are visible (only once on initial load)
+  useEffect(() => {
+    if (isMounted && chartRef.current && ohlcData.length > 0 && !hasInitialZoom.current) {
+      // Wait for chart to fully render, then zoom out 2 steps (0.8 * 0.8 = 0.64)
+      const timer = setTimeout(() => {
+        if (chartRef.current) {
+          chartRef.current.zoom(0.64)
+          hasInitialZoom.current = true
+        }
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [isMounted, ohlcData.length])
 
   // Zoom controls
   const resetZoom = () => {
@@ -181,6 +196,16 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         yAxisID: 'y',  // Bind to left axis
       }]
     }
+  }, [ohlcData])
+  
+  // Calculate price range for syncing axes
+  const priceRange = useMemo(() => {
+    if (ohlcData.length === 0) return { min: 0, max: 100000 }
+    const prices = ohlcData.flatMap(c => [c.high, c.low])
+    const min = Math.min(...prices)
+    const max = Math.max(...prices)
+    const padding = (max - min) * 0.05
+    return { min: min - padding, max: max + padding }
   }, [ohlcData])
 
   // Create annotations from events
@@ -414,6 +439,8 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       },
       y: {
         position: 'left' as const,
+        min: priceRange.min,
+        max: priceRange.max,
         grid: {
           color: '#1f1f23',
           drawBorder: false,
@@ -426,6 +453,8 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       },
       y2: {
         position: 'right' as const,
+        min: priceRange.min,
+        max: priceRange.max,
         grid: {
           drawOnChartArea: false,  // Don't draw grid lines from right axis
           drawBorder: false,
@@ -434,15 +463,6 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
           color: '#6b7280',
           font: { size: 10, family: 'ui-monospace' },
           callback: (value: string | number) => Number(value).toLocaleString(),
-        },
-        // Sync with y axis
-        afterBuildTicks: (axis: any) => {
-          const yAxis = axis.chart.scales.y
-          if (yAxis) {
-            axis.min = yAxis.min
-            axis.max = yAxis.max
-            axis.ticks = yAxis.ticks
-          }
         },
       },
     },
@@ -506,7 +526,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         },
       },
     },
-  }), [annotations, timeframe, disableZoom])
+  }), [annotations, timeframe, disableZoom, priceRange])
 
   if (!isMounted || ohlcData.length === 0) {
     return (

@@ -46,8 +46,8 @@ function isCacheValid(updatedAt: string, ttlMinutes: number = CACHE_TTL_MINUTES)
 function getTimeframeParams(timeframe: string): { interval: string; limit: number } {
   switch (timeframe) {
     case '15m':
-      // 15-minute candles, ~7 days = 672 candles
-      return { interval: '15m', limit: 672 }
+      // 15-minute candles, ~9 days = 864 candles (extra 2 days for zoomed out view)
+      return { interval: '15m', limit: 864 }
     case '1H':
       // 1-hour candles, ~14 days = 336 candles
       return { interval: '1h', limit: 336 }
