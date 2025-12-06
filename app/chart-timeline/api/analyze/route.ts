@@ -47,7 +47,7 @@ const AnalysisResponseSchema = z.object({
     changePercent: z.number(),
     trend: z.enum(['bullish', 'bearish', 'sideways'])
   }),
-  quotes: z.array(ChartQuoteSchema).min(6).max(12), // 6-12 quality quotes
+  quotes: z.array(ChartQuoteSchema).min(6).max(20), // 6-20 quality quotes
   bestCall: z.object({
     username: z.string(),
     quote: z.string().max(60),
@@ -57,6 +57,12 @@ const AnalysisResponseSchema = z.object({
     username: z.string(),
     quote: z.string().max(60),
     context: z.string().max(80)
+  }).optional(),
+  // Metadata about data sent to AI
+  dataRange: z.object({
+    messagesFrom: z.string(), // ISO date of oldest message
+    messagesTo: z.string(),   // ISO date of newest message
+    messageCount: z.number(),
   }).optional()
 })
 
@@ -79,23 +85,24 @@ interface ChatMessage {
 }
 
 // Fetch OHLC data from cache or Binance
+// Uses 15m timeframe to match chart display (7 days)
 async function fetchOHLCData(supabase: Awaited<ReturnType<typeof createClient>>): Promise<OHLCData[]> {
   try {
-    // First try to get from cache (1H timeframe for good balance of detail/range)
+    // Use 15m timeframe to match chart display (7 days range)
     const { data: cached } = await supabase
       .from('chart_timeline_ohlc_cache')
       .select('candles')
-      .eq('timeframe', '1H')
+      .eq('timeframe', '15m')
       .single()
     
     if (cached?.candles && Array.isArray(cached.candles) && cached.candles.length > 0) {
-      console.log(`[ANALYZE] Using cached OHLC data: ${cached.candles.length} candles`)
+      console.log(`[ANALYZE] Using cached 15m OHLC data: ${cached.candles.length} candles`)
       return cached.candles as OHLCData[]
     }
     
-    // Fallback: fetch from Binance (1H candles, 7 days = 168 candles)
-    console.log('[ANALYZE] No cache, fetching from Binance...')
-    const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=168'
+    // Fallback: fetch from Binance (15m candles, 7 days = 672 candles)
+    console.log('[ANALYZE] No 15m cache, fetching from Binance...')
+    const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=672'
     const response = await fetch(url, {
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
@@ -118,33 +125,60 @@ async function fetchOHLCData(supabase: Awaited<ReturnType<typeof createClient>>)
   }
 }
 
-// Downsample OHLC data to max N points (aggregating OHLC properly)
-const MAX_PRICE_POINTS = 20
-
-function downsampleOHLC(data: OHLCData[], maxPoints: number = MAX_PRICE_POINTS): OHLCData[] {
-  if (data.length <= maxPoints) return data
+// Aggregate candles into larger timeframes
+function aggregateCandles(data: OHLCData[], intervalMs: number): OHLCData[] {
+  if (data.length === 0) return []
   
-  const chunkSize = Math.ceil(data.length / maxPoints)
   const result: OHLCData[] = []
+  let currentBucket: OHLCData[] = []
+  let bucketStart = Math.floor(data[0].timestamp / intervalMs) * intervalMs
   
-  for (let i = 0; i < data.length; i += chunkSize) {
-    const chunk = data.slice(i, Math.min(i + chunkSize, data.length))
-    if (chunk.length === 0) continue
+  for (const candle of data) {
+    const candleBucket = Math.floor(candle.timestamp / intervalMs) * intervalMs
     
-    // Aggregate: first open, max high, min low, last close
+    if (candleBucket !== bucketStart && currentBucket.length > 0) {
+      // Aggregate current bucket
+      result.push({
+        timestamp: bucketStart,
+        open: currentBucket[0].open,
+        high: Math.max(...currentBucket.map(c => c.high)),
+        low: Math.min(...currentBucket.map(c => c.low)),
+        close: currentBucket[currentBucket.length - 1].close
+      })
+      currentBucket = []
+      bucketStart = candleBucket
+    }
+    currentBucket.push(candle)
+  }
+  
+  // Don't forget last bucket
+  if (currentBucket.length > 0) {
     result.push({
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map(c => c.high)),
-      low: Math.min(...chunk.map(c => c.low)),
-      close: chunk[chunk.length - 1].close
+      timestamp: bucketStart,
+      open: currentBucket[0].open,
+      high: Math.max(...currentBucket.map(c => c.high)),
+      low: Math.min(...currentBucket.map(c => c.low)),
+      close: currentBucket[currentBucket.length - 1].close
     })
   }
   
   return result
 }
 
-// Format price data for AI (with downsampling)
+// Group candles by day
+function groupByDay(data: OHLCData[]): Map<string, OHLCData[]> {
+  const groups = new Map<string, OHLCData[]>()
+  
+  for (const candle of data) {
+    const date = new Date(candle.timestamp).toISOString().split('T')[0]
+    if (!groups.has(date)) groups.set(date, [])
+    groups.get(date)!.push(candle)
+  }
+  
+  return groups
+}
+
+// Format price data for AI with structured multi-level detail
 function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: object } {
   if (ohlcData.length === 0) {
     return { 
@@ -153,30 +187,82 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
     }
   }
   
-  // Downsample to max 20 points
-  const sampled = downsampleOHLC(ohlcData, MAX_PRICE_POINTS)
+  const lines: string[] = []
+  const now = new Date()
+  const todayStr = now.toISOString().split('T')[0]
   
-  // Calculate summary stats from FULL data
+  // Overall stats
   const firstPrice = ohlcData[0].open
   const lastPrice = ohlcData[ohlcData.length - 1].close
   const change = ((lastPrice - firstPrice) / firstPrice * 100).toFixed(2)
   const high = Math.max(...ohlcData.map(c => c.high))
   const low = Math.min(...ohlcData.map(c => c.low))
-  
   const firstDate = new Date(ohlcData[0].timestamp)
   const lastDate = new Date(ohlcData[ohlcData.length - 1].timestamp)
   
-  // Calculate effective granularity of sampled data
-  const sampledGranularityMs = sampled.length > 1 
-    ? (sampled[sampled.length - 1].timestamp - sampled[0].timestamp) / (sampled.length - 1)
-    : 0
-  const sampledGranularityHours = Math.round(sampledGranularityMs / (1000 * 60 * 60))
+  lines.push(`## BTC Preisentwicklung (7 Tage)`)
+  lines.push(`Zeitraum: ${firstDate.toLocaleDateString('de-DE')} - ${lastDate.toLocaleDateString('de-DE')}`)
+  lines.push(`Start: $${firstPrice.toFixed(0)} | Aktuell: $${lastPrice.toFixed(0)} | Änderung: ${change}%`)
+  lines.push(`7-Tage-Hoch: $${high.toFixed(0)} | 7-Tage-Tief: $${low.toFixed(0)}`)
+  lines.push('')
+  
+  // SECTION 1: Daily summaries (open, high, low, close for each day)
+  lines.push(`## Tägliche Übersicht:`)
+  const dailyGroups = groupByDay(ohlcData)
+  const sortedDays = Array.from(dailyGroups.keys()).sort()
+  
+  for (const day of sortedDays) {
+    const dayCandles = dailyGroups.get(day)!
+    const dayOpen = dayCandles[0].open
+    const dayClose = dayCandles[dayCandles.length - 1].close
+    const dayHigh = Math.max(...dayCandles.map(c => c.high))
+    const dayLow = Math.min(...dayCandles.map(c => c.low))
+    const dayChange = ((dayClose - dayOpen) / dayOpen * 100).toFixed(1)
+    const emoji = dayClose >= dayOpen ? '🟢' : '🔴'
+    const isToday = day === todayStr ? ' (HEUTE)' : ''
+    
+    const dayFormatted = new Date(day).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })
+    lines.push(`${dayFormatted}${isToday}: Open $${dayOpen.toFixed(0)} → Close $${dayClose.toFixed(0)} ${emoji} ${dayChange}% | H: $${dayHigh.toFixed(0)} L: $${dayLow.toFixed(0)}`)
+  }
+  lines.push('')
+  
+  // SECTION 2: 4H candles for full week (42 candles for 7 days)
+  const fourHourMs = 4 * 60 * 60 * 1000
+  const fourHourCandles = aggregateCandles(ohlcData, fourHourMs)
+  
+  lines.push(`## 4-Stunden-Kerzen (${fourHourCandles.length} Kerzen):`)
+  for (const candle of fourHourCandles) {
+    const date = new Date(candle.timestamp)
+    const dateStr = date.toLocaleString('de-DE', { 
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+    })
+    const candleChange = ((candle.close - candle.open) / candle.open * 100).toFixed(1)
+    const emoji = candle.close >= candle.open ? '🟢' : '🔴'
+    lines.push(`${dateStr}: $${candle.open.toFixed(0)}→$${candle.close.toFixed(0)} ${emoji} ${candleChange}% (H:$${candle.high.toFixed(0)} L:$${candle.low.toFixed(0)})`)
+  }
+  lines.push('')
+  
+  // SECTION 3: Detailed hourly for TODAY
+  const todayCandles = dailyGroups.get(todayStr) || []
+  if (todayCandles.length > 0) {
+    const hourMs = 60 * 60 * 1000
+    const hourlyToday = aggregateCandles(todayCandles, hourMs)
+    
+    lines.push(`## HEUTE Detail (${hourlyToday.length} Stunden):`)
+    for (const candle of hourlyToday) {
+      const time = new Date(candle.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      const candleChange = ((candle.close - candle.open) / candle.open * 100).toFixed(2)
+      const emoji = candle.close >= candle.open ? '🟢' : '🔴'
+      lines.push(`${time}: $${candle.open.toFixed(0)}→$${candle.close.toFixed(0)} ${emoji} ${candleChange}%`)
+    }
+  }
   
   // Build summary for logging
   const summary = {
     originalCandles: ohlcData.length,
-    sentToAI: sampled.length,
-    granularity: `~${sampledGranularityHours}h per point`,
+    dailySummaries: sortedDays.length,
+    fourHourCandles: fourHourCandles.length,
+    todayHourlyCandles: todayCandles.length > 0 ? aggregateCandles(todayCandles, 60 * 60 * 1000).length : 0,
     dateRange: {
       from: firstDate.toISOString(),
       to: lastDate.toISOString()
@@ -188,25 +274,6 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
       low,
       changePercent: parseFloat(change)
     }
-  }
-  
-  // Build text for AI
-  const lines: string[] = []
-  lines.push(`## BTC Preisentwicklung`)
-  lines.push(`Zeitraum: ${firstDate.toLocaleDateString('de-DE')} - ${lastDate.toLocaleDateString('de-DE')}`)
-  lines.push(`Start: $${firstPrice.toLocaleString()} | Ende: $${lastPrice.toLocaleString()} | Änderung: ${change}%`)
-  lines.push(`Hoch: $${high.toLocaleString()} | Tief: $${low.toLocaleString()}`)
-  lines.push('')
-  
-  // Key price points (downsampled)
-  lines.push(`## Preis-Timeline (${sampled.length} Datenpunkte):`)
-  for (const candle of sampled) {
-    const date = new Date(candle.timestamp).toLocaleString('de-DE', { 
-      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
-    })
-    const candleChange = ((candle.close - candle.open) / candle.open * 100).toFixed(1)
-    const emoji = candle.close >= candle.open ? '🟢' : '🔴'
-    lines.push(`${date}: $${candle.close.toFixed(0)} ${emoji} ${candleChange}%`)
   }
   
   return { text: lines.join('\n'), summary }
@@ -227,22 +294,32 @@ function formatChatContext(messages: ChatMessage[]): string {
 
 const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Finde die besten PREIS-VORHERSAGEN aus dem Chat.
 
-## ZIEL: Finde 8-12 Zitate die auf einem BTC-Chart gut aussehen
+## ZIEL: Finde 12-18 QUALITÄTS-Zitate die auf einem BTC-Chart gut aussehen
+
+### WICHTIG: ZEITLICHE VERTEILUNG
+- Verteile Zitate GLEICHMÄSSIG über die letzten 7 Tage
+- Mindestens 1-2 Zitate pro Tag wenn möglich
+- HEUTE sollte mindestens 2-3 Zitate haben (aktuelle Relevanz!)
+- Vermeide Cluster: Keine 3+ Zitate innerhalb von 2 Stunden
+
+### QUALITÄT > QUANTITÄT
+- Lieber 12 starke Zitate als 18 schwache
+- BESTE Zitate: Klare Preis-Predictions die man verifizieren kann
+- Beispiel GUTES Zitat: "Long bei 89k, Ziel 95k" (konkret, verifizierbar)
+- Beispiel SCHLECHTES Zitat: "Interessant..." (vage, langweilig)
 
 ### PRIORITÄT 1: Echte Predictions (pump_call, dump_call, top_call, bottom_call)
 - "Jetzt Long!" / "Short here!" / "Das ist der Boden" / "Top ist drin"
 - Preisprognosen: "100k kommt" / "Wir sehen 80k"
-- Timing-Calls: "Heute noch pump" / "Morgen dump"
 → Setze wasCorrect=true/false basierend auf dem tatsächlichen Preisverlauf!
 
-### PRIORITÄT 2: Reaktionen auf Moves (fomo, panic, diamond_hands)
-- FOMO während Pump: "Warum bin ich nicht drin?!" / "YOLO ALL IN"
-- Panik während Dump: "RIP Portfolio" / "Es ist vorbei"
-- Diamond Hands: "HODL!" / "Ich verkaufe nichts"
+### PRIORITÄT 2: Starke Reaktionen (fomo, panic, diamond_hands)
+- Extreme FOMO: "ALL IN JETZT!" / "Warum hab ich nicht gekauft?!"
+- Echte Panik: "Alles verkauft" / "RIP"
+- Diamond Hands in kritischen Momenten
 
-### PRIORITÄT 3: Analysen (analysis, reversal, sideways)
-- TA-Calls: "Breakout incoming" / "Support hält"
-- Reversal: "Hier dreht's" / "Trendwende"
+### PRIORITÄT 3: Gute Analysen (analysis, reversal)
+- Nur wenn sie KONKRET sind und sich auf Preis beziehen
 
 ## FORMAT für jedes Zitat:
 - quote: MAX 50 ZEICHEN! Nur der Kern. Kürze radikal.
@@ -252,14 +329,7 @@ const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Finde die besten PREIS-VORHE
 - priceContext: Passende Kategorie wählen
 
 ## HEADLINE
-Kurz und knackig, max 60 Zeichen. Beispiele:
-- "BTC -10%: Panik im Chat"
-- "$100k Ausbruch - Bullen feiern"
-- "Seitwärts-Qual: Trader verlieren Geduld"
-
-## Best/Worst Call
-- bestCall: Die Prediction die am besten gealtert ist
-- worstCall: Die Prediction die komplett daneben lag
+Kurz und knackig, max 60 Zeichen.
 
 NUR JSON ausgeben, keine Erklärungen.`
 
@@ -294,7 +364,8 @@ export async function GET(request: NextRequest) {
       analysis: cached.analysis_data as AnalysisResponse,
       fetchedAt: cached.updated_at,
       quoteCount: cached.quote_count,
-      messageCount: cached.message_count
+      messageCount: cached.message_count,
+      dataRange: cached.data_range || null  // { messagesFrom, messagesTo }
     })
     
   } catch (error) {
@@ -356,7 +427,13 @@ export async function POST(request: NextRequest) {
     
     // Fetch OHLC data (from cache or Binance)
     const ohlcData = await fetchOHLCData(supabase)
-    console.log('[ANALYZE] OHLC data:', { count: ohlcData.length })
+    const ohlcFirst = ohlcData[0]
+    const ohlcLast = ohlcData[ohlcData.length - 1]
+    console.log('[ANALYZE] OHLC data:', {
+      count: ohlcData.length,
+      firstCandle: ohlcFirst ? new Date(ohlcFirst.timestamp).toISOString() : null,
+      lastCandle: ohlcLast ? new Date(ohlcLast.timestamp).toISOString() : null,
+    })
     
     // Fetch chat messages
     const { data: messages, error, count } = await supabase
@@ -375,9 +452,18 @@ export async function POST(request: NextRequest) {
       })
     }
     
+    // Log message date range
+    const sortedMessages = [...(messages || [])].sort((a, b) => 
+      new Date(b.time).getTime() - new Date(a.time).getTime()
+    )
+    const newestMsg = sortedMessages[0]
+    const oldestMsg = sortedMessages[sortedMessages.length - 1]
+    
     console.log('[ANALYZE] Chat messages:', {
       fetched: messages?.length || 0,
       totalInRange: count,
+      newest: newestMsg ? { time: newestMsg.time, user: newestMsg.username, text: newestMsg.text?.slice(0, 50) } : null,
+      oldest: oldestMsg ? { time: oldestMsg.time, user: oldestMsg.username } : null,
     })
     
     if (!messages || messages.length === 0) {
@@ -395,6 +481,14 @@ export async function POST(request: NextRequest) {
     // Log price data summary
     console.log('[ANALYZE] Price data sent to AI:', JSON.stringify(priceSummary, null, 2))
     console.log('[ANALYZE] Sending to OpenAI...')
+    
+    // Prepare data range info
+    const dataRange = {
+      messagesFrom: oldestMsg?.time || sevenDaysAgo.toISOString(),
+      messagesTo: newestMsg?.time || now.toISOString(),
+      messageCount: messages?.length || 0
+    }
+    console.log('[ANALYZE] Data range being sent:', dataRange)
     
     // Use streamObject for streaming response
     const result = streamObject({
@@ -417,6 +511,7 @@ export async function POST(request: NextRequest) {
                 start_price: analysisData.priceChange?.startPrice,
                 end_price: analysisData.priceChange?.endPrice,
                 price_change_percent: analysisData.priceChange?.changePercent,
+                data_range: dataRange,  // Store the date range
               })
             
             if (insertError) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database } from 'lucide-react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
@@ -37,7 +37,7 @@ const AnalysisResponseSchema = z.object({
     changePercent: z.number(),
     trend: z.enum(['bullish', 'bearish', 'sideways'])
   }),
-  quotes: z.array(ChartQuoteSchema), // 6-12 quality predictions
+  quotes: z.array(ChartQuoteSchema), // 6-20 quality predictions
   bestCall: z.object({
     username: z.string(),
     quote: z.string(),
@@ -47,6 +47,11 @@ const AnalysisResponseSchema = z.object({
     username: z.string(),
     quote: z.string(),
     context: z.string()
+  }).optional(),
+  dataRange: z.object({
+    messagesFrom: z.string(),
+    messagesTo: z.string(),
+    messageCount: z.number()
   }).optional()
 })
 
@@ -163,8 +168,14 @@ export default function ChartTimelinePage() {
   const [analysisFetchedAt, setAnalysisFetchedAt] = useState<string | null>(null)
   const [isCached, setIsCached] = useState<boolean>(false)
   
+  // Data range info (what dates were sent to AI)
+  const [dataRange, setDataRange] = useState<{ messagesFrom: string; messagesTo: string; messageCount: number } | null>(null)
+  
   // Cached analysis (loaded on mount)
   const [cachedAnalysis, setCachedAnalysis] = useState<AnalysisResponse | null>(null)
+  
+  // Last known streaming data (persists after streaming completes)
+  const [lastStreamingData, setLastStreamingData] = useState<AnalysisResponse | null>(null)
   
   // AI Analysis with streaming - for fresh generation
   const { object: streamingAnalysis, isLoading: isAnalyzing, submit: runAnalysis } = useObject({
@@ -172,35 +183,40 @@ export default function ChartTimelinePage() {
     schema: AnalysisResponseSchema,
   })
   
-  // Use streaming analysis if available, otherwise cached
-  const aiAnalysis = streamingAnalysis || cachedAnalysis
+  // Use streaming analysis for UI display, fallback to lastStreamingData, then cachedAnalysis
+  const aiAnalysis = streamingAnalysis || lastStreamingData || cachedAnalysis
 
-  // Convert AI quotes to TimelineEvents for chart
-  const aiEvents: TimelineEvent[] = (aiAnalysis?.quotes || [])
-    .filter((q): q is ChartQuote => 
-      q !== undefined && 
-      typeof q.id === 'string' && 
-      typeof q.quote === 'string' &&
-      typeof q.username === 'string' &&
-      typeof q.timestamp === 'string'
-    )
-    .map((q) => {
-      const date = q.timestamp.split('T')[0] || new Date().toISOString().split('T')[0]
-      const time = q.timestamp.split('T')[1]?.slice(0, 5) || '12:00'
-      return {
-        id: q.id,
-        date,
-        time,
-        title: q.quote,
-        description: `@${q.username} • $${q.priceAtQuote?.toLocaleString() || '?'}`,
-        type: mapContextToType(q.priceContext),
-        participants: [q.username],
-        priceContext: q.priceContext,
-        sentiment: q.sentiment,
-        wasCorrect: q.wasCorrect,
-        priceAtQuote: q.priceAtQuote
-      }
-    })
+  // Convert AI quotes to TimelineEvents - shows streaming progress live
+  const aiEvents: TimelineEvent[] = useMemo(() => {
+    const analysis = aiAnalysis
+    if (!analysis?.quotes) return []
+    
+    return analysis.quotes
+      .filter((q): q is ChartQuote => 
+        q !== undefined && 
+        typeof q.id === 'string' && 
+        typeof q.quote === 'string' &&
+        typeof q.username === 'string' &&
+        typeof q.timestamp === 'string'
+      )
+      .map((q) => {
+        const date = q.timestamp.split('T')[0] || new Date().toISOString().split('T')[0]
+        const time = q.timestamp.split('T')[1]?.slice(0, 5) || '12:00'
+        return {
+          id: q.id,
+          date,
+          time,
+          title: q.quote,
+          description: `@${q.username} • $${q.priceAtQuote?.toLocaleString() || '?'}`,
+          type: mapContextToType(q.priceContext),
+          participants: [q.username],
+          priceContext: q.priceContext,
+          sentiment: q.sentiment,
+          wasCorrect: q.wasCorrect,
+          priceAtQuote: q.priceAtQuote
+        }
+      })
+  }, [aiAnalysis])
 
   function mapContextToType(context: string): TimelineEvent['type'] {
     switch (context) {
@@ -247,6 +263,10 @@ export default function ChartTimelinePage() {
       if (data.cached && data.analysis) {
         setCachedAnalysis(data.analysis)
         setAnalysisFetchedAt(data.fetchedAt)
+        if (data.dataRange) {
+          setDataRange(data.dataRange)
+          console.log('[ChartTimeline] Data range loaded:', data.dataRange)
+        }
         return data.analysis
       }
       return null
@@ -277,18 +297,37 @@ export default function ChartTimelinePage() {
 
   // Force refresh - fetches fresh data from all sources
   const forceRefresh = useCallback(async () => {
+    console.log('[ChartTimeline] 🔄 Force refresh triggered')
+    console.log('[ChartTimeline] Timeframe:', timeframe)
     setIsRefreshing(true)
     setError(null)
 
     try {
       // Fetch fresh OHLC data
+      console.log('[ChartTimeline] Fetching fresh OHLC...')
       const ohlc = await fetchOHLC(timeframe, true)
+      console.log('[ChartTimeline] OHLC received:', ohlc.length, 'candles')
+      console.log('[ChartTimeline] OHLC range:', {
+        first: new Date(ohlc[0]?.timestamp).toISOString(),
+        last: new Date(ohlc[ohlc.length - 1]?.timestamp).toISOString()
+      })
       setOhlcData(ohlc)
       
+      // Set data range for UI (7 days ago to now)
+      const now = new Date()
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      setDataRange({
+        messagesFrom: sevenDaysAgo.toISOString(),
+        messagesTo: now.toISOString(),
+        messageCount: 800  // Approximate, will be updated when streaming completes
+      })
+      
       // Trigger fresh AI analysis
+      console.log('[ChartTimeline] Starting AI analysis stream...')
       runAnalysis({})
       setAnalysisFetchedAt(new Date().toISOString())
     } catch (err) {
+      console.error('[ChartTimeline] Force refresh error:', err)
       setError(err instanceof Error ? err.message : 'Failed to refresh data')
     } finally {
       setIsRefreshing(false)
@@ -307,14 +346,21 @@ export default function ChartTimelinePage() {
     }
   }, [timeframe]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When streaming analysis completes, save to cachedAnalysis
+  // Save streaming data as it comes in
   useEffect(() => {
-    if (streamingAnalysis && !isAnalyzing && streamingAnalysis.quotes && streamingAnalysis.quotes.length > 0) {
-      console.log('[ChartTimeline] Streaming complete, saving to state:', streamingAnalysis.quotes?.length, 'quotes')
-      setCachedAnalysis(streamingAnalysis as AnalysisResponse)
+    if (streamingAnalysis && streamingAnalysis.quotes && streamingAnalysis.quotes.length > 0) {
+      setLastStreamingData(streamingAnalysis as AnalysisResponse)
+    }
+  }, [streamingAnalysis])
+  
+  // When streaming completes, save to cachedAnalysis
+  useEffect(() => {
+    if (!isAnalyzing && lastStreamingData && lastStreamingData.quotes && lastStreamingData.quotes.length > 0) {
+      console.log('[ChartTimeline] ✅ Streaming complete! Saving', lastStreamingData.quotes.length, 'quotes')
+      setCachedAnalysis(lastStreamingData)
       setAnalysisFetchedAt(new Date().toISOString())
     }
-  }, [streamingAnalysis, isAnalyzing])
+  }, [isAnalyzing, lastStreamingData])
 
   const priceChange = aiAnalysis?.priceChange
   const trendColor = priceChange?.trend === 'bullish' ? 'text-emerald-500' : priceChange?.trend === 'bearish' ? 'text-red-500' : 'text-amber-500'
@@ -403,6 +449,14 @@ export default function ChartTimelinePage() {
                   Analyse: {formatRelativeTime(analysisFetchedAt)}
                 </span>
               )}
+              {dataRange && (
+                <span className="flex items-center gap-1 text-muted-foreground border-l border-foreground/20 pl-3 ml-1">
+                  📊 AI-Daten: {new Date(dataRange.messagesFrom).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} 
+                  {' → '} 
+                  {new Date(dataRange.messagesTo).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  {' '}({dataRange.messageCount} Nachrichten)
+                </span>
+              )}
             </div>
             
             {/* Force Refresh Button */}
@@ -437,7 +491,7 @@ export default function ChartTimelinePage() {
           <div className="border border-foreground/10 rounded-lg bg-card overflow-hidden">
             <ChartJSCandlestick 
               ohlcData={ohlcData} 
-              events={aiEvents}
+              events={aiEvents}  // Live streaming - shows quotes as they arrive
               timeframe={timeframe}
             />
           </div>

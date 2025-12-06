@@ -139,10 +139,10 @@ export async function GET(request: NextRequest) {
           fetchedAt: cached.updated_at,
           source: 'binance'
         }, {
-          headers: {
+      headers: {
             'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
           }
-        })
+    })
       }
       
       console.log(`[OHLC API] Cache miss or stale for ${timeframe}`)

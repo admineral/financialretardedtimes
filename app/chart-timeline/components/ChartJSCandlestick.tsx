@@ -16,6 +16,38 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 import 'chartjs-adapter-date-fns'
 import { typeConfig } from './QuoteCard'
 
+// Custom crosshair plugin - vertical line at cursor
+const crosshairPlugin = {
+  id: 'crosshair',
+  afterEvent: (chart: any, args: any) => {
+    const event = args.event
+    if (event.type === 'mousemove') {
+      chart._crosshairX = event.x
+      chart.draw()
+    } else if (event.type === 'mouseout') {
+      chart._crosshairX = null
+      chart.draw()
+    }
+  },
+  afterDraw: (chart: any) => {
+    if (chart._crosshairX) {
+      const ctx = chart.ctx
+      const x = chart._crosshairX
+      const yAxis = chart.scales.y
+      
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(x, yAxis.top)
+      ctx.lineTo(x, yAxis.bottom)
+      ctx.lineWidth = 1
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)'
+      ctx.setLineDash([3, 3])
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+}
+
 // Register Chart.js components
 ChartJS.register(
   CategoryScale,
@@ -27,7 +59,8 @@ ChartJS.register(
   CandlestickElement,
   OhlcElement,
   annotationPlugin,
-  zoomPlugin
+  zoomPlugin,
+  crosshairPlugin
 )
 
 interface OHLCData {
@@ -125,97 +158,165 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
   const annotations = useMemo(() => {
     const result: Record<string, any> = {}
     
-    // Calculate price range for offsets
-    const priceRange = ohlcData.length > 0 
-      ? Math.max(...ohlcData.map(c => c.high)) - Math.min(...ohlcData.map(c => c.low))
-      : 1000
+    // Calculate price bounds
+    const minPrice = ohlcData.length > 0 ? Math.min(...ohlcData.map(c => c.low)) : 80000
+    const maxPrice = ohlcData.length > 0 ? Math.max(...ohlcData.map(c => c.high)) : 100000
+    const priceRange = maxPrice - minPrice || 1000
     
-    // Time window for overlap detection - wider to catch visual overlaps
-    const overlapWindowMs = timeframe === '15m' ? 3600000 * 12 :  // 12 hours for 15m
-                            timeframe === '1H' ? 3600000 * 18 :   // 18 hours for 1H
-                            3600000 * 36                          // 36 hours for others
+    // Small horizontal offset (for slight angle)
+    const smallXOffset = timeframe === '15m' ? 3600000 * 0.5 :   // 30 min
+                        timeframe === '1H' ? 3600000 * 1 :       // 1 hour
+                        timeframe === '4H' ? 3600000 * 2 :       // 2 hours
+                        3600000 * 6                              // 6 hours
     
-    // Track occupied positions - x position, isAbove, and stack level
-    const occupiedSlots: { x: number; isAbove: boolean; stackLevel: number }[] = []
+    // Track placed labels to avoid overlap and balance distribution
+    interface PlacedLabel {
+      x: number
+      y: number
+      isAbove: boolean
+    }
+    const placedLabels: PlacedLabel[] = []
+    
+    // Time window for balancing above/below
+    const balanceTimeWindow = smallXOffset * 6  // ~3 hours for 15m
+    
+    // Overlap detection - more strict
+    const xOverlapThreshold = smallXOffset * 2.5
+    const yOverlapThreshold = priceRange * 0.055
+    
+    function hasOverlap(x: number, y: number): boolean {
+      return placedLabels.some(label => 
+        Math.abs(x - label.x) < xOverlapThreshold && 
+        Math.abs(y - label.y) < yOverlapThreshold
+      )
+    }
+    
+    // Count nearby labels above vs below
+    function getNearbyBalance(x: number): { above: number; below: number } {
+      const nearby = placedLabels.filter(l => Math.abs(l.x - x) < balanceTimeWindow)
+      return {
+        above: nearby.filter(l => l.isAbove).length,
+        below: nearby.filter(l => !l.isAbove).length
+      }
+    }
     
     events
       .filter(e => e.title && e.date && e.time)
-      .slice(0, 8) // Limit to avoid overcrowding
       .forEach((event, idx) => {
         const candle = findClosestCandle(event.date, event.time, ohlcData)
         if (!candle) return
 
         const config = typeConfig[event.priceContext as keyof typeof typeConfig] || typeConfig.analysis
-        const pricePoint = event.priceAtQuote || candle.close
         
-        // Find nearby events that would overlap
-        const nearbySlots = occupiedSlots.filter(slot => 
-          Math.abs(slot.x - candle.timestamp) < overlapWindowMs
-        )
+        // Base vertical offset - longer minimum line with randomness
+        const idHash = event.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+        const randomFactor = 0.12 + (idHash % 10) * 0.015  // 12% to 25.5% of range
+        const baseOffset = priceRange * randomFactor
         
-        // Alternate above/below by index, but check for overlaps
-        let isAbove = idx % 2 === 0
+        // Horizontal offset - vary to spread labels
+        const xPatterns = [1, -1, 0.6, -0.6, 1.3, -1.3, 0.3, -0.3]
+        const xMult = xPatterns[(idx + idHash) % xPatterns.length]
+        const labelX = candle.timestamp + (smallXOffset * xMult)
         
-        // Count how many nearby slots are in the same direction
-        const sameDirectionSlots = nearbySlots.filter(s => s.isAbove === isAbove)
-        const oppositeDirectionSlots = nearbySlots.filter(s => s.isAbove !== isAbove)
+        // Check balance of nearby labels
+        const balance = getNearbyBalance(candle.timestamp)
+        const totalNearby = balance.above + balance.below
         
-        // If same direction is more crowded, flip to opposite (if it's less crowded)
-        if (sameDirectionSlots.length > 0 && oppositeDirectionSlots.length < sameDirectionSlots.length) {
-          isAbove = !isAbove
+        // Room available (but we'll use this less aggressively)
+        const roomAbove = maxPrice - candle.high
+        const roomBelow = candle.low - minPrice
+        const minRoom = baseOffset * 0.3  // Very small minimum
+        
+        // PRIORITY 1: Balance nearby labels - this is most important
+        let isAbove: boolean
+        
+        if (totalNearby === 0) {
+          // First label in area - alternate by index
+          isAbove = idx % 2 === 0
+        } else if (balance.above > balance.below) {
+          // More above - put below if there's ANY room
+          isAbove = roomBelow < minRoom  // Only go above if literally no room below
+        } else if (balance.below > balance.above) {
+          // More below - put above if there's ANY room
+          isAbove = roomAbove >= minRoom  // Go above if any room
+        } else {
+          // Equal balance - alternate by index
+          isAbove = idx % 2 === 0
         }
         
-        // Recalculate slots in the chosen direction
-        const slotsInDirection = nearbySlots.filter(s => s.isAbove === isAbove)
-        const stackLevel = slotsInDirection.length
+        // PRIORITY 2: Only force direction if absolutely no room (very tight)
+        if (roomBelow < minRoom && roomAbove >= minRoom) {
+          isAbove = true
+        } else if (roomAbove < minRoom && roomBelow >= minRoom) {
+          isAbove = false
+        }
         
-        occupiedSlots.push({ x: candle.timestamp, isAbove, stackLevel })
+        // Calculate label Y position - relative to candle high/low
+        let labelY: number
+        let stackLevel = 0
         
-        const absLevel = stackLevel
+        do {
+          const stackOffset = priceRange * 0.05 * stackLevel
+          
+          if (isAbove) {
+            // Label above: start from candle HIGH
+            labelY = candle.high + baseOffset + stackOffset
+            // Make sure we don't go too far above
+            if (labelY > maxPrice + priceRange * 0.25) {
+              isAbove = false
+              stackLevel = 0
+              continue
+            }
+          } else {
+            // Label below: start from candle LOW
+            labelY = candle.low - baseOffset - stackOffset
+            // Make sure we don't go too far below - if so, force above
+            if (labelY < minPrice - priceRange * 0.1) {
+              isAbove = true
+              labelY = candle.high + baseOffset + stackOffset
+            }
+          }
+          
+          if (!hasOverlap(labelX, labelY)) break
+          
+          stackLevel++
+          // After a few stacks, try flipping
+          if (stackLevel === 2) {
+            isAbove = !isAbove
+            stackLevel = 0
+          }
+        } while (stackLevel < 4)
         
-        // Offset calculation - stack cards above/below candles
-        // minLineLength controls the base distance, stackOffset adds space for stacking
-        const baseOffset = priceRange * minLineLength
-        const stackOffset = priceRange * 0.15 * absLevel  // Gap between stacked cards
-        const totalOffset = baseOffset + stackOffset
-        const labelY = isAbove ? pricePoint + totalOffset : pricePoint - totalOffset
+        // Record position with direction
+        placedLabels.push({ x: labelX, y: labelY, isAbove })
         
-        // Horizontal offset - alternate left/right to avoid covering candles
-        // Calculate time span for offset (roughly 2-4 hours depending on timeframe)
-        const timeOffsetMs = timeframe === '15m' ? 3600000 * 2 :   // 2 hours
-                            timeframe === '1H' ? 3600000 * 4 :     // 4 hours
-                            timeframe === '4H' ? 3600000 * 8 :     // 8 hours
-                            3600000 * 12                           // 12 hours
-        
-        // Alternate left (-1) and right (+1), also vary by stack level
-        const xDirection = ((idx + absLevel) % 2 === 0) ? -1 : 1
-        const xOffset = timeOffsetMs * xDirection
-        const labelX = candle.timestamp + xOffset
+        // Dot position: HIGH of candle if label above, LOW if label below
+        const dotY = isAbove ? candle.high : candle.low
 
-        // Angled line annotation - from candle to label
+        // Line from dot (on candle) to label - dashed
         result[`line-${event.id}`] = {
           type: 'line',
           xMin: candle.timestamp,
           xMax: labelX,
-          yMin: pricePoint,
+          yMin: dotY,
           yMax: labelY,
           borderColor: config.dotColor,
           borderWidth: 1.5,
-          borderDash: [5, 5],
+          borderDash: [4, 4],
         }
 
-        // Point annotation at the price - glowing dot
+        // Point annotation at candle high/low
         result[`point-${event.id}`] = {
           type: 'point',
           xValue: candle.timestamp,
-          yValue: pricePoint,
-          radius: 6,
+          yValue: dotY,
+          radius: 5,
           backgroundColor: config.dotColor,
-          borderColor: 'rgba(0,0,0,0.6)',
-          borderWidth: 2,
+          borderColor: 'rgba(0,0,0,0.5)',
+          borderWidth: 1.5,
         }
 
-        // Label annotation (the quote card) - positioned with offset
+        // Label annotation (the quote card) with hover effects
         const truncatedQuote = event.title.length > 32 ? event.title.slice(0, 32) + '...' : event.title
         result[`label-${event.id}`] = {
           type: 'label',
@@ -238,6 +339,19 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
             `@${event.participants[0] || 'Anon'}`
           ],
           textAlign: 'left',
+          z: 10,  // Base z-index
+          enter: (ctx: any) => {
+            // Bring to front on hover - only z-index and border
+            ctx.element.options.z = 1000
+            ctx.element.options.borderWidth = 2
+            ctx.chart.draw()
+          },
+          leave: (ctx: any) => {
+            // Reset on leave
+            ctx.element.options.z = 10
+            ctx.element.options.borderWidth = 1
+            ctx.chart.draw()
+          },
         }
       })
 
@@ -287,50 +401,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         display: false,
       },
       tooltip: {
-        enabled: !disableZoom,  // Disable tooltip when zoom is disabled (embedded view)
-        backgroundColor: 'rgba(24, 24, 27, 0.98)',
-        borderColor: '#3f3f46',
-        borderWidth: 1,
-        titleColor: '#a1a1aa',
-        bodyColor: '#e4e4e7',
-        padding: 12,
-        cornerRadius: 8,
-        displayColors: false,
-        titleFont: {
-          size: 11,
-          family: 'ui-monospace',
-        },
-        bodyFont: {
-          size: 12,
-          family: 'ui-monospace',
-        },
-        callbacks: {
-          title: (context: any) => {
-            if (!context[0]?.raw) return ''
-            const timestamp = context[0].raw.x
-            return new Date(timestamp).toLocaleString('de-DE', {
-              day: '2-digit',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit'
-            })
-          },
-          label: (context: any) => {
-            const raw = context.raw
-            if (!raw || typeof raw.o === 'undefined') return ''
-            const { o, h, l, c } = raw
-            const change = ((c - o) / o * 100).toFixed(2)
-            const changeSign = c >= o ? '+' : ''
-            const changeColor = c >= o ? '🟢' : '🔴'
-            return [
-              `Open:  $${o?.toLocaleString()}`,
-              `High:  $${h?.toLocaleString()}`,
-              `Low:   $${l?.toLocaleString()}`,
-              `Close: $${c?.toLocaleString()}`,
-              `${changeColor} ${changeSign}${change}%`
-            ]
-          },
-        },
+        enabled: false,  // Disabled - using crosshair instead
       },
       annotation: {
         annotations,
