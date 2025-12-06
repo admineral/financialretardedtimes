@@ -86,7 +86,7 @@ type Timeframe = '15m' | '1H' | '4H' | '1D' | '1W'
 // Skeleton loader
 function ChartSkeleton() {
   return (
-    <div className="w-full h-[500px] bg-muted/20 rounded-lg animate-pulse flex items-center justify-center">
+    <div className="w-full h-[600px] bg-muted/20 rounded-lg animate-pulse flex items-center justify-center">
       <div className="text-muted-foreground text-sm">Chart lädt...</div>
     </div>
   )
@@ -488,7 +488,7 @@ export default function ChartTimelinePage() {
         ) : isLoading ? (
           <ChartSkeleton />
         ) : (
-          <div className="border border-foreground/10 rounded-lg bg-card overflow-hidden">
+          <div className="border border-foreground/10 rounded-lg bg-card overflow-hidden" style={{ height: 600 }}>
             <ChartJSCandlestick 
               ohlcData={ohlcData} 
               events={aiEvents}  // Live streaming - shows quotes as they arrive

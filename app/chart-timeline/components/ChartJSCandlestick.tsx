@@ -16,34 +16,50 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 import 'chartjs-adapter-date-fns'
 import { typeConfig } from './QuoteCard'
 
-// Custom crosshair plugin - vertical line at cursor
+// Custom crosshair plugin - vertical and horizontal lines at cursor
 const crosshairPlugin = {
   id: 'crosshair',
   afterEvent: (chart: any, args: any) => {
     const event = args.event
     if (event.type === 'mousemove') {
       chart._crosshairX = event.x
+      chart._crosshairY = event.y
       chart.draw()
     } else if (event.type === 'mouseout') {
       chart._crosshairX = null
+      chart._crosshairY = null
       chart.draw()
     }
   },
   afterDraw: (chart: any) => {
-    if (chart._crosshairX) {
+    if (chart._crosshairX && chart._crosshairY) {
       const ctx = chart.ctx
       const x = chart._crosshairX
+      const y = chart._crosshairY
+      const xAxis = chart.scales.x
       const yAxis = chart.scales.y
       
-      ctx.save()
-      ctx.beginPath()
-      ctx.moveTo(x, yAxis.top)
-      ctx.lineTo(x, yAxis.bottom)
-      ctx.lineWidth = 1
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)'
-      ctx.setLineDash([3, 3])
-      ctx.stroke()
-      ctx.restore()
+      // Only draw if cursor is within chart area
+      if (y >= yAxis.top && y <= yAxis.bottom && x >= xAxis.left && x <= xAxis.right) {
+        ctx.save()
+        ctx.setLineDash([3, 3])
+        ctx.lineWidth = 1
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)'
+        
+        // Vertical line
+        ctx.beginPath()
+        ctx.moveTo(x, yAxis.top)
+        ctx.lineTo(x, yAxis.bottom)
+        ctx.stroke()
+        
+        // Horizontal line
+        ctx.beginPath()
+        ctx.moveTo(xAxis.left, y)
+        ctx.lineTo(xAxis.right, y)
+        ctx.stroke()
+        
+        ctx.restore()
+      }
     }
   }
 }
@@ -122,10 +138,22 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
     setIsMounted(true)
   }, [])
 
-  // Reset zoom function
+  // Zoom controls
   const resetZoom = () => {
     if (chartRef.current) {
       chartRef.current.resetZoom()
+    }
+  }
+  
+  const zoomIn = () => {
+    if (chartRef.current) {
+      chartRef.current.zoom(1.2)  // Zoom in 20%
+    }
+  }
+  
+  const zoomOut = () => {
+    if (chartRef.current) {
+      chartRef.current.zoom(0.8)  // Zoom out 20%
     }
   }
 
@@ -150,6 +178,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
           return c >= o ? '#22c55e' : '#ef4444'
         },
         borderWidth: 1,
+        yAxisID: 'y',  // Bind to left axis
       }]
     }
   }, [ohlcData])
@@ -392,7 +421,28 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         ticks: {
           color: '#6b7280',
           font: { size: 10, family: 'ui-monospace' },
-          callback: (value: string | number) => '$' + Number(value).toLocaleString(),
+          callback: (value: string | number) => Number(value).toLocaleString(),
+        },
+      },
+      y2: {
+        position: 'right' as const,
+        grid: {
+          drawOnChartArea: false,  // Don't draw grid lines from right axis
+          drawBorder: false,
+        },
+        ticks: {
+          color: '#6b7280',
+          font: { size: 10, family: 'ui-monospace' },
+          callback: (value: string | number) => Number(value).toLocaleString(),
+        },
+        // Sync with y axis
+        afterBuildTicks: (axis: any) => {
+          const yAxis = axis.chart.scales.y
+          if (yAxis) {
+            axis.min = yAxis.min
+            axis.max = yAxis.max
+            axis.ticks = yAxis.ticks
+          }
         },
       },
     },
@@ -407,13 +457,30 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         annotations,
       },
       zoom: disableZoom ? {
-        pan: { enabled: false },
-        zoom: { wheel: { enabled: false }, pinch: { enabled: false }, drag: { enabled: false } },
+        // Disable scroll/pinch zoom but keep pan and button zoom working
+        pan: { 
+          enabled: true,
+          mode: 'xy' as const,  // Pan in all directions
+          threshold: 5,
+          scaleMode: 'xy' as const,  // Allow scaling when dragging on axes
+        },
+        zoom: { 
+          wheel: { enabled: false }, 
+          pinch: { enabled: false }, 
+          drag: { enabled: false },
+          mode: 'xy' as const,
+        },
+        limits: {
+          x: {
+            minRange: 1000 * 60 * 60 * 4,  // Minimum 4 hours visible
+          },
+        },
       } : {
         pan: {
           enabled: true,
-          mode: 'x' as const,  // Only pan horizontally (more natural for charts)
-          threshold: 5,        // Minimum pixels before pan starts
+          mode: 'xy' as const,  // Pan in all directions
+          threshold: 5,
+          scaleMode: 'xy' as const,  // Allow scaling when dragging on axes
         },
         zoom: {
           wheel: {
@@ -430,7 +497,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
             borderWidth: 1,
             modifierKey: 'shift' as const,  // Hold Shift to drag-zoom
           },
-          mode: 'x' as const,  // Only zoom horizontally
+          mode: 'xy' as const,  // Zoom in all directions
         },
         limits: {
           x: {
@@ -443,7 +510,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
 
   if (!isMounted || ohlcData.length === 0) {
     return (
-      <div className="w-full h-[600px] flex items-center justify-center bg-zinc-900/50 rounded-lg">
+      <div className="w-full h-full min-h-[400px] flex items-center justify-center bg-zinc-900/50 rounded-lg">
         <div className="text-zinc-500">
           {ohlcData.length === 0 ? 'Keine Daten verfügbar' : 'Chart lädt...'}
         </div>
@@ -452,21 +519,38 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
   }
 
   return (
-    <div className="w-full h-[600px] bg-zinc-950 rounded-lg p-4 relative">
-      {/* Chart Controls - only show when zoom is enabled */}
-      {!disableZoom && (
-        <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+    <div className="w-full h-full min-h-[400px] bg-zinc-950 rounded-lg p-4 relative">
+      {/* Chart Controls */}
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+        {!disableZoom && (
           <span className="text-[10px] text-zinc-500 hidden sm:inline">
-            Drag: Pan • Scroll: Zoom • Shift+Drag: Select
+            Drag: Pan • Scroll: Zoom
           </span>
+        )}
+        <div className="flex items-center gap-1 bg-zinc-800 rounded border border-zinc-700">
+          <button
+            onClick={zoomOut}
+            className="px-2 py-1 text-sm font-mono text-zinc-300 hover:bg-zinc-700 rounded-l transition-colors"
+            title="Zoom out"
+          >
+            −
+          </button>
           <button
             onClick={resetZoom}
-            className="px-2 py-1 text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors"
+            className="px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-700 transition-colors border-x border-zinc-700"
+            title="Reset zoom"
           >
-            Reset Zoom
+            Reset
+          </button>
+          <button
+            onClick={zoomIn}
+            className="px-2 py-1 text-sm font-mono text-zinc-300 hover:bg-zinc-700 rounded-r transition-colors"
+            title="Zoom in"
+          >
+            +
           </button>
         </div>
-      )}
+      </div>
       
       <Chart
         ref={chartRef}
