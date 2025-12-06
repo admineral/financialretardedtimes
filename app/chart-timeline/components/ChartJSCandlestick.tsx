@@ -482,7 +482,6 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
           enabled: true,
           mode: 'xy' as const,  // Pan in all directions
           threshold: 5,
-          scaleMode: 'xy' as const,  // Allow scaling when dragging on axes
         },
         zoom: { 
           wheel: { enabled: false }, 
@@ -500,7 +499,6 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
           enabled: true,
           mode: 'xy' as const,  // Pan in all directions
           threshold: 5,
-          scaleMode: 'xy' as const,  // Allow scaling when dragging on axes
         },
         zoom: {
           wheel: {

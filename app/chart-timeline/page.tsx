@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database } from 'lucide-react'
+import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart } from 'lucide-react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import dynamic from 'next/dynamic'
@@ -161,6 +161,7 @@ export default function ChartTimelinePage() {
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isRefreshingOhlc, setIsRefreshingOhlc] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
   // Cache timestamps
@@ -334,6 +335,21 @@ export default function ChartTimelinePage() {
     }
   }, [timeframe, fetchOHLC, runAnalysis])
 
+  // Refresh only OHLC data (without AI analysis)
+  const refreshOhlc = useCallback(async () => {
+    console.log('[ChartTimeline] 🕯️ Refreshing OHLC only...')
+    setIsRefreshingOhlc(true)
+    try {
+      const ohlc = await fetchOHLC(timeframe, true)
+      console.log('[ChartTimeline] OHLC refreshed:', ohlc.length, 'candles')
+      setOhlcData(ohlc)
+    } catch (err) {
+      console.error('[ChartTimeline] OHLC refresh error:', err)
+    } finally {
+      setIsRefreshingOhlc(false)
+    }
+  }, [timeframe, fetchOHLC])
+
   // Initial load
   useEffect(() => {
     loadData()
@@ -439,10 +455,16 @@ export default function ChartTimelinePage() {
                   Cached
                 </span>
               )}
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                OHLC: {formatRelativeTime(ohlcFetchedAt)}
-              </span>
+              <button
+                onClick={refreshOhlc}
+                disabled={isRefreshingOhlc}
+                className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
+                title="OHLC Daten aktualisieren"
+              >
+                <CandlestickChart className={`w-3 h-3 ${isRefreshingOhlc ? 'animate-pulse' : ''}`} />
+                <span>OHLC: {formatRelativeTime(ohlcFetchedAt)}</span>
+                {isRefreshingOhlc && <RefreshCw className="w-3 h-3 animate-spin" />}
+              </button>
               {analysisFetchedAt && (
                 <span className="flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />

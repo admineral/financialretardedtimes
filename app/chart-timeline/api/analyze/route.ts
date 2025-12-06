@@ -100,9 +100,9 @@ async function fetchOHLCData(supabase: Awaited<ReturnType<typeof createClient>>)
       return cached.candles as OHLCData[]
     }
     
-    // Fallback: fetch from Binance (15m candles, 7 days = 672 candles)
+    // Fallback: fetch from Binance (15m candles, 11 days = 1056 candles)
     console.log('[ANALYZE] No 15m cache, fetching from Binance...')
-    const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=672'
+    const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=1056'
     const response = await fetch(url, {
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
@@ -178,6 +178,29 @@ function groupByDay(data: OHLCData[]): Map<string, OHLCData[]> {
   return groups
 }
 
+// Find local turning points (highs and lows) in price data
+function findTurningPoints(candles: OHLCData[], lookback: number = 3): { highs: OHLCData[]; lows: OHLCData[] } {
+  const highs: OHLCData[] = []
+  const lows: OHLCData[] = []
+  
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const current = candles[i]
+    let isHigh = true
+    let isLow = true
+    
+    for (let j = i - lookback; j <= i + lookback; j++) {
+      if (j === i) continue
+      if (candles[j].high >= current.high) isHigh = false
+      if (candles[j].low <= current.low) isLow = false
+    }
+    
+    if (isHigh) highs.push(current)
+    if (isLow) lows.push(current)
+  }
+  
+  return { highs, lows }
+}
+
 // Format price data for AI with structured multi-level detail
 function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: object } {
   if (ohlcData.length === 0) {
@@ -206,6 +229,61 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
   lines.push(`7-Tage-Hoch: $${high.toFixed(0)} | 7-Tage-Tief: $${low.toFixed(0)}`)
   lines.push('')
   
+  // SECTION 0: TURNING POINTS - Most important for AI correlation!
+  const fourHourMs = 4 * 60 * 60 * 1000
+  const fourHourCandles = aggregateCandles(ohlcData, fourHourMs)
+  const turningPoints = findTurningPoints(fourHourCandles, 2)
+  
+  lines.push(`## ⚠️ WICHTIGE WENDEPUNKTE (für Quote-Korrelation!):`)
+  lines.push('')
+  
+  if (turningPoints.highs.length > 0) {
+    lines.push(`### 📈 LOKALE HOCHS (hier nach "dump_call" oder "top_call" suchen):`)
+    for (const tp of turningPoints.highs.slice(-8)) { // Last 8 highs
+      const date = new Date(tp.timestamp)
+      const dateStr = date.toLocaleString('de-DE', { 
+        weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+      })
+      lines.push(`  🔺 ${dateStr}: HIGH bei $${tp.high.toFixed(0)} → Suche Calls um diese Zeit!`)
+    }
+    lines.push('')
+  }
+  
+  if (turningPoints.lows.length > 0) {
+    lines.push(`### 📉 LOKALE TIEFS (hier nach "pump_call" oder "bottom_call" suchen):`)
+    for (const tp of turningPoints.lows.slice(-8)) { // Last 8 lows
+      const date = new Date(tp.timestamp)
+      const dateStr = date.toLocaleString('de-DE', { 
+        weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+      })
+      lines.push(`  🔻 ${dateStr}: LOW bei $${tp.low.toFixed(0)} → Suche Calls um diese Zeit!`)
+    }
+    lines.push('')
+  }
+  
+  // Find big moves (>2% in 4h)
+  const bigMoves: { candle: OHLCData; changePercent: number }[] = []
+  for (const candle of fourHourCandles) {
+    const changePercent = ((candle.close - candle.open) / candle.open) * 100
+    if (Math.abs(changePercent) >= 2) {
+      bigMoves.push({ candle, changePercent })
+    }
+  }
+  
+  if (bigMoves.length > 0) {
+    lines.push(`### 🚀 STARKE BEWEGUNGEN >2% (hier nach FOMO/Panik suchen):`)
+    for (const move of bigMoves.slice(-10)) { // Last 10 big moves
+      const date = new Date(move.candle.timestamp)
+      const dateStr = date.toLocaleString('de-DE', { 
+        weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+      })
+      const emoji = move.changePercent > 0 ? '🟢' : '🔴'
+      const direction = move.changePercent > 0 ? 'PUMP' : 'DUMP'
+      lines.push(`  ${emoji} ${dateStr}: ${direction} ${move.changePercent.toFixed(1)}% ($${move.candle.open.toFixed(0)}→$${move.candle.close.toFixed(0)})`)
+    }
+    lines.push('')
+  }
+  
   // SECTION 1: Daily summaries (open, high, low, close for each day)
   lines.push(`## Tägliche Übersicht:`)
   const dailyGroups = groupByDay(ohlcData)
@@ -227,9 +305,6 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
   lines.push('')
   
   // SECTION 2: 4H candles for full week (42 candles for 7 days)
-  const fourHourMs = 4 * 60 * 60 * 1000
-  const fourHourCandles = aggregateCandles(ohlcData, fourHourMs)
-  
   lines.push(`## 4-Stunden-Kerzen (${fourHourCandles.length} Kerzen):`)
   for (const candle of fourHourCandles) {
     const date = new Date(candle.timestamp)
@@ -263,6 +338,11 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
     dailySummaries: sortedDays.length,
     fourHourCandles: fourHourCandles.length,
     todayHourlyCandles: todayCandles.length > 0 ? aggregateCandles(todayCandles, 60 * 60 * 1000).length : 0,
+    turningPoints: {
+      highs: turningPoints.highs.length,
+      lows: turningPoints.lows.length,
+      bigMoves: bigMoves.length
+    },
     dateRange: {
       from: firstDate.toISOString(),
       to: lastDate.toISOString()
@@ -316,56 +396,77 @@ function formatChatContext(messages: ChatMessage[]): string {
   return lines.join('\n')
 }
 
-const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Finde die besten PREIS-VORHERSAGEN aus dem Chat.
+const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Korreliere Chat-Nachrichten mit den PREIS-WENDEPUNKTEN.
 
-## ZIEL: Finde 12-18 QUALITÄTS-Zitate die auf einem BTC-Chart gut aussehen
+## HAUPT-ZIEL: Finde die besten DIREKTEN CALLS an den WENDEPUNKTEN
 
-## ⚠️ KRITISCH: ZEITLICHE VERTEILUNG ÜBER 7 TAGE ⚠️
+### ⚠️ KRITISCH: PREIS-KORRELATION ⚠️
 
-NICHT NUR NEUESTE NACHRICHTEN! Du MUSST Zitate aus ALLEN 7 TAGEN wählen!
+Analysiere zuerst die Preis-Daten und identifiziere:
+1. **LOKALE HOCHS**: Wann war der Preis auf einem lokalen Maximum?
+2. **LOKALE TIEFS**: Wann war der Preis auf einem lokalen Minimum?
+3. **STARKE MOVES**: Wann gab es >2% Bewegungen in kurzer Zeit?
 
-### PFLICHT-VERTEILUNG:
-- Tag 1-2 (vor 5-7 Tagen): Mindestens 2-3 Zitate
-- Tag 3-4 (vor 3-5 Tagen): Mindestens 2-3 Zitate  
-- Tag 5-6 (vor 1-3 Tagen): Mindestens 3-4 Zitate
-- Tag 7 (heute): Mindestens 2-3 Zitate
+Dann suche Chat-Nachrichten die GENAU ZU DIESEN ZEITPUNKTEN passen:
+- Bei einem TIEF → Finde "bottom_call" oder "pump_call" Nachrichten
+- Bei einem HOCH → Finde "top_call" oder "dump_call" Nachrichten
+- Bei starken Moves → Finde FOMO/Panik Reaktionen
 
-### ANTI-CLUSTERING REGEL:
-- NIEMALS mehr als 2 Zitate innerhalb von 4 Stunden
-- Verteile Zitate über den GESAMTEN Chart-Zeitraum
-- Ältere Zitate sind GENAUSO WICHTIG wie neue!
+## NUR DIREKTE CALLS - KEINE PASSIVEN KOMMENTARE!
 
-### WARUM DAS WICHTIG IST:
-Der Chart zeigt 7 Tage - wenn alle Zitate rechts am neuesten Ende clustern, sieht der Chart unausgewogen aus. Wir wollen eine schöne VISUELLE VERTEILUNG über den gesamten Chart!
+### ✅ GUTE Zitate (DIREKTE Predictions):
+- "LONG JETZT!" / "SHORT!" / "KAUFEN!" / "VERKAUFEN!"
+- "Das ist der Boden" / "Top ist erreicht"
+- "100k incoming" / "80k wir kommen"
+- "All in!" / "Alles raus!"
+- Konkrete Preisprognosen mit Zahlen
 
-## QUALITÄT > QUANTITÄT
-- Lieber 12 starke Zitate als 18 schwache
-- BESTE Zitate: Klare Preis-Predictions die man verifizieren kann
-- Beispiel GUTES Zitat: "Long bei 89k, Ziel 95k" (konkret, verifizierbar)
-- Beispiel SCHLECHTES Zitat: "Interessant..." (vage, langweilig)
+### ❌ SCHLECHTE Zitate (IGNORIEREN):
+- "Interessant" / "Hmm" / "Mal sehen"
+- Fragen: "Was denkt ihr?" / "Geht's hoch?"
+- Passive Beobachtungen: "Sieht bullish aus"
+- Allgemeine Kommentare ohne klare Position
 
-## PRIORITÄT 1: Echte Predictions (pump_call, dump_call, top_call, bottom_call)
-- "Jetzt Long!" / "Short here!" / "Das ist der Boden" / "Top ist drin"
-- Preisprognosen: "100k kommt" / "Wir sehen 80k"
-→ Setze wasCorrect=true/false basierend auf dem tatsächlichen Preisverlauf!
+## WENDEPUNKT-PRIORISIERUNG
 
-## PRIORITÄT 2: Starke Reaktionen (fomo, panic, diamond_hands)
-- Extreme FOMO: "ALL IN JETZT!" / "Warum hab ich nicht gekauft?!"
-- Echte Panik: "Alles verkauft" / "RIP"
-- Diamond Hands in kritischen Momenten
+1. **TOP-PRIORITÄT - Calls an Wendepunkten:**
+   - Jemand ruft "Long!" genau am Tief → GOLD WERT!
+   - Jemand ruft "Short!" genau am Hoch → GOLD WERT!
+   - wasCorrect=true wenn danach der Preis in die richtige Richtung ging
 
-## PRIORITÄT 3: Gute Analysen (analysis, reversal)
-- Nur wenn sie KONKRET sind und sich auf Preis beziehen
+2. **HOCH-PRIORITÄT - Falsche Calls an Wendepunkten:**
+   - Jemand ruft "Short!" am Tief → Für worstCall
+   - Jemand ruft "Long!" am Hoch → Für worstCall
+   - wasCorrect=false
 
-## FORMAT für jedes Zitat:
-- quote: MAX 50 ZEICHEN! Nur der Kern. Kürze radikal.
-- timestamp: Exakt aus dem Chat (ISO format) - NUTZE TIMESTAMPS AUS DER VOLLEN WOCHE!
-- priceAtQuote: BTC-Preis zu dem Zeitpunkt (aus Preis-Timeline schätzen)
-- wasCorrect: Bei Predictions IMMER setzen (true/false)
-- priceContext: Passende Kategorie wählen
+3. **MITTEL-PRIORITÄT - Reaktionen auf Moves:**
+   - FOMO bei starkem Pump
+   - Panik bei starkem Dump
+   - Diamond Hands in kritischen Momenten
+
+## ZEITLICHE VERTEILUNG
+
+Verteile die 12-18 Zitate über die GESAMTEN 7 Tage:
+- Fokus auf die WENDEPUNKTE in den Preis-Daten
+- Mindestens 2-3 Zitate pro 2-Tages-Periode
+- Nicht mehr als 2 Zitate innerhalb von 4 Stunden
+
+## FORMAT
+
+- quote: MAX 50 ZEICHEN! Nur der Kern des Calls
+- timestamp: Exakt aus dem Chat (ISO format)
+- priceAtQuote: BTC-Preis zu dem Zeitpunkt (aus Preis-Daten ablesen!)
+- wasCorrect: IMMER setzen bei Predictions! true/false basierend auf Preisverlauf
+- priceContext: pump_call/dump_call/top_call/bottom_call/fomo/panic/reversal/analysis
+
+## bestCall & worstCall
+
+- bestCall: Der BESTE Call der Woche - jemand der genau richtig lag am Wendepunkt
+- worstCall: Der SCHLECHTESTE Call - komplett falsch gelegen am Wendepunkt
 
 ## HEADLINE
-Kurz und knackig, max 60 Zeichen.
+
+Kurz, knackig, bezieht sich auf die Preisentwicklung. Max 60 Zeichen.
 
 NUR JSON ausgeben, keine Erklärungen.`
 
