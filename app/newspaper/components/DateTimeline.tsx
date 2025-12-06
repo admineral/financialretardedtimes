@@ -192,7 +192,7 @@ export function DateTimeline({
         {/* Timeline Container */}
         <div 
           ref={timelineRef}
-          className="flex gap-2 overflow-hidden flex-1"
+          className="flex gap-2 overflow-hidden"
         >
           {isLoadingDates ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
@@ -279,7 +279,7 @@ export function DateTimeline({
           <ChevronRightIcon className="h-4 w-4" />
         </button>
 
-        {/* Stats Display */}
+        {/* Stats Display - right after timeline */}
         <div className="hidden md:flex items-center gap-3 border-l border-primary/20 pl-4 flex-shrink-0">
           {multiDayStats ? (
             <div className="flex items-center gap-2 text-xs">
@@ -309,6 +309,9 @@ export function DateTimeline({
             </div>
           )}
         </div>
+
+        {/* Spacer to push actions to the right */}
+        <div className="flex-1" />
         
         {/* Divider */}
         <div className="w-px h-6 bg-primary/10 hidden sm:block flex-shrink-0" />
@@ -349,26 +352,25 @@ export function DateTimeline({
             <RefreshCwIcon className={`h-4 w-4 text-muted-foreground hover:text-primary transition-colors ${isLoading ? 'animate-spin text-primary' : ''}`} />
           </button>
           
-          {/* Quick Links */}
-          <div className="hidden sm:flex items-center gap-1 border-l border-primary/10 pl-2 ml-1">
-            <Link 
-              href="/Rate-Chart"
-              onClick={() => track('newspaper_nav_link', { destination: 'rate-chart', source: 'timeline' })}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm transition-all border-2 border-[#D4AF37] text-[#D4AF37] hover:text-[#FFD700] hover:bg-[#D4AF37]/10 animate-golden-flash font-semibold"
-            >
-              <BarChart3Icon className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Rate-Chart</span>
-            </Link>
-            
-            <Link 
-              href="/Test"
-              onClick={() => track('newspaper_nav_link', { destination: 'chat', source: 'timeline' })}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs hover:bg-primary/10 rounded-sm transition-all text-muted-foreground hover:text-primary"
-            >
-              <MessageSquareIcon className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Chat</span>
-            </Link>
-          </div>
+          {/* Rate-Chart - Always visible */}
+          <Link 
+            href="/Rate-Chart"
+            onClick={() => track('newspaper_nav_link', { destination: 'rate-chart', source: 'timeline' })}
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-xs rounded-sm transition-all border-2 border-[#D4AF37] text-[#D4AF37] hover:text-[#FFD700] hover:bg-[#D4AF37]/10 animate-golden-flash font-semibold"
+          >
+            <BarChart3Icon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Rate-Chart</span>
+          </Link>
+          
+          {/* Chat Link - Desktop only */}
+          <Link 
+            href="/Test"
+            onClick={() => track('newspaper_nav_link', { destination: 'chat', source: 'timeline' })}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs hover:bg-primary/10 rounded-sm transition-all text-muted-foreground hover:text-primary"
+          >
+            <MessageSquareIcon className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Chat</span>
+          </Link>
         </div>
       </div>
     </div>
