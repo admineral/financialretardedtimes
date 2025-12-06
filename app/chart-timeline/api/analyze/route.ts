@@ -194,31 +194,84 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
     
-    console.log('[ANALYZE] Fetching data...')
-    const ohlcData = await fetchOHLCData(7)
-    
+    // Calculate date range
+    const now = new Date()
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
     
-    const { data: messages, error } = await supabase
-      .from('tv_chat_messages')
-      .select('id, username, text, time, user_pic')
-      .gte('time', sevenDaysAgo.toISOString())
-      .order('time', { ascending: true })
-      .limit(400)
+    console.log('[ANALYZE] ====== STARTING ANALYSIS ======')
+    console.log('[ANALYZE] Date range:', {
+      from: sevenDaysAgo.toISOString(),
+      to: now.toISOString(),
+    })
     
-    if (error || !messages || messages.length === 0) {
+    // Fetch OHLC data
+    const ohlcData = await fetchOHLCData(7)
+    console.log('[ANALYZE] OHLC data:', {
+      count: ohlcData.length,
+      firstCandle: ohlcData[0] ? new Date(ohlcData[0].timestamp).toISOString() : 'none',
+      lastCandle: ohlcData[ohlcData.length - 1] ? new Date(ohlcData[ohlcData.length - 1].timestamp).toISOString() : 'none',
+    })
+    
+    // Fetch chat messages - get more to cover full date range
+    const { data: messages, error, count } = await supabase
+      .from('tv_chat_messages')
+      .select('id, username, text, time, user_pic', { count: 'exact' })
+      .gte('time', sevenDaysAgo.toISOString())
+      .lte('time', now.toISOString())
+      .order('time', { ascending: false }) // Most recent first to catch latest
+      .limit(800)
+    
+    if (error) {
+      console.error('[ANALYZE] Supabase error:', error)
+      return new Response(JSON.stringify({ error: 'Database error' }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+    
+    console.log('[ANALYZE] Chat messages:', {
+      fetched: messages?.length || 0,
+      totalInRange: count,
+      firstMessage: messages?.[0]?.time || 'none',
+      lastMessage: messages?.[messages?.length - 1]?.time || 'none',
+    })
+    
+    // Group messages by day to see distribution
+    if (messages && messages.length > 0) {
+      const byDay: Record<string, number> = {}
+      for (const msg of messages) {
+        const day = msg.time.split('T')[0]
+        byDay[day] = (byDay[day] || 0) + 1
+      }
+      console.log('[ANALYZE] Messages per day:', byDay)
+    }
+    
+    if (!messages || messages.length === 0) {
+      console.log('[ANALYZE] No messages found in date range!')
       return new Response(JSON.stringify({ error: 'No messages found' }), { 
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       })
     }
     
-    console.log(`[ANALYZE] Got ${ohlcData.length} candles, ${messages.length} messages`)
-    
     const priceContext = formatPriceContext(ohlcData)
     const chatContext = formatChatContext(messages as ChatMessage[])
     const fullContext = `${priceContext}\n\n${chatContext}`
+    
+    console.log('[ANALYZE] Context length:', {
+      priceContext: priceContext.length,
+      chatContext: chatContext.length,
+      total: fullContext.length,
+    })
+    
+    // Log a sample of what we're sending
+    console.log('[ANALYZE] Sample messages being sent:')
+    messages.slice(0, 5).forEach((msg, i) => {
+      console.log(`  ${i + 1}. [${msg.time}] @${msg.username}: ${msg.text.slice(0, 50)}...`)
+    })
+    
+    console.log('[ANALYZE] Sending to OpenAI...')
     
     const result = streamObject({
       model: openai('gpt-4o-mini'),

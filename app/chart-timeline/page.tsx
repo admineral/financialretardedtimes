@@ -7,9 +7,9 @@ import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import dynamic from 'next/dynamic'
 
-// Dynamic import for ApexCharts (SSR issues)
-const CandlestickChart = dynamic(
-  () => import('./components/CandlestickChart').then(mod => mod.CandlestickChart),
+// Dynamic import for Chart.js (SSR issues)
+const ChartJSCandlestick = dynamic(
+  () => import('./components/ChartJSCandlestick').then(mod => mod.ChartJSCandlestick),
   { ssr: false, loading: () => <ChartSkeleton /> }
 )
 
@@ -341,7 +341,7 @@ export default function ChartTimelinePage() {
           <ChartSkeleton />
         ) : (
           <div className="border border-foreground/10 rounded-lg bg-card overflow-hidden">
-            <CandlestickChart 
+            <ChartJSCandlestick 
               ohlcData={ohlcData} 
               events={aiEvents}
               timeframe={timeframe}

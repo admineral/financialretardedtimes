@@ -30,14 +30,15 @@ type CoinGeckoOHLC = [number, number, number, number, number]
  * - 3-30 days: 4-hour candles  
  * - 31+ days: 4-day candles (we aggregate for daily/weekly/monthly)
  * 
- * For 1H: Use 1 day of data (30-min candles) and aggregate to 1H
- * For 1D: Use 90 days (4-day candles become daily after aggregation)
+ * For 15m: Use 7 days (4H candles) - best balance of granularity and history
+ * For 1H: Use 14 days of 4H candles
+ * For 1D: Use 90 days
  * For 1W/1M: Aggregate daily candles
  */
 function getTimeframeParams(timeframe: string): { days: string; aggregate?: number; isHourly?: boolean } {
   switch (timeframe) {
     case '15m':
-      return { days: '1' } // 1 day of 30-min candles from CoinGecko
+      return { days: '7' } // 7 days of 4H candles (more history, shows context)
     case '1H':
       return { days: '14', isHourly: true } // 14 days of 4H candles
     case '1D':
@@ -47,7 +48,7 @@ function getTimeframeParams(timeframe: string): { days: string; aggregate?: numb
     case '1M':
       return { days: 'max', aggregate: 30 } // Monthly candles
     default:
-      return { days: '1' }
+      return { days: '7' }
   }
 }
 

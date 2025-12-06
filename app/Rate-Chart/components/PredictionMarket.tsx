@@ -1015,15 +1015,17 @@ export default function PredictionMarket({
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <div className="flex items-center gap-4">
-                      {/* Position Badge */}
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold ${
-                        position === 1 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                        position === 2 ? 'bg-gray-400/20 text-gray-300 border border-gray-400/30' :
-                        position === 3 ? 'bg-orange-600/20 text-orange-400 border border-orange-500/30' :
-                        'bg-card text-muted-foreground border border-primary/10'
-                      }`}>
-                        {position === 1 ? <Crown className="w-5 h-5" /> : position}
-                      </div>
+                      {/* Position Badge - only show after reveal */}
+                      {isRevealed && (
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold ${
+                          position === 1 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                          position === 2 ? 'bg-gray-400/20 text-gray-300 border border-gray-400/30' :
+                          position === 3 ? 'bg-orange-600/20 text-orange-400 border border-orange-500/30' :
+                          'bg-card text-muted-foreground border border-primary/10'
+                        }`}>
+                          {position === 1 ? <Crown className="w-5 h-5" /> : position}
+                        </div>
+                      )}
 
                       {/* Avatar & Name */}
                       <div className="flex items-center gap-3 flex-1">
