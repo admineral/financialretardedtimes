@@ -42,7 +42,7 @@ interface AITimelineEvent {
   quote?: string
   quoteAuthor?: string
   description?: string
-  type?: ChatEventType
+  type?: string // Now string from API, will be parsed to ChatEventType
   participants?: string[]
   sentiment?: string
 }
@@ -605,6 +605,22 @@ export function ChatHistoryTimeline({
         return
       }
       
+      // Helper to validate event type
+      const validTypes: ChatEventType[] = ['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor']
+      const parseType = (t: string | undefined): ChatEventType => {
+        if (!t) return 'discussion'
+        const lower = t.toLowerCase().trim()
+        if (validTypes.includes(lower as ChatEventType)) return lower as ChatEventType
+        // Fuzzy match
+        if (lower.includes('discuss') || lower.includes('chat')) return 'discussion'
+        if (lower.includes('predict') || lower.includes('prognose') || lower.includes('call')) return 'prediction'
+        if (lower.includes('drama') || lower.includes('streit') || lower.includes('beef')) return 'drama'
+        if (lower.includes('insight') || lower.includes('erkenntnis')) return 'insight'
+        if (lower.includes('mile') || lower.includes('meilenstein')) return 'milestone'
+        if (lower.includes('humor') || lower.includes('witz') || lower.includes('lol')) return 'humor'
+        return 'discussion'
+      }
+      
       // Map AI response to our ChatEvent format
       const mappedEvents: ChatEvent[] = data.events.map((evt, idx) => ({
         id: `ai-${mode}-${idx}`,
@@ -614,7 +630,7 @@ export function ChatHistoryTimeline({
         description: evt.quote 
           ? `*"${evt.quote}"* — @${evt.quoteAuthor || 'User'}\n\n${evt.description || ''}`
           : evt.description || '',
-        type: evt.type || 'discussion',
+        type: parseType(evt.type),
         participants: evt.participants || [],
         quote: evt.quote,
         quoteAuthor: evt.quoteAuthor,

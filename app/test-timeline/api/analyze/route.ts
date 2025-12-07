@@ -25,23 +25,23 @@ import { z } from 'zod'
 // ═══════════════════════════════════════════════════════════════════════
 
 const TimelineEventSchema = z.object({
-  timestamp: z.string().describe('Exakter Zeitstempel aus dem Chat (ISO format oder DD.MM HH:MM)'),
+  timestamp: z.string().optional().describe('Exakter Zeitstempel aus dem Chat (ISO format oder DD.MM HH:MM)'),
   time: z.string().describe('Uhrzeit für Anzeige (HH:MM format)'),
   date: z.string().describe('Datum (YYYY-MM-DD format)'),
   title: z.string().describe('Kurzer, prägnanter Titel (max 60 Zeichen)'),
   quote: z.string().optional().describe('Das beste Zitat zu diesem Event (max 150 Zeichen)'),
   quoteAuthor: z.string().optional().describe('Username des Zitierten'),
-  description: z.string().describe('Kurze Beschreibung was passiert ist (max 200 Zeichen)'),
-  type: z.enum(['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor']),
-  participants: z.array(z.string()).describe('Beteiligte User (1-6)'),
-  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).optional(),
+  description: z.string().optional().describe('Kurze Beschreibung was passiert ist (max 200 Zeichen)'),
+  type: z.string().describe('Event-Typ: discussion, prediction, drama, insight, milestone, oder humor'),
+  participants: z.array(z.string()).optional().describe('Beteiligte User (1-6)'),
+  sentiment: z.string().optional().describe('Sentiment: bullish, bearish, neutral, oder mixed'),
 })
 
 const TimelineResponseSchema = z.object({
   events: z.array(TimelineEventSchema).describe('Die wichtigsten Events - MINDESTENS 5-6 bei normaler Aktivität, bis zu 12-15 bei hoher!'),
-  summary: z.string().describe('Ein-Satz-Zusammenfassung des Zeitraums (max 200 Zeichen)'),
-  activityLevel: z.enum(['low', 'medium', 'high']).describe('Wie aktiv war der Chat?'),
-  dominantSentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']),
+  summary: z.string().optional().describe('Ein-Satz-Zusammenfassung des Zeitraums (max 200 Zeichen)'),
+  activityLevel: z.string().optional().describe('Wie aktiv war der Chat? low, medium, oder high'),
+  dominantSentiment: z.string().optional().describe('Dominantes Sentiment: bullish, bearish, neutral, oder mixed'),
 })
 
 export type TimelineEvent = z.infer<typeof TimelineEventSchema>
@@ -431,10 +431,19 @@ ${chatContext}`
           temperature: attempt === 1 ? 0.7 : 0.5, // Lower temp on retry
         })
         object = result.object
+        console.log(`[TIMELINE-AI] ✅ Attempt ${attempt} succeeded`)
         break // Success, exit retry loop
-      } catch (genError) {
+      } catch (genError: unknown) {
         lastError = genError instanceof Error ? genError : new Error(String(genError))
         console.error(`[TIMELINE-AI] ⚠️ Attempt ${attempt} failed:`, lastError.message)
+        
+        // Log more details if available
+        if (genError && typeof genError === 'object') {
+          const errObj = genError as Record<string, unknown>
+          if (errObj.cause) console.error(`[TIMELINE-AI] Cause:`, errObj.cause)
+          if (errObj.text) console.error(`[TIMELINE-AI] Raw text:`, String(errObj.text).slice(0, 500))
+          if (errObj.response) console.error(`[TIMELINE-AI] Response:`, JSON.stringify(errObj.response).slice(0, 500))
+        }
         
         if (attempt === 2) {
           // Final attempt failed - return empty state instead of error
