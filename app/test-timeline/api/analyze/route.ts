@@ -64,18 +64,24 @@ Analysiere den Chat und extrahiere die INTERESSANTESTEN MOMENTE mit:
 - ECHTEN Zitaten (Originaltext!)
 - Den beteiligten Usern
 
-## 📊 BAR CHART KONTEXT
+## 📊 BAR CHART → TEXTBOXEN
 
 Die Timeline zeigt ein Balkendiagramm mit Chat-Aktivität pro Zeitslot.
-**Jeder Balken kann eine "Textbox" (Event-Card) bekommen!**
+**Du bekommst eine Liste von Zeitslots - für JEDEN sollst du ein Event generieren!**
 
-Du bekommst eine Liste der Peak-Stunden - das sind die Zeitfenster mit der höchsten Aktivität.
-**PRIORISIERE Events in diesen Peak-Stunden**, weil dort die interessantesten Diskussionen stattfinden!
+### Deine Aufgabe:
+1. Du bekommst Zeitslots mit Aktivität (z.B. "Sa 14:00: 47 msgs")
+2. Für JEDEN Zeitslot: Suche im Chat nach Nachrichten aus diesem Zeitfenster
+3. Finde das interessanteste/lustigste/wichtigste aus diesem Slot
+4. Generiere dafür ein Event mit korrektem Timestamp
 
-Idealerweise:
-- Mindestens 1 Event pro Peak-Stunde
-- Events zeitlich auf die Balken verteilen
-- Bei hohen Balken nach mehreren Events suchen
+### Beispiel:
+Zeitslot: "Sa 14:00 (32 msgs)"
+→ Suche Nachrichten zwischen 14:00-15:00 am Samstag
+→ Finde z.B. eine spannende Diskussion über BTC
+→ Generiere Event mit time: "14:23", date: "2024-12-07"
+
+**WICHTIG**: Die Anzahl Events sollte ungefähr der Anzahl gelisteter Zeitslots entsprechen!
 
 ## EVENT-TYPEN
 
@@ -189,6 +195,83 @@ function formatChatForAI(messages: ChatMessage[]): string {
 // POST HANDLER
 // ═══════════════════════════════════════════════════════════════════════
 
+// Types for activity data
+interface ActivityBucket {
+  timestamp: string
+  label: string
+  count: number
+  uniqueUsers: number
+  intensity: number
+}
+
+interface ActivityStats {
+  totalMessages: number
+  totalUsers: number
+  maxPerBucket: number
+  peakTime: string
+}
+
+/**
+ * Get significant buckets (peaks) that need event coverage
+ * Returns buckets with above-average activity
+ */
+function getSignificantBuckets(buckets: ActivityBucket[], topN: number = 10): ActivityBucket[] {
+  if (!buckets || buckets.length === 0) return []
+  
+  const nonEmpty = buckets.filter(b => b.count > 0)
+  if (nonEmpty.length === 0) return []
+  
+  const avgCount = nonEmpty.reduce((sum, b) => sum + b.count, 0) / nonEmpty.length
+  
+  // Get buckets with above-average activity, sorted by count
+  return nonEmpty
+    .filter(b => b.count >= avgCount * 0.5) // At least 50% of average
+    .sort((a, b) => b.count - a.count)
+    .slice(0, topN)
+}
+
+/**
+ * Format activity context for AI prompt - with specific buckets to fill
+ */
+function formatActivityContext(buckets: ActivityBucket[], stats: ActivityStats | null, mode: string): string {
+  if (!buckets || buckets.length === 0) {
+    return ''
+  }
+  
+  const topN = mode === '7d' ? 12 : mode === '3d' ? 8 : 6
+  const significantBuckets = getSignificantBuckets(buckets, topN)
+  
+  const lines: string[] = [
+    '\n## 📊 BAR CHART - TEXTBOXEN GESUCHT!',
+    '',
+    'Die Timeline zeigt ein Balkendiagramm. **JEDER dieser Balken braucht eine Textbox (Event)!**',
+    '',
+    '### 📝 DIESE ZEITSLOTS BRAUCHEN EINEN TEXT:',
+    ''
+  ]
+  
+  // List each bucket that needs an event
+  for (let i = 0; i < significantBuckets.length; i++) {
+    const bucket = significantBuckets[i]
+    const date = new Date(bucket.timestamp)
+    const dateStr = date.toISOString().split('T')[0]
+    const timeStr = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+    
+    lines.push(`${i + 1}. **${bucket.label}** (${bucket.count} msgs, ${bucket.uniqueUsers} user)`)
+    lines.push(`   → Zeitfenster: ${dateStr} ca. ${timeStr}`)
+    lines.push(`   → SUCHE: Was wurde in diesem Zeitfenster besprochen?`)
+    lines.push('')
+  }
+  
+  lines.push('---')
+  lines.push('⚠️ **AUFGABE**: Generiere für JEDEN dieser Zeitslots mindestens 1 Event!')
+  lines.push('Suche im Chat nach Nachrichten aus diesen Zeitfenstern.')
+  lines.push('Jeder Balken = 1 Textbox mit dem interessantesten Moment aus diesem Slot.')
+  lines.push('')
+  
+  return lines.join('\n')
+}
+
 export async function POST(request: NextRequest) {
   await headers()
   
@@ -203,9 +286,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const mode = body.mode || '24h'
+    const activityBuckets: ActivityBucket[] = body.activityBuckets || []
+    const activityStats: ActivityStats | null = body.activityStats || null
     
     console.log(`[TIMELINE-AI POST] ════════════════════════════════════════════`)
     console.log(`[TIMELINE-AI POST] 🚀 Starting AI generation for mode: ${mode}`)
+    console.log(`[TIMELINE-AI POST] 📊 Activity buckets provided: ${activityBuckets.length}`)
     console.log(`[TIMELINE-AI POST] 🔑 Will save to cache_key: timeline-${mode}`)
     
     const supabase = await createClient()
@@ -275,6 +361,9 @@ export async function POST(request: NextRequest) {
     // Generate AI response (non-streaming for reliable caching)
     console.log(`[TIMELINE-AI] 🤖 Calling AI for ${mode}...`)
     
+    // Build activity context if provided
+    const activityContext = formatActivityContext(activityBuckets, activityStats, mode)
+    
     const { object } = await generateObject({
       model: openai('gpt-4o-mini'),
       schema: TimelineResponseSchema,
@@ -282,9 +371,12 @@ export async function POST(request: NextRequest) {
       prompt: `Aktueller Zeitpunkt: ${currentTime}
 Zeitraum: ${mode === '24h' ? 'Letzte 24 Stunden' : mode === '3d' ? 'Letzte 3 Tage' : 'Letzte 7 Tage'}
 Aktivität: ${activityHint} (${allMessages.length} Nachrichten von ${uniqueUsers} Usern)
-
+${activityContext}
 ⚠️ ERWARTETE EVENTS: ${expectedEvents} - GIB MINDESTENS SO VIELE!
 Sei nicht zu konservativ - jeder halbwegs interessante Moment zählt!
+
+🎯 HAUPTAUFGABE: Für jeden oben gelisteten Zeitslot → 1 Event generieren!
+Suche im Chat nach Nachrichten aus dem jeweiligen Zeitfenster und finde das Highlight.
 
 ${chatContext}`,
       temperature: 0.7,

@@ -56,7 +56,7 @@ interface ChatHistoryTimelineProps {
   autoStart?: boolean
   showRefreshButton?: boolean
   compact?: boolean // Minimal version for top placement
-  defaultMode?: TimelineMode // Default: '24h'
+  defaultMode?: TimelineMode // Default: '3d'
 }
 
 interface ActivityBucket {
@@ -449,7 +449,7 @@ export function ChatHistoryTimeline({
   autoStart = false,
   showRefreshButton = true,
   compact = false,
-  defaultMode = '24h'
+  defaultMode = '3d'
 }: ChatHistoryTimelineProps) {
   const [events, setEvents] = useState<ChatEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -538,11 +538,37 @@ export function ChatHistoryTimeline({
     try {
       console.log(`[ChatTimeline] Generating AI timeline (${mode})...`)
       
-      // Call AI endpoint directly for fresh analysis
+      // STEP 1: Load activity data FIRST (for bar chart context)
+      console.log(`[ChatTimeline] 📊 Fetching activity data first...`)
+      let fetchedBuckets: ActivityBucket[] = []
+      let fetchedStats: ActivityStats | null = null
+      
+      try {
+        const activityRes = await fetch(`/test-timeline/api/activity?mode=${mode}&_t=${Date.now()}`)
+        if (activityRes.ok) {
+          const activityData = await activityRes.json()
+          fetchedBuckets = activityData.buckets || []
+          fetchedStats = activityData.stats || null
+          console.log(`[ChatTimeline] ✅ Got ${fetchedBuckets.length} activity buckets, peak: ${fetchedStats?.peakTime}`)
+          
+          // Update state for immediate display
+          setActivityBuckets(fetchedBuckets)
+          setActivityStats(fetchedStats)
+        }
+      } catch (actErr) {
+        console.warn('[ChatTimeline] Activity fetch failed, continuing without:', actErr)
+      }
+      
+      // STEP 2: Call AI endpoint with activity context
+      console.log(`[ChatTimeline] 🤖 Calling AI with activity context...`)
       const res = await fetch('/test-timeline/api/analyze', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ 
+          mode,
+          activityBuckets: fetchedBuckets,
+          activityStats: fetchedStats
+        }),
         cache: 'no-store'
       })
       
