@@ -28,18 +28,18 @@ const TimelineEventSchema = z.object({
   timestamp: z.string().describe('Exakter Zeitstempel aus dem Chat (ISO format oder DD.MM HH:MM)'),
   time: z.string().describe('Uhrzeit für Anzeige (HH:MM format)'),
   date: z.string().describe('Datum (YYYY-MM-DD format)'),
-  title: z.string().max(60).describe('Kurzer, prägnanter Titel (max 60 Zeichen)'),
-  quote: z.string().max(150).describe('Das beste Zitat zu diesem Event (max 150 Zeichen)'),
-  quoteAuthor: z.string().describe('Username des Zitierten'),
-  description: z.string().max(200).describe('Kurze Beschreibung was passiert ist (max 200 Zeichen)'),
+  title: z.string().describe('Kurzer, prägnanter Titel (max 60 Zeichen)'),
+  quote: z.string().optional().describe('Das beste Zitat zu diesem Event (max 150 Zeichen)'),
+  quoteAuthor: z.string().optional().describe('Username des Zitierten'),
+  description: z.string().describe('Kurze Beschreibung was passiert ist (max 200 Zeichen)'),
   type: z.enum(['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor']),
-  participants: z.array(z.string()).min(1).max(6).describe('Beteiligte User (1-6)'),
+  participants: z.array(z.string()).describe('Beteiligte User (1-6)'),
   sentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).optional(),
 })
 
 const TimelineResponseSchema = z.object({
-  events: z.array(TimelineEventSchema).min(3).max(15).describe('Die wichtigsten Events - MINDESTENS 5-6 bei normaler Aktivität, bis zu 12-15 bei hoher!'),
-  summary: z.string().max(200).describe('Ein-Satz-Zusammenfassung des Zeitraums (max 200 Zeichen)'),
+  events: z.array(TimelineEventSchema).describe('Die wichtigsten Events - MINDESTENS 5-6 bei normaler Aktivität, bis zu 12-15 bei hoher!'),
+  summary: z.string().describe('Ein-Satz-Zusammenfassung des Zeitraums (max 200 Zeichen)'),
   activityLevel: z.enum(['low', 'medium', 'high']).describe('Wie aktiv war der Chat?'),
   dominantSentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']),
 })
@@ -241,14 +241,35 @@ function formatActivityContext(buckets: ActivityBucket[], stats: ActivityStats |
   const topN = mode === '7d' ? 12 : mode === '3d' ? 8 : 6
   const significantBuckets = getSignificantBuckets(buckets, topN)
   
+  // Find the peak bucket
+  const peakBucket = significantBuckets[0] // Already sorted by count
+  const isPeakProvided = stats?.peakTime && peakBucket
+  
   const lines: string[] = [
     '\n## 📊 BAR CHART - TEXTBOXEN GESUCHT!',
     '',
     'Die Timeline zeigt ein Balkendiagramm. **JEDER dieser Balken braucht eine Textbox (Event)!**',
-    '',
-    '### 📝 DIESE ZEITSLOTS BRAUCHEN EINEN TEXT:',
     ''
   ]
+  
+  // Highlight peak time - MANDATORY event
+  if (isPeakProvided) {
+    const peakDate = new Date(peakBucket.timestamp)
+    const peakDateStr = peakDate.toISOString().split('T')[0]
+    const peakTimeStr = peakDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+    
+    lines.push('### 🔥🔥🔥 PEAK HOUR - PFLICHT-EVENT! 🔥🔥🔥')
+    lines.push('')
+    lines.push(`**${peakBucket.label}** = HÖCHSTE AKTIVITÄT (${peakBucket.count} Nachrichten!)`)
+    lines.push(`→ Zeitfenster: ${peakDateStr} ca. ${peakTimeStr}`)
+    lines.push(`→ HIER MUSS UNBEDINGT EIN EVENT HER! Das ist der wichtigste Balken!`)
+    lines.push('')
+    lines.push('---')
+    lines.push('')
+  }
+  
+  lines.push('### 📝 DIESE ZEITSLOTS BRAUCHEN EINEN TEXT:')
+  lines.push('')
   
   // List each bucket that needs an event
   for (let i = 0; i < significantBuckets.length; i++) {
@@ -257,7 +278,11 @@ function formatActivityContext(buckets: ActivityBucket[], stats: ActivityStats |
     const dateStr = date.toISOString().split('T')[0]
     const timeStr = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
     
-    lines.push(`${i + 1}. **${bucket.label}** (${bucket.count} msgs, ${bucket.uniqueUsers} user)`)
+    const isPeak = bucket === peakBucket
+    const prefix = isPeak ? '🔥 ' : ''
+    const suffix = isPeak ? ' ← PEAK!' : ''
+    
+    lines.push(`${i + 1}. ${prefix}**${bucket.label}** (${bucket.count} msgs, ${bucket.uniqueUsers} user)${suffix}`)
     lines.push(`   → Zeitfenster: ${dateStr} ca. ${timeStr}`)
     lines.push(`   → SUCHE: Was wurde in diesem Zeitfenster besprochen?`)
     lines.push('')
@@ -356,6 +381,9 @@ export async function POST(request: NextRequest) {
     console.log(`[TIMELINE-AI] 📊 Messages: ${allMessages.length}`)
     console.log(`[TIMELINE-AI] 👥 Users: ${uniqueUsers}`)
     console.log(`[TIMELINE-AI] 🎯 Expected events: ${expectedEvents} (${activityHint})`)
+    if (activityStats?.peakTime) {
+      console.log(`[TIMELINE-AI] 🔥 Peak time: ${activityStats.peakTime} (${activityStats.maxPerBucket} msgs)`)
+    }
     console.log(`[TIMELINE-AI] ════════════════════════════════════════════`)
     
     // Generate AI response (non-streaming for reliable caching)
@@ -364,23 +392,79 @@ export async function POST(request: NextRequest) {
     // Build activity context if provided
     const activityContext = formatActivityContext(activityBuckets, activityStats, mode)
     
-    const { object } = await generateObject({
-      model: openai('gpt-4o-mini'),
-      schema: TimelineResponseSchema,
-      system: TIMELINE_PROMPT,
-      prompt: `Aktueller Zeitpunkt: ${currentTime}
+    // Build peak time info for prompt
+    let peakInfo = ''
+    if (activityStats?.peakTime) {
+      const peakDate = new Date(activityStats.peakTime)
+      const peakTimeStr = peakDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+      const peakDateStr = peakDate.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })
+      peakInfo = `\n🔥 PEAK-STUNDE: ${peakDateStr} ${peakTimeStr} (${activityStats.maxPerBucket} Nachrichten) - HIER MUSS EIN EVENT HER!\n`
+    }
+    
+    const aiPrompt = `Aktueller Zeitpunkt: ${currentTime}
 Zeitraum: ${mode === '24h' ? 'Letzte 24 Stunden' : mode === '3d' ? 'Letzte 3 Tage' : 'Letzte 7 Tage'}
 Aktivität: ${activityHint} (${allMessages.length} Nachrichten von ${uniqueUsers} Usern)
-${activityContext}
-⚠️ ERWARTETE EVENTS: ${expectedEvents} - GIB MINDESTENS SO VIELE!
-Sei nicht zu konservativ - jeder halbwegs interessante Moment zählt!
+${peakInfo}
+═══════════════════════════════════════════════════════════
+🎯 ERWARTETE EVENTS: ${expectedEvents} (${activityHint})
+═══════════════════════════════════════════════════════════
 
+Sei nicht zu konservativ - jeder halbwegs interessante Moment zählt!
+${activityContext}
 🎯 HAUPTAUFGABE: Für jeden oben gelisteten Zeitslot → 1 Event generieren!
 Suche im Chat nach Nachrichten aus dem jeweiligen Zeitfenster und finde das Highlight.
 
-${chatContext}`,
-      temperature: 0.7,
-    })
+${chatContext}`
+    
+    // Try to generate with retry on failure
+    let object: TimelineResponse | null = null
+    let lastError: Error | null = null
+    
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`[TIMELINE-AI] 🤖 Attempt ${attempt} for ${mode}...`)
+        const result = await generateObject({
+          model: openai('gpt-4o-mini'),
+          schema: TimelineResponseSchema,
+          system: TIMELINE_PROMPT,
+          prompt: aiPrompt,
+          temperature: attempt === 1 ? 0.7 : 0.5, // Lower temp on retry
+        })
+        object = result.object
+        break // Success, exit retry loop
+      } catch (genError) {
+        lastError = genError instanceof Error ? genError : new Error(String(genError))
+        console.error(`[TIMELINE-AI] ⚠️ Attempt ${attempt} failed:`, lastError.message)
+        
+        if (attempt === 2) {
+          // Final attempt failed - return empty state instead of error
+          console.log(`[TIMELINE-AI] ❌ All attempts failed, returning empty state`)
+          return new Response(
+            JSON.stringify({
+              events: [],
+              summary: 'Fehler bei der Analyse - keine Events generiert',
+              activityLevel: 'low',
+              dominantSentiment: 'neutral',
+              error: lastError.message
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        }
+      }
+    }
+    
+    if (!object) {
+      // Should not happen, but safety fallback
+      return new Response(
+        JSON.stringify({
+          events: [],
+          summary: 'Keine Events generiert',
+          activityLevel: 'low',
+          dominantSentiment: 'neutral'
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
     
     console.log(`[TIMELINE-AI] ✅ Generated ${object.events?.length || 0} events for ${mode}`)
     

@@ -583,17 +583,23 @@ export function ChatHistoryTimeline({
         summary?: string
         activityLevel?: 'low' | 'medium' | 'high'
         dominantSentiment?: string
+        error?: string
       }
       
       const data: AIResponse = await res.json()
+      
+      // Log if there was an error during generation (but still got a response)
+      if (data.error) {
+        console.warn('[ChatTimeline] AI had issues:', data.error)
+      }
       
       if (!data?.events || data.events.length === 0) {
         console.warn('[ChatTimeline] No events in AI response, using empty state')
         setEvents([])
         setCacheInfo({ 
           updatedAt: new Date().toISOString(),
-          summary: 'Keine besonderen Events gefunden',
-          activityLevel: 'low'
+          summary: data.summary || 'Keine besonderen Events gefunden',
+          activityLevel: data.activityLevel || 'low'
         })
         setHasLoaded(true)
         return
@@ -782,56 +788,54 @@ export function ChatHistoryTimeline({
   // ========== COMPACT MODE ==========
   if (compact) {
     return (
-      <div className={`relative flex flex-col gap-2 ${className}`}>
-        {/* Timeline events row */}
-        <div className="flex items-center">
-          {/* Left side: Mode selector, Refresh button and cache age */}
-          <div className="flex-shrink-0 flex items-center gap-2 px-2 border-r border-foreground/10">
-            {/* Mode selector - compact pills */}
-            <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
-              {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => handleModeChange(m)}
-                  disabled={isLoading || isRefreshing}
-                  className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-all ${
-                    mode === m 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-            
-            {/* Refresh button */}
-            <button
-              onClick={refreshTimeline}
-              disabled={isRefreshing || isLoading}
-              className="p-1 rounded hover:bg-muted disabled:opacity-50 transition-all"
-              title="Timeline aktualisieren"
-            >
-              <RefreshCw className={`w-3 h-3 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-            
-            {/* Cache age */}
-            <div className="flex flex-col items-center">
-              {cacheInfo && !isLoading && !isRefreshing && (
-                <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
-                  {formatDetailedTimeAgo(cacheInfo.updatedAt)}
-                </span>
-              )}
-              {(isLoading || isRefreshing) && (
-                <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
-                  {isRefreshing ? 'AI...' : '...'}
-                </span>
-              )}
-            </div>
+      <div className={`relative flex flex-col ${className}`}>
+        {/* Top row: Controls on top left */}
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-foreground/5">
+          {/* Mode selector - compact pills */}
+          <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
+            {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => handleModeChange(m)}
+                disabled={isLoading || isRefreshing}
+                className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-all ${
+                  mode === m 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
           </div>
+          
+          {/* Refresh button */}
+          <button
+            onClick={refreshTimeline}
+            disabled={isRefreshing || isLoading}
+            className="p-1 rounded hover:bg-muted disabled:opacity-50 transition-all"
+            title="Timeline aktualisieren"
+          >
+            <RefreshCw className={`w-3 h-3 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+          
+          {/* Cache age */}
+          <div className="flex items-center">
+            {cacheInfo && !isLoading && !isRefreshing && (
+              <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
+                {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+              </span>
+            )}
+            {(isLoading || isRefreshing) && (
+              <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
+                {isRefreshing ? 'AI...' : '...'}
+              </span>
+            )}
+          </div>
+        </div>
 
-          {/* Right side: Timeline content */}
-          <div className="flex-1 min-w-0 relative">
+        {/* Timeline content - full width */}
+        <div className="w-full relative">
             {/* Compact: Loading */}
             {isLoading && !hasLoaded && (
               <div className="flex items-center justify-center py-3">
@@ -874,159 +878,235 @@ export function ChatHistoryTimeline({
                   className="overflow-x-auto"
                   style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 >
-                  <div className="relative min-w-max px-6 py-3 h-[280px]">
-                    {/* Activity bars and timeline scale */}
-                    <div className="absolute bottom-8 left-0 right-0 flex items-end gap-[2px] px-6">
-                      {(() => {
-                        // Reset event index at the start of each day
-                        let currentDay = ''
-                        let dayEventIndex = 0
-                        
-                        return activityBuckets.map((bucket, idx) => {
-                          const maxCount = activityStats?.maxPerBucket || Math.max(...activityBuckets.map(b => b.count), 1)
-                          const heightPercent = maxCount > 0 ? (bucket.count / maxCount) * 100 : 0
-                          const barHeight = bucket.count > 0 
-                            ? Math.max(4, (heightPercent / 100) * 50)
-                            : 4
-                          
-                          // Check if we're on a new day - reset counter
-                          const bucketDate = new Date(bucket.timestamp).toDateString()
-                          if (bucketDate !== currentDay) {
-                            currentDay = bucketDate
-                            dayEventIndex = 0 // Reset at day boundary
-                          }
-                          
-                          // Find events for this bucket
-                          const bucketEvents = eventsWithBuckets.filter(e => e.bucket?.timestamp === bucket.timestamp)
-                          
-                          return (
-                            <div key={idx} className="relative flex flex-col items-center group" style={{ minWidth: '22px' }}>
-                              {/* Event cards above the bar - STAGGERED PER DAY */}
-                              {bucketEvents.map((event, eventIdx) => {
-                                const style = getEventStyle(event.type)
-                                const Icon = style.icon
-                                const cardHeight = 52 // Card height including content
-                                const verticalOffset = dayEventIndex * (cardHeight + 8) // Good spacing between cards
-                                dayEventIndex++ // Increment for next event in this day
-                                
-                                return (
-                                  <div 
-                                    key={`${idx}-${event.id}-${eventIdx}`}
-                                    className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card" 
-                                    style={{ 
-                                      bottom: `${barHeight + 10 + verticalOffset}px`,
-                                    }}
-                                  >
-                                    {/* Connector line from card to bar */}
+                  {(() => {
+                    // Calculate dynamic sizing based on event count and mode
+                    const eventCount = events.length
+                    const is24hMode = mode === '24h'
+                    
+                    // Scale card size based on event count
+                    const isCompact = eventCount > 10
+                    const isTiny = eventCount > 14
+                    
+                    // Card dimensions
+                    const cardHeight = isTiny ? 36 : isCompact ? 44 : 52
+                    const cardWidth = isTiny ? 110 : isCompact ? 130 : 150
+                    const cardGap = 8
+                    const bucketWidth = 24 // 22px min + 2px gap
+                    const fontSize = isTiny ? '[6px]' : isCompact ? '[7px]' : '[8px]'
+                    const titleSize = isTiny ? '[7px]' : isCompact ? '[8px]' : '[9px]'
+                    
+                    // Left padding to prevent cards from being cut off
+                    const leftPadding = Math.ceil(cardWidth / 2) + 20
+                    
+                    // PRE-CALCULATE card positions with collision detection
+                    // Track occupied ranges per row: { row: [{ start, end }, ...] }
+                    const rowOccupancy: Array<Array<{ start: number; end: number }>> = []
+                    const maxRows = 15 // Allow up to 15 rows
+                    
+                    // Initialize rows
+                    for (let i = 0; i < maxRows; i++) {
+                      rowOccupancy.push([])
+                    }
+                    
+                    // Build event position map
+                    type EventPosition = {
+                      event: typeof eventsWithBuckets[0]
+                      bucketIdx: number
+                      row: number
+                      xCenter: number
+                    }
+                    const eventPositions: EventPosition[] = []
+                    
+                    // First pass: assign each event to a bucket index and find non-overlapping row
+                    eventsWithBuckets.forEach((event) => {
+                      // Find bucket index
+                      const bucketIdx = activityBuckets.findIndex(b => b.timestamp === event.bucket?.timestamp)
+                      if (bucketIdx === -1) return
+                      
+                      // Calculate horizontal center position
+                      const xCenter = bucketIdx * bucketWidth
+                      const cardLeft = xCenter - cardWidth / 2
+                      const cardRight = xCenter + cardWidth / 2
+                      
+                      // Find first row where this card doesn't overlap
+                      let assignedRow = 0
+                      for (let row = 0; row < maxRows; row++) {
+                        const overlaps = rowOccupancy[row].some(occupied => 
+                          !(cardRight < occupied.start || cardLeft > occupied.end)
+                        )
+                        if (!overlaps) {
+                          assignedRow = row
+                          break
+                        }
+                      }
+                      
+                      // Mark this space as occupied
+                      rowOccupancy[assignedRow].push({ start: cardLeft, end: cardRight })
+                      
+                      eventPositions.push({
+                        event,
+                        bucketIdx,
+                        row: assignedRow,
+                        xCenter
+                      })
+                    })
+                    
+                    // Calculate actual rows used
+                    const rowsUsed = Math.max(1, ...eventPositions.map(p => p.row + 1))
+                    
+                    // Container height based on rows needed
+                    const containerHeight = 80 + (rowsUsed * (cardHeight + cardGap))
+                    
+                    // Create lookup for event positions by bucket
+                    const eventsByBucket = new Map<number, EventPosition[]>()
+                    eventPositions.forEach(pos => {
+                      const existing = eventsByBucket.get(pos.bucketIdx) || []
+                      existing.push(pos)
+                      eventsByBucket.set(pos.bucketIdx, existing)
+                    })
+                    
+                    return (
+                      <div className="relative min-w-max py-3" style={{ height: `${containerHeight}px`, paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}>
+                        {/* Activity bars and timeline scale */}
+                        <div className="absolute bottom-8 left-0 right-0 flex items-end gap-[2px]" style={{ paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}>
+                          {activityBuckets.map((bucket, idx) => {
+                            const maxCount = activityStats?.maxPerBucket || Math.max(...activityBuckets.map(b => b.count), 1)
+                            const heightPercent = maxCount > 0 ? (bucket.count / maxCount) * 100 : 0
+                            const barHeight = bucket.count > 0 
+                              ? Math.max(4, (heightPercent / 100) * 50)
+                              : 4
+                            
+                            // Get pre-calculated event positions for this bucket
+                            const bucketEventPositions = eventsByBucket.get(idx) || []
+                            
+                            return (
+                              <div key={idx} className="relative flex flex-col items-center group" style={{ minWidth: '22px' }}>
+                                {/* Event cards above the bar - using pre-calculated positions */}
+                                {bucketEventPositions.map((pos, eventIdx) => {
+                                  const event = pos.event
+                                  const style = getEventStyle(event.type)
+                                  const verticalOffset = pos.row * (cardHeight + cardGap)
+                                  
+                                  return (
                                     <div 
-                                      className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/30 to-transparent" 
+                                      key={`${idx}-${event.id}-${eventIdx}`}
+                                      className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card" 
                                       style={{ 
-                                        height: `${10 + verticalOffset}px`,
+                                        bottom: `${barHeight + 10 + verticalOffset}px`,
                                       }}
-                                    />
-                                    
-                                    {/* Event card - with min width to prevent overflow */}
-                                    <div 
-                                      className={`w-36 p-1.5 rounded border ${style.bg} ${style.border} backdrop-blur-sm 
-                                      transition-all duration-200 group-hover/card:w-44 group-hover/card:shadow-2xl group-hover/card:scale-105 cursor-default 
-                                      will-change-[width,transform]`}
-                                      style={{ minWidth: '144px' }}
                                     >
-                                      <div className="flex items-center justify-between mb-0.5">
-                                        <span className={`text-[7px] font-bold uppercase ${style.text} leading-none`}>
-                                          {style.label}
-                                        </span>
-                                        <span className="text-[8px] font-mono text-muted-foreground">
-                                          {event.time}
-                                        </span>
+                                      {/* Connector line from card to bar */}
+                                      <div 
+                                        className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/30 to-transparent" 
+                                        style={{ 
+                                          height: `${10 + verticalOffset}px`,
+                                        }}
+                                      />
+                                      
+                                      {/* Event card - dynamically sized */}
+                                      <div 
+                                        className={`p-1.5 rounded border ${style.bg} ${style.border} backdrop-blur-sm 
+                                        transition-all duration-200 hover:shadow-2xl hover:scale-110 hover:z-[100] cursor-default`}
+                                        style={{ 
+                                          width: `${cardWidth}px`,
+                                          minWidth: `${cardWidth}px`,
+                                        }}
+                                      >
+                                        <div className="flex items-center justify-between mb-0.5">
+                                          <span className={`text-${fontSize} font-bold uppercase ${style.text} leading-none truncate`}>
+                                            {style.label}
+                                          </span>
+                                          <span className={`text-${fontSize} font-mono text-muted-foreground ml-1`}>
+                                            {event.time}
+                                          </span>
+                                        </div>
+                                        <h4 className={`text-${titleSize} font-bold leading-tight line-clamp-1 group-hover/card:line-clamp-2`}>
+                                          {event.title}
+                                        </h4>
+                                        {!isTiny && (
+                                          <p className="text-[7px] text-muted-foreground leading-snug mt-0.5 max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-16 group-hover/card:opacity-100 transition-all duration-200 line-clamp-2">
+                                            {event.description}
+                                          </p>
+                                        )}
                                       </div>
-                                      <h4 className="text-[9px] font-bold leading-tight line-clamp-2 group-hover:line-clamp-3">
-                                        {event.title}
-                                      </h4>
-                                      <p className="text-[8px] text-muted-foreground leading-snug mt-0.5 max-h-0 overflow-hidden opacity-0 group-hover:max-h-20 group-hover:opacity-100 transition-all duration-200 line-clamp-2">
-                                        {event.description}
-                                      </p>
+                                      
+                                      {/* Dot at connection point */}
+                                      <div 
+                                        className={`absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full ${style.bg} border ${style.border} z-10`}
+                                      />
                                     </div>
-                                    
-                                    {/* Dot at connection point */}
-                                    <div 
-                                      className={`absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full ${style.bg} border ${style.border} z-10`}
-                                    />
+                                  )
+                                })}
+                                
+                                {/* Activity bar */}
+                                <div 
+                                  className="w-5 rounded-t transition-all duration-100 group-hover:brightness-125"
+                                  style={{ 
+                                    height: `${barHeight}px`,
+                                    backgroundColor: getBarColor(bucket.intensity)
+                                  }}
+                                />
+                                
+                                {/* Tooltip on hover */}
+                                <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 
+                                  transition-opacity duration-100 pointer-events-none z-50 whitespace-nowrap">
+                                  <div className="bg-popover/95 backdrop-blur border border-border rounded px-1.5 py-0.5 text-[8px]">
+                                    <span className="font-mono">{bucket.label}</span>
+                                    <span className="text-muted-foreground ml-1">{bucket.count} msgs</span>
                                   </div>
-                                )
-                              })}
-                              
-                              {/* Activity bar */}
-                              <div 
-                                className="w-5 rounded-t transition-all duration-100 group-hover:brightness-125"
-                                style={{ 
-                                  height: `${barHeight}px`,
-                                  backgroundColor: getBarColor(bucket.intensity)
-                                }}
-                              />
-                              
-                              {/* Tooltip on hover */}
-                              <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 
-                                transition-opacity duration-100 pointer-events-none z-50 whitespace-nowrap">
-                                <div className="bg-popover/95 backdrop-blur border border-border rounded px-1.5 py-0.5 text-[8px]">
-                                  <span className="font-mono">{bucket.label}</span>
-                                  <span className="text-muted-foreground ml-1">{bucket.count} msgs</span>
                                 </div>
                               </div>
-                            </div>
-                          )
-                        })
-                      })()}
-                    </div>
-                    
-                    {/* Time scale - BELOW the bars */}
-                    <div className="absolute bottom-0 left-0 right-0 h-10 gap-[2px] px-6 border-t border-foreground/5 pt-1">
-                      <div className="flex items-start gap-[2px]">
-                        {activityBuckets.map((bucket, idx) => {
-                          const bucketDate = new Date(bucket.timestamp)
-                          const prevBucket = idx > 0 ? activityBuckets[idx - 1] : null
-                          const prevDate = prevBucket ? new Date(prevBucket.timestamp) : null
-                          
-                          // Check if this is a new day
-                          const isNewDay = !prevDate || bucketDate.toDateString() !== prevDate.toDateString()
-                          
-                          // Get day abbreviation (German)
-                          const dayNames = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
-                          const dayAbbr = dayNames[bucketDate.getDay()]
-                          const dayAndMonth = `${dayAbbr} ${bucketDate.getDate()}.${bucketDate.getMonth() + 1}`
-                          
-                          return (
-                            <div key={idx} className="relative flex flex-col items-center" style={{ minWidth: '22px' }}>
-                              {/* Day marker at day boundaries */}
-                              {isNewDay && (
-                                <div className="text-[9px] font-bold text-foreground mb-0.5 whitespace-nowrap">
-                                  {dayAndMonth}
-                                </div>
-                              )}
-                              
-                              {/* Time label every 6 buckets */}
-                              {idx % 6 === 0 && (
-                                <div className="text-[7px] text-muted-foreground/70 font-mono whitespace-nowrap">
-                                  {bucket.label.split(' ').pop()}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
+                            )
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    )
+                  })()}
+                </div>
+                
+                {/* Time scale - BELOW the scrollable area */}
+                <div className="flex items-start gap-[2px] py-1 border-t border-foreground/5 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', paddingLeft: '95px', paddingRight: '95px' }}>
+                  {activityBuckets.map((bucket, idx) => {
+                    const bucketDate = new Date(bucket.timestamp)
+                    const prevBucket = idx > 0 ? activityBuckets[idx - 1] : null
+                    const prevDate = prevBucket ? new Date(prevBucket.timestamp) : null
+                    
+                    // Check if this is a new day
+                    const isNewDay = !prevDate || bucketDate.toDateString() !== prevDate.toDateString()
+                    
+                    // Get day abbreviation (German)
+                    const dayNames = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
+                    const dayAbbr = dayNames[bucketDate.getDay()]
+                    const dayAndMonth = `${dayAbbr} ${bucketDate.getDate()}.${bucketDate.getMonth() + 1}`
+                    
+                    return (
+                      <div key={idx} className="relative flex flex-col items-center" style={{ minWidth: '22px' }}>
+                        {/* Day marker at day boundaries */}
+                        {isNewDay && (
+                          <div className="text-[9px] font-bold text-foreground mb-0.5 whitespace-nowrap">
+                            {dayAndMonth}
+                          </div>
+                        )}
+                        
+                        {/* Time label every 6 buckets */}
+                        {idx % 6 === 0 && (
+                          <div className="text-[7px] text-muted-foreground/70 font-mono whitespace-nowrap">
+                            {bucket.label.split(' ').pop()}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
 
-            {/* Compact: Empty state - just show nothing or minimal text */}
-            {hasLoaded && events.length === 0 && !isLoading && !error && (
-              <div className="flex items-center justify-center py-3 text-[10px] text-foreground/50 dark:text-foreground/60">
-                Keine Chat-Events
-              </div>
-            )}
-          </div>
+          {/* Compact: Empty state - just show nothing or minimal text */}
+          {hasLoaded && events.length === 0 && !isLoading && !error && (
+            <div className="flex items-center justify-center py-3 text-[10px] text-foreground/50 dark:text-foreground/60">
+              Keine Chat-Events
+            </div>
+          )}
         </div>
       </div>
     )
