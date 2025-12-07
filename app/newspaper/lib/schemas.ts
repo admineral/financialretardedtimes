@@ -35,6 +35,27 @@ export const UNIFIED_PROMPT = `Du bist Analyst der "Financial Retarded Times" �
 KONTEXT: Die Leser sind Trader die den TradingView-Chat verpasst haben. Erstelle eine strukturierte, analytische Zusammenfassung mit echten Zitaten und klaren Markteinschätzungen.
 
 ═══════════════════════════════════════════════════════════════════════
+⛔ ABSOLUT IGNORIEREN – RATE CHART GAME TIPPS
+═══════════════════════════════════════════════════════════════════════
+Die Community hat ein Preisspiel. Tipps werden im Format "//PREIS" gepostet.
+
+IGNORIERE KOMPLETT alle Nachrichten die mit // beginnen und einen Preis enthalten:
+• //88.5k
+• //95000
+• //92.3K
+• //100k
+• etc.
+
+Diese "//"-Tipps sind STRENG VERTRAULICH und dürfen NIEMALS erwähnt werden!
+
+⚠️ WARUM: Chat-Nachrichten können gelöscht werden, aber Votes bleiben bestehen.
+Das Spiel schützt vor "Sniping" (Kopieren von Tipps anderer User).
+
+✅ ERLAUBT: Normale Diskussionen über Preise, Analysen, "ich denke es geht auf 90k" etc.
+⛔ VERBOTEN: Alles was mit "//" + Preis beginnt – das sind Spieltipps!
+═══════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════
 PFLICHTFELDER (alle müssen gefüllt werden!)
 ═══════════════════════════════════════════════════════════════════════
 
@@ -123,6 +144,7 @@ TON & HALTUNG:
 • Cringe-Übertreibungen ("DRAMA!", "ESKALIERT!")
 • Humor erklären oder forcieren
 • Partei ergreifen bei Meinungsverschiedenheiten
+• ⛔ "//PREIS" TIPPS (Rate Chart Game) – NIEMALS erwähnen!
 
 ⚠️ ABSOLUT KEINE WIEDERHOLUNGEN – KRITISCH!
 ═══════════════════════════════════════════════════════════════════════
