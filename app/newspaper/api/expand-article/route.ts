@@ -101,6 +101,21 @@ const EXPAND_ARTICLE_PROMPT = `Du bist Redakteur der "Financial Retarded Times" 
 AUFGABE: Erweitere die kurze Zusammenfassung zu einem KURZEN, prägnanten Artikel. Du hast Zugriff auf den Original-Chat.
 
 ═══════════════════════════════════════════════════════════════════════
+⛔ ABSOLUT IGNORIEREN – RATE CHART GAME TIPPS
+═══════════════════════════════════════════════════════════════════════
+Die Community hat ein Preisspiel. Tipps werden im Format "//PREIS" gepostet.
+
+IGNORIERE KOMPLETT alle Nachrichten die mit // beginnen und einen Preis enthalten:
+• //88.5k, //95000, //92.3K, //100k, //89900, //88000, etc.
+
+Diese "//"-Tipps sind STRENG VERTRAULICH – NIEMALS erwähnen oder zitieren!
+Auch nicht als "konkrete Preislevels" oder "angedeutete Preise" umschreiben!
+
+✅ ERLAUBT: Normale Diskussionen über Preise, Analysen
+⛔ VERBOTEN: Alles was mit "//" + Preis beginnt
+═══════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════
 ⚠️ WICHTIG: HALTE DICH KURZ!
 ═══════════════════════════════════════════════════════════════════════
 
@@ -171,6 +186,7 @@ COMMUNITY-FOKUS:
 • Partei ergreifen bei Meinungsverschiedenheiten
 • Cringe-Phrasen wie "MEGA!", "EPISCH!", "DRAMA!"
 • Humor erklären oder forcieren
+• ⛔ "//PREIS" TIPPS (Rate Chart Game) – NIEMALS erwähnen!
 
 ═══════════════════════════════════════════════════════════════════════
 OUTPUT
