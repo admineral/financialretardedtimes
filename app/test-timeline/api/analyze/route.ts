@@ -17,7 +17,7 @@ import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { generateObject } from 'ai'
 import { z } from 'zod'
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -38,8 +38,8 @@ const TimelineEventSchema = z.object({
 })
 
 const TimelineResponseSchema = z.object({
-  events: z.array(TimelineEventSchema).min(2).max(10).describe('Die wichtigsten Events (2-10, je nach Aktivität)'),
-  summary: z.string().max(100).describe('Ein-Satz-Zusammenfassung des Zeitraums'),
+  events: z.array(TimelineEventSchema).min(3).max(15).describe('Die wichtigsten Events - MINDESTENS 5-6 bei normaler Aktivität, bis zu 12-15 bei hoher!'),
+  summary: z.string().max(200).describe('Ein-Satz-Zusammenfassung des Zeitraums (max 200 Zeichen)'),
   activityLevel: z.enum(['low', 'medium', 'high']).describe('Wie aktiv war der Chat?'),
   dominantSentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']),
 })
@@ -77,10 +77,10 @@ Analysiere den Chat und extrahiere die INTERESSANTESTEN MOMENTE mit:
 
 1. **ECHTE ZEITEN**: Nutze die Zeitstempel aus dem Chat, KEINE fiktiven Zeiten!
 2. **ECHTE ZITATE**: Kopiere interessante Nachrichten wörtlich (gekürzt wenn nötig)
-3. **FLEXIBEL**: Bei wenig Aktivität → weniger Events (min 2). Bei viel Aktivität → mehr (max 10)
-4. **MORGENS**: Wenn es früh am Tag ist, gibt es weniger Events - das ist OK!
-5. **CHRONOLOGISCH**: Events sollten zeitlich verteilt sein, nicht alle am gleichen Zeitpunkt
-6. **VIELFALT**: Verschiedene Event-Typen mischen, nicht nur discussions
+3. **MEHR IST BESSER**: Lieber mehr Events als zu wenig! Die Timeline soll voll aussehen!
+4. **CHRONOLOGISCH**: Events zeitlich verteilen über den gesamten Zeitraum
+5. **VIELFALT**: Verschiedene Event-Typen mischen - nicht nur discussions!
+6. **KLEINIGKEITEN ZÄHLEN**: Auch kleine lustige Momente, kurze Calls, witzige Kommentare sind Events!
 
 ## FORMAT
 
@@ -90,13 +90,18 @@ Analysiere den Chat und extrahiere die INTERESSANTESTEN MOMENTE mit:
 - quote: Ein echtes Zitat aus dem Chat, mit @username wenn sinnvoll
 - quoteAuthor: Wer hat das gesagt?
 
-## ACTIVITY LEVEL
+## ⚠️ ANZAHL EVENTS - WICHTIG!
 
-- **low**: < 50 Nachrichten, wenig los → 2-3 Events
-- **medium**: 50-200 Nachrichten → 4-6 Events
-- **high**: > 200 Nachrichten → 6-10 Events
+SEI NICHT ZU KONSERVATIV! Gib lieber mehr Events als zu wenig:
 
-Gib NUR so viele Events zurück wie es ECHTE interessante Momente gibt!`
+- **low** (< 30 Nachrichten, z.B. früh morgens): 3-5 Events
+- **medium** (30-150 Nachrichten): 6-10 Events  
+- **high** (> 150 Nachrichten): 10-15 Events
+
+Jede halbwegs interessante Nachricht kann ein Event sein!
+Calls, Witze, Analysen, Reaktionen, Drama - ALLES zählt!
+
+Bei 7d-Mode: Verteile Events über ALLE Tage, nicht nur die letzten!`
 
 // ═══════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -185,6 +190,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const mode = body.mode || '24h'
     
+    console.log(`[TIMELINE-AI POST] ════════════════════════════════════════════`)
+    console.log(`[TIMELINE-AI POST] 🚀 Starting AI generation for mode: ${mode}`)
+    console.log(`[TIMELINE-AI POST] 🔑 Will save to cache_key: timeline-${mode}`)
+    
     const supabase = await createClient()
     const { startDate, endDate } = getDateRange(mode)
     
@@ -228,14 +237,14 @@ export async function POST(request: NextRequest) {
     const uniqueUsers = new Set(allMessages.map(m => m.username)).size
     const chatContext = formatChatForAI(allMessages)
     
-    // Determine expected event count based on activity
-    let expectedEvents = '2-4'
+    // Determine expected event count based on activity - BE GENEROUS!
+    let expectedEvents = '3-5'
     let activityHint = 'niedrig'
-    if (allMessages.length > 200) {
-      expectedEvents = '6-10'
+    if (allMessages.length > 150) {
+      expectedEvents = '10-15'
       activityHint = 'hoch'
-    } else if (allMessages.length > 50) {
-      expectedEvents = '4-6'
+    } else if (allMessages.length > 30) {
+      expectedEvents = '6-10'
       activityHint = 'mittel'
     }
     
@@ -249,52 +258,68 @@ export async function POST(request: NextRequest) {
     console.log(`[TIMELINE-AI] 🎯 Expected events: ${expectedEvents} (${activityHint})`)
     console.log(`[TIMELINE-AI] ════════════════════════════════════════════`)
     
-    // Stream AI response
-    const result = streamObject({
+    // Generate AI response (non-streaming for reliable caching)
+    console.log(`[TIMELINE-AI] 🤖 Calling AI for ${mode}...`)
+    
+    const { object } = await generateObject({
       model: openai('gpt-4o-mini'),
       schema: TimelineResponseSchema,
       system: TIMELINE_PROMPT,
       prompt: `Aktueller Zeitpunkt: ${currentTime}
 Zeitraum: ${mode === '24h' ? 'Letzte 24 Stunden' : mode === '3d' ? 'Letzte 3 Tage' : 'Letzte 7 Tage'}
 Aktivität: ${activityHint} (${allMessages.length} Nachrichten von ${uniqueUsers} Usern)
-Erwartete Events: ${expectedEvents}
+
+⚠️ ERWARTETE EVENTS: ${expectedEvents} - GIB MINDESTENS SO VIELE!
+Sei nicht zu konservativ - jeder halbwegs interessante Moment zählt!
 
 ${chatContext}`,
       temperature: 0.7,
-      onFinish: async ({ object }) => {
-        if (object) {
-          console.log(`[TIMELINE-AI] ✅ Generated ${object.events?.length || 0} events`)
-          
-          // Save to cache
-          try {
-            await supabase
-              .from('chat_timeline_cache')
-              .upsert({
-                cache_key: `timeline-${mode}`,
-                events: object.events,
-                event_count: object.events?.length || 0,
-                date_range_start: startDate.toISOString().split('T')[0],
-                date_range_end: endDate.toISOString().split('T')[0],
-                updated_at: new Date().toISOString(),
-                metadata: {
-                  mode,
-                  messageCount: allMessages.length,
-                  uniqueUsers,
-                  summary: object.summary,
-                  activityLevel: object.activityLevel,
-                  dominantSentiment: object.dominantSentiment
-                }
-              }, { onConflict: 'cache_key' })
-            
-            console.log(`[TIMELINE-AI] ✅ Cached (${mode})`)
-          } catch (cacheErr) {
-            console.error('[TIMELINE-AI] Cache error:', cacheErr)
-          }
-        }
-      }
     })
     
-    return result.toTextStreamResponse()
+    console.log(`[TIMELINE-AI] ✅ Generated ${object.events?.length || 0} events for ${mode}`)
+    
+    // Save to cache BEFORE returning response
+    try {
+      const cacheData = {
+        cache_key: `timeline-${mode}`,
+        events: object.events,
+        event_count: object.events?.length || 0,
+        date_range_start: startDate.toISOString().split('T')[0],
+        date_range_end: endDate.toISOString().split('T')[0],
+        updated_at: new Date().toISOString(),
+        metadata: {
+          mode,
+          messageCount: allMessages.length,
+          uniqueUsers,
+          summary: object.summary,
+          activityLevel: object.activityLevel,
+          dominantSentiment: object.dominantSentiment
+        }
+      }
+      
+      console.log(`[TIMELINE-AI] 💾 Saving cache for ${mode}...`)
+      
+      const { error: upsertError } = await supabase
+        .from('chat_timeline_cache')
+        .upsert(cacheData, { onConflict: 'cache_key' })
+      
+      if (upsertError) {
+        console.error(`[TIMELINE-AI] ❌ Cache upsert error (${mode}):`, upsertError.message, upsertError.code, upsertError.details, upsertError.hint)
+      } else {
+        console.log(`[TIMELINE-AI] ✅ Cached successfully (${mode}) - ${object.events?.length} events`)
+      }
+    } catch (cacheErr) {
+      console.error('[TIMELINE-AI] ❌ Cache error:', cacheErr)
+    }
+    
+    // Return the generated object as JSON
+    return new Response(
+      JSON.stringify(object),
+      { 
+        status: 200, 
+        headers: { 'Content-Type': 'application/json' } 
+      }
+    )
     
   } catch (error) {
     console.error('[TIMELINE-AI] Error:', error)
@@ -334,11 +359,40 @@ function getCacheStatus(updatedAt: string): { isValid: boolean; isStale: boolean
  * - expired: true if cache is older than 4 hours (client must refresh)
  */
 export async function GET(request: NextRequest) {
+  await headers() // Ensure dynamic rendering
+  
   try {
     const { searchParams } = new URL(request.url)
     const mode = searchParams.get('mode') || '24h'
+    const debug = searchParams.get('debug') === 'true'
     
     const supabase = await createClient()
+    
+    // Debug mode: list all cache entries
+    if (debug) {
+      console.log(`[TIMELINE-AI GET] 🔧 DEBUG: Listing all cache entries`)
+      const { data: allCaches, error: listError } = await supabase
+        .from('chat_timeline_cache')
+        .select('cache_key, event_count, updated_at, date_range_start, date_range_end')
+        .order('updated_at', { ascending: false })
+      
+      if (listError) {
+        console.error(`[TIMELINE-AI GET] ❌ List error:`, listError.message)
+      }
+      
+      return new Response(
+        JSON.stringify({ 
+          debug: true,
+          cacheEntries: allCaches || [],
+          count: allCaches?.length || 0
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    
+    console.log(`[TIMELINE-AI GET] ════════════════════════════════════════════`)
+    console.log(`[TIMELINE-AI GET] 🔍 Checking cache for mode: ${mode}`)
+    console.log(`[TIMELINE-AI GET] 🔑 Cache key: timeline-${mode}`)
     
     const { data: cache, error } = await supabase
       .from('chat_timeline_cache')
@@ -346,13 +400,23 @@ export async function GET(request: NextRequest) {
       .eq('cache_key', `timeline-${mode}`)
       .single()
     
+    if (error) {
+      console.log(`[TIMELINE-AI GET] ❌ DB Error for ${mode}:`, error.message, error.code, error.details)
+    }
+    
     if (error || !cache) {
-      console.log(`[TIMELINE-AI GET] No cache for ${mode}`)
+      console.log(`[TIMELINE-AI GET] 📭 No cache found for ${mode}`)
       return new Response(
         JSON.stringify({ error: 'No cache found', cached: false, expired: true }),
         { status: 404, headers: { 'Content-Type': 'application/json' } }
       )
     }
+    
+    console.log(`[TIMELINE-AI GET] ✅ Found cache for ${mode}:`, {
+      eventCount: cache.event_count,
+      updatedAt: cache.updated_at,
+      dateRange: `${cache.date_range_start} → ${cache.date_range_end}`
+    })
     
     // Check cache age
     const { isValid, isStale, ageMinutes } = getCacheStatus(cache.updated_at)

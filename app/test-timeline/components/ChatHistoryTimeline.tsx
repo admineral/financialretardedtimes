@@ -59,6 +59,21 @@ interface ChatHistoryTimelineProps {
   defaultMode?: TimelineMode // Default: '24h'
 }
 
+interface ActivityBucket {
+  timestamp: string
+  label: string
+  count: number
+  uniqueUsers: number
+  intensity: number
+}
+
+interface ActivityStats {
+  totalMessages: number
+  totalUsers: number
+  maxPerBucket: number
+  peakTime: string
+}
+
 interface CacheResponse {
   events: ChatEvent[]
   eventCount: number
@@ -444,6 +459,11 @@ export function ChatHistoryTimeline({
   const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string; summary?: string; activityLevel?: string } | null>(null)
   const [mode, setMode] = useState<TimelineMode>(defaultMode)
   
+  // Activity data
+  const [activityBuckets, setActivityBuckets] = useState<ActivityBucket[]>([])
+  const [activityStats, setActivityStats] = useState<ActivityStats | null>(null)
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false)
+  
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(true)
@@ -467,6 +487,18 @@ export function ChatHistoryTimeline({
     }
   }, [checkScroll, events])
   
+  // Auto-scroll to the right (newest events) after loading
+  useEffect(() => {
+    if (hasLoaded && events.length > 0 && scrollRef.current && compact) {
+      // Small delay to ensure rendering is complete
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollLeft = scrollRef.current.scrollWidth
+        }
+      }, 100)
+    }
+  }, [hasLoaded, events.length, compact])
+  
   // Scroll handlers
   const scroll = (direction: 'left' | 'right') => {
     if (!scrollRef.current) return
@@ -475,6 +507,26 @@ export function ChatHistoryTimeline({
       behavior: 'smooth'
     })
   }
+
+  // Load activity data
+  const loadActivity = useCallback(async () => {
+    if (isLoadingActivity) return
+    
+    setIsLoadingActivity(true)
+    
+    try {
+      const res = await fetch(`/test-timeline/api/activity?mode=${mode}&_t=${Date.now()}`)
+      if (!res.ok) throw new Error('Failed to load activity')
+      
+      const data = await res.json()
+      setActivityBuckets(data.buckets || [])
+      setActivityStats(data.stats || null)
+    } catch (err) {
+      console.error('[Timeline] Activity load error:', err)
+    } finally {
+      setIsLoadingActivity(false)
+    }
+  }, [isLoadingActivity, mode])
 
   // Refresh timeline - AI-powered extraction of chat highlights
   const refreshTimeline = useCallback(async () => {
@@ -499,16 +551,7 @@ export function ChatHistoryTimeline({
         throw new Error(errData.error || 'AI analysis failed')
       }
       
-      // Parse streaming response
-      const text = await res.text()
-      
-      if (!text || text.trim().length === 0) {
-        throw new Error('Empty response from AI')
-      }
-      
-      const lines = text.split('\n').filter(line => line.trim())
-      
-      // Find the last complete JSON object with events
+      // Parse JSON response (non-streaming now)
       interface AIResponse {
         events?: AITimelineEvent[]
         summary?: string
@@ -516,18 +559,7 @@ export function ChatHistoryTimeline({
         dominantSentiment?: string
       }
       
-      let data: AIResponse | null = null
-      for (let i = lines.length - 1; i >= 0; i--) {
-        try {
-          const parsed = JSON.parse(lines[i]) as AIResponse
-          if (parsed.events && Array.isArray(parsed.events)) {
-            data = parsed
-            break
-          }
-        } catch {
-          // Continue to previous line (streaming responses have partial JSON)
-        }
-      }
+      const data: AIResponse = await res.json()
       
       if (!data?.events || data.events.length === 0) {
         console.warn('[ChatTimeline] No events in AI response, using empty state')
@@ -591,6 +623,11 @@ export function ChatHistoryTimeline({
         const cacheData: CacheResponse = await cacheRes.json()
         
         if (cacheData.cached && cacheData.events && cacheData.events.length > 0) {
+          // Check if cache is from today (for 24h mode)
+          const cacheDate = new Date(cacheData.updatedAt).toDateString()
+          const today = new Date().toDateString()
+          const isCacheFromToday = cacheDate === today
+          
           // Show cached data immediately
           setEvents(cacheData.events)
           setCacheInfo({ 
@@ -608,15 +645,19 @@ export function ChatHistoryTimeline({
             // Cache too old (>4h) - must refresh
             console.log('[ChatTimeline] ⚠️ Cache expired (>4h), auto-refreshing...')
             setIsLoading(false)
-            // Trigger refresh after showing cached data
             setTimeout(() => refreshTimeline(), 100)
             return
           } else if (cacheData.stale) {
             // Cache stale (>30min) - refresh in background
             console.log('[ChatTimeline] 📊 Cache stale, background refresh...')
             setIsLoading(false)
-            // Background refresh after a short delay
             setTimeout(() => refreshTimeline(), 500)
+            return
+          } else if (mode === '24h' && !isCacheFromToday) {
+            // 24h mode but cache is not from today - refresh
+            console.log('[ChatTimeline] 📅 24h cache not from today, auto-refreshing...')
+            setIsLoading(false)
+            setTimeout(() => refreshTimeline(), 100)
             return
           }
         } else {
@@ -651,8 +692,9 @@ export function ChatHistoryTimeline({
     if (autoStart && !hasStartedRef.current && !hasLoaded) {
       hasStartedRef.current = true
       loadTimeline()
+      loadActivity()
     }
-  }, [autoStart, hasLoaded, loadTimeline])
+  }, [autoStart, hasLoaded, loadTimeline, loadActivity])
   
   // Reload when mode changes
   const handleModeChange = useCallback((newMode: TimelineMode) => {
@@ -660,6 +702,7 @@ export function ChatHistoryTimeline({
     setMode(newMode)
     setHasLoaded(false)
     setEvents([])
+    setActivityBuckets([])
     // Will trigger reload via useEffect
   }, [mode])
   
@@ -667,8 +710,9 @@ export function ChatHistoryTimeline({
   useEffect(() => {
     if (hasStartedRef.current && !hasLoaded && !isLoading && !isRefreshing) {
       loadTimeline()
+      loadActivity()
     }
-  }, [mode, hasLoaded, isLoading, isRefreshing, loadTimeline])
+  }, [mode, hasLoaded, isLoading, isRefreshing, loadTimeline, loadActivity])
 
   // Group events by date for display
   const eventsByDate = events.reduce((acc, event) => {
@@ -681,139 +725,282 @@ export function ChatHistoryTimeline({
   const sortedDates = Object.keys(eventsByDate).sort((a, b) => 
     new Date(b).getTime() - new Date(a).getTime()
   )
+  
+  // Match events to activity buckets for positioning
+  const eventsWithBuckets = events.map(event => {
+    const eventDateTime = new Date(`${event.date}T${event.time}:00`)
+    let closestBucket = activityBuckets[0]
+    let minDiff = Infinity
+    
+    for (const bucket of activityBuckets) {
+      const bucketTime = new Date(bucket.timestamp)
+      const diff = Math.abs(eventDateTime.getTime() - bucketTime.getTime())
+      if (diff < minDiff) {
+        minDiff = diff
+        closestBucket = bucket
+      }
+    }
+    
+    return { ...event, bucket: closestBucket }
+  })
+  
+  // Get bar color based on intensity
+  const getBarColor = (intensity: number): string => {
+    if (intensity === 0) return 'hsl(var(--foreground) / 0.1)'
+    if (intensity < 0.3) return 'hsl(160 84% 39% / 0.5)'
+    if (intensity < 0.6) return 'hsl(160 84% 39% / 0.7)'
+    if (intensity < 0.8) return 'hsl(38 92% 50% / 0.8)'
+    return 'hsl(24 95% 53% / 0.9)'
+  }
 
   // ========== COMPACT MODE ==========
   if (compact) {
     return (
-      <div className={`relative flex items-center ${className}`}>
-        {/* Left side: Mode selector, Refresh button and cache age */}
-        <div className="flex-shrink-0 flex items-center gap-2 px-2 border-r border-foreground/10">
-          {/* Mode selector - compact pills */}
-          <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
-            {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => handleModeChange(m)}
-                disabled={isLoading || isRefreshing}
-                className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-all ${
-                  mode === m 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-          
-          {/* Refresh button */}
-          <button
-            onClick={refreshTimeline}
-            disabled={isRefreshing || isLoading}
-            className="p-1 rounded hover:bg-muted disabled:opacity-50 transition-all"
-            title="Timeline aktualisieren"
-          >
-            <RefreshCw className={`w-3 h-3 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-          
-          {/* Cache age */}
-          <div className="flex flex-col items-center">
-            {cacheInfo && !isLoading && !isRefreshing && (
-              <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
-                {formatDetailedTimeAgo(cacheInfo.updatedAt)}
-              </span>
-            )}
-            {(isLoading || isRefreshing) && (
-              <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
-                {isRefreshing ? 'AI...' : '...'}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Right side: Timeline content */}
-        <div className="flex-1 min-w-0 relative">
-          {/* Compact: Loading */}
-          {isLoading && !hasLoaded && (
-            <div className="flex items-center justify-center py-3">
-              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+      <div className={`relative flex flex-col gap-2 ${className}`}>
+        {/* Timeline events row */}
+        <div className="flex items-center">
+          {/* Left side: Mode selector, Refresh button and cache age */}
+          <div className="flex-shrink-0 flex items-center gap-2 px-2 border-r border-foreground/10">
+            {/* Mode selector - compact pills */}
+            <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
+              {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => handleModeChange(m)}
+                  disabled={isLoading || isRefreshing}
+                  className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-all ${
+                    mode === m 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
             </div>
-          )}
+            
+            {/* Refresh button */}
+            <button
+              onClick={refreshTimeline}
+              disabled={isRefreshing || isLoading}
+              className="p-1 rounded hover:bg-muted disabled:opacity-50 transition-all"
+              title="Timeline aktualisieren"
+            >
+              <RefreshCw className={`w-3 h-3 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+            
+            {/* Cache age */}
+            <div className="flex flex-col items-center">
+              {cacheInfo && !isLoading && !isRefreshing && (
+                <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
+                  {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+                </span>
+              )}
+              {(isLoading || isRefreshing) && (
+                <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
+                  {isRefreshing ? 'AI...' : '...'}
+                </span>
+              )}
+            </div>
+          </div>
 
-          {/* Compact: Timeline content */}
-          {hasLoaded && events.length > 0 && !isLoading && (
-            <div className="relative">
-              {/* Gradient overlays */}
-              {canScrollLeft && (
-                <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-20 pointer-events-none" />
-              )}
-              {canScrollRight && (
-                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-20 pointer-events-none" />
-              )}
-              
-              {/* Scroll buttons - floating on sides */}
-              {canScrollLeft && (
-                <button
-                  onClick={() => scroll('left')}
-                  className="absolute left-1 top-1/2 -translate-y-1/2 z-30 p-1 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+          {/* Right side: Timeline content */}
+          <div className="flex-1 min-w-0 relative">
+            {/* Compact: Loading */}
+            {isLoading && !hasLoaded && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {/* Compact: Timeline with integrated activity bars */}
+            {hasLoaded && events.length > 0 && activityBuckets.length > 0 && !isLoading && (
+              <div className="relative">
+                {/* Gradient overlays */}
+                {canScrollLeft && (
+                  <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-20 pointer-events-none" />
+                )}
+                {canScrollRight && (
+                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-20 pointer-events-none" />
+                )}
+                
+                {/* Scroll buttons */}
+                {canScrollLeft && (
+                  <button
+                    onClick={() => scroll('left')}
+                    className="absolute left-1 top-1/2 -translate-y-1/2 z-30 p-1 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                  </button>
+                )}
+                {canScrollRight && (
+                  <button
+                    onClick={() => scroll('right')}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 z-30 p-1 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
+                
+                {/* Scrollable container */}
+                <div 
+                  ref={scrollRef}
+                  className="overflow-x-auto"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 >
-                  <ChevronLeft className="w-3 h-3" />
-                </button>
-              )}
-              {canScrollRight && (
-                <button
-                  onClick={() => scroll('right')}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 z-30 p-1 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
-                >
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              )}
-              
-              {/* Scrollable container */}
-              <div 
-                ref={scrollRef}
-                className="overflow-x-auto"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              >
-                <div className="relative min-w-max px-6 py-3">
-                  {/* Main timeline line */}
-                  <div className="absolute left-0 right-0 bottom-3 h-px bg-gradient-to-r from-foreground/5 via-foreground/15 to-foreground/5" />
-                  
-                  {/* Events inline */}
-                  <div className="relative flex items-end gap-3">
-                    {sortedDates.map((date, dateIdx) => {
-                      const dateEvents = eventsByDate[date]
-                      const firstEvent = dateEvents[0]
-                      
-                      return (
-                        <div key={date} className="flex items-end gap-2">
-                          {/* Compact date marker */}
-                          <CompactDateMarker date={date} messageCount={firstEvent?.messageCount} />
+                  <div className="relative min-w-max px-6 py-3 h-[280px]">
+                    {/* Activity bars and timeline scale */}
+                    <div className="absolute bottom-8 left-0 right-0 flex items-end gap-[2px] px-6">
+                      {(() => {
+                        // Reset event index at the start of each day
+                        let currentDay = ''
+                        let dayEventIndex = 0
+                        
+                        return activityBuckets.map((bucket, idx) => {
+                          const maxCount = activityStats?.maxPerBucket || Math.max(...activityBuckets.map(b => b.count), 1)
+                          const heightPercent = maxCount > 0 ? (bucket.count / maxCount) * 100 : 0
+                          const barHeight = bucket.count > 0 
+                            ? Math.max(4, (heightPercent / 100) * 50)
+                            : 4
                           
-                          {/* Events for this date */}
-                          {dateEvents.map((event) => (
-                            <CompactTimelineCard key={event.id} event={event} />
-                          ))}
+                          // Check if we're on a new day - reset counter
+                          const bucketDate = new Date(bucket.timestamp).toDateString()
+                          if (bucketDate !== currentDay) {
+                            currentDay = bucketDate
+                            dayEventIndex = 0 // Reset at day boundary
+                          }
                           
-                          {/* Spacer between dates */}
-                          {dateIdx < sortedDates.length - 1 && (
-                            <div className="w-4" />
-                          )}
-                        </div>
-                      )
-                    })}
+                          // Find events for this bucket
+                          const bucketEvents = eventsWithBuckets.filter(e => e.bucket?.timestamp === bucket.timestamp)
+                          
+                          return (
+                            <div key={idx} className="relative flex flex-col items-center group" style={{ minWidth: '22px' }}>
+                              {/* Event cards above the bar - STAGGERED PER DAY */}
+                              {bucketEvents.map((event, eventIdx) => {
+                                const style = getEventStyle(event.type)
+                                const Icon = style.icon
+                                const cardHeight = 52 // Card height including content
+                                const verticalOffset = dayEventIndex * (cardHeight + 8) // Good spacing between cards
+                                dayEventIndex++ // Increment for next event in this day
+                                
+                                return (
+                                  <div 
+                                    key={`${idx}-${event.id}-${eventIdx}`}
+                                    className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card" 
+                                    style={{ 
+                                      bottom: `${barHeight + 10 + verticalOffset}px`,
+                                    }}
+                                  >
+                                    {/* Connector line from card to bar */}
+                                    <div 
+                                      className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/30 to-transparent" 
+                                      style={{ 
+                                        height: `${10 + verticalOffset}px`,
+                                      }}
+                                    />
+                                    
+                                    {/* Event card - with min width to prevent overflow */}
+                                    <div 
+                                      className={`w-36 p-1.5 rounded border ${style.bg} ${style.border} backdrop-blur-sm 
+                                      transition-all duration-200 group-hover/card:w-44 group-hover/card:shadow-2xl group-hover/card:scale-105 cursor-default 
+                                      will-change-[width,transform]`}
+                                      style={{ minWidth: '144px' }}
+                                    >
+                                      <div className="flex items-center justify-between mb-0.5">
+                                        <span className={`text-[7px] font-bold uppercase ${style.text} leading-none`}>
+                                          {style.label}
+                                        </span>
+                                        <span className="text-[8px] font-mono text-muted-foreground">
+                                          {event.time}
+                                        </span>
+                                      </div>
+                                      <h4 className="text-[9px] font-bold leading-tight line-clamp-2 group-hover:line-clamp-3">
+                                        {event.title}
+                                      </h4>
+                                      <p className="text-[8px] text-muted-foreground leading-snug mt-0.5 max-h-0 overflow-hidden opacity-0 group-hover:max-h-20 group-hover:opacity-100 transition-all duration-200 line-clamp-2">
+                                        {event.description}
+                                      </p>
+                                    </div>
+                                    
+                                    {/* Dot at connection point */}
+                                    <div 
+                                      className={`absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full ${style.bg} border ${style.border} z-10`}
+                                    />
+                                  </div>
+                                )
+                              })}
+                              
+                              {/* Activity bar */}
+                              <div 
+                                className="w-5 rounded-t transition-all duration-100 group-hover:brightness-125"
+                                style={{ 
+                                  height: `${barHeight}px`,
+                                  backgroundColor: getBarColor(bucket.intensity)
+                                }}
+                              />
+                              
+                              {/* Tooltip on hover */}
+                              <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 
+                                transition-opacity duration-100 pointer-events-none z-50 whitespace-nowrap">
+                                <div className="bg-popover/95 backdrop-blur border border-border rounded px-1.5 py-0.5 text-[8px]">
+                                  <span className="font-mono">{bucket.label}</span>
+                                  <span className="text-muted-foreground ml-1">{bucket.count} msgs</span>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })
+                      })()}
+                    </div>
+                    
+                    {/* Time scale - BELOW the bars */}
+                    <div className="absolute bottom-0 left-0 right-0 h-10 gap-[2px] px-6 border-t border-foreground/5 pt-1">
+                      <div className="flex items-start gap-[2px]">
+                        {activityBuckets.map((bucket, idx) => {
+                          const bucketDate = new Date(bucket.timestamp)
+                          const prevBucket = idx > 0 ? activityBuckets[idx - 1] : null
+                          const prevDate = prevBucket ? new Date(prevBucket.timestamp) : null
+                          
+                          // Check if this is a new day
+                          const isNewDay = !prevDate || bucketDate.toDateString() !== prevDate.toDateString()
+                          
+                          // Get day abbreviation (German)
+                          const dayNames = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
+                          const dayAbbr = dayNames[bucketDate.getDay()]
+                          const dayAndMonth = `${dayAbbr} ${bucketDate.getDate()}.${bucketDate.getMonth() + 1}`
+                          
+                          return (
+                            <div key={idx} className="relative flex flex-col items-center" style={{ minWidth: '22px' }}>
+                              {/* Day marker at day boundaries */}
+                              {isNewDay && (
+                                <div className="text-[9px] font-bold text-foreground mb-0.5 whitespace-nowrap">
+                                  {dayAndMonth}
+                                </div>
+                              )}
+                              
+                              {/* Time label every 6 buckets */}
+                              {idx % 6 === 0 && (
+                                <div className="text-[7px] text-muted-foreground/70 font-mono whitespace-nowrap">
+                                  {bucket.label.split(' ').pop()}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Compact: Empty state - just show nothing or minimal text */}
-          {hasLoaded && events.length === 0 && !isLoading && !error && (
-            <div className="flex items-center justify-center py-3 text-[10px] text-foreground/50 dark:text-foreground/60">
-              Keine Chat-Events
-            </div>
-          )}
+            {/* Compact: Empty state - just show nothing or minimal text */}
+            {hasLoaded && events.length === 0 && !isLoading && !error && (
+              <div className="flex items-center justify-center py-3 text-[10px] text-foreground/50 dark:text-foreground/60">
+                Keine Chat-Events
+              </div>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -958,63 +1145,65 @@ export function ChatHistoryTimeline({
 
       {/* Timeline content */}
       {hasLoaded && events.length > 0 && !isLoading && (
-        <div className="relative">
-          {/* Gradient overlays */}
-          {canScrollLeft && (
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-background to-transparent z-20 pointer-events-none" />
-          )}
-          {canScrollRight && (
-            <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-background to-transparent z-20 pointer-events-none" />
-          )}
-          
-          {/* Scrollable container */}
-          <div 
-            ref={scrollRef}
-            className="overflow-x-auto pb-4"
-            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-          >
-            <div className="relative min-w-max px-8 py-16">
-              {/* Main timeline line */}
-              <div className="absolute left-0 right-0 top-1/2 h-0.5 bg-gradient-to-r from-foreground/5 via-foreground/20 to-foreground/5" />
-              
-              {/* Events by date */}
-              <div className="relative flex items-center gap-4">
-                {sortedDates.map((date, dateIdx) => {
-                  const dateEvents = eventsByDate[date]
-                  const firstEvent = dateEvents[0]
-                  
-                  return (
-                    <div key={date} className="flex items-center">
-                      {/* Date marker */}
-                      <DateMarker date={date} messageCount={firstEvent?.messageCount} />
-                      
-                      {/* Events for this date */}
-                      <div className="flex items-center gap-2">
-                        {dateEvents.map((event, idx) => (
-                          <TimelineCard 
-                            key={event.id}
-                            event={event}
-                            position={idx % 2 === 0 ? 'top' : 'bottom'}
-                          />
-                        ))}
+        <>
+          <div className="relative">
+            {/* Gradient overlays */}
+            {canScrollLeft && (
+              <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-background to-transparent z-20 pointer-events-none" />
+            )}
+            {canScrollRight && (
+              <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-background to-transparent z-20 pointer-events-none" />
+            )}
+            
+            {/* Scrollable container */}
+            <div 
+              ref={scrollRef}
+              className="overflow-x-auto pb-4"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              <div className="relative min-w-max px-8 py-16">
+                {/* Main timeline line */}
+                <div className="absolute left-0 right-0 top-1/2 h-0.5 bg-gradient-to-r from-foreground/5 via-foreground/20 to-foreground/5" />
+                
+                {/* Events by date */}
+                <div className="relative flex items-center gap-4">
+                  {sortedDates.map((date, dateIdx) => {
+                    const dateEvents = eventsByDate[date]
+                    const firstEvent = dateEvents[0]
+                    
+                    return (
+                      <div key={date} className="flex items-center">
+                        {/* Date marker */}
+                        <DateMarker date={date} messageCount={firstEvent?.messageCount} />
+                        
+                        {/* Events for this date */}
+                        <div className="flex items-center gap-2">
+                          {dateEvents.map((event, idx) => (
+                            <TimelineCard 
+                              key={`${date}-${event.id}-${idx}`}
+                              event={event}
+                              position={idx % 2 === 0 ? 'top' : 'bottom'}
+                            />
+                          ))}
+                        </div>
+                        
+                        {/* Spacer between dates */}
+                        {dateIdx < sortedDates.length - 1 && (
+                          <div className="w-8 h-px bg-foreground/10" />
+                        )}
                       </div>
-                      
-                      {/* Spacer between dates */}
-                      {dateIdx < sortedDates.length - 1 && (
-                        <div className="w-8 h-px bg-foreground/10" />
-                      )}
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             </div>
+            
+            {/* Scroll hint */}
+            <p className="text-center text-[10px] text-foreground/60 dark:text-foreground/70 mt-2">
+              Heute ← Scrolle für ältere Events →
+            </p>
           </div>
-          
-          {/* Scroll hint */}
-          <p className="text-center text-[10px] text-foreground/60 dark:text-foreground/70 mt-2">
-            Heute ← Scrolle für ältere Events →
-          </p>
-        </div>
+        </>
       )}
 
       {/* Empty loaded state */}

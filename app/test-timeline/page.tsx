@@ -1,12 +1,12 @@
 'use client'
 
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { ChatHistoryTimeline } from './components'
+import { ChatHistoryTimeline, ActivityHeatmap } from './components'
 
 /**
  * Timeline Test Page
  * 
- * Test page for the Chat History Timeline component.
+ * Chat History Timeline with integrated Activity Heatmap.
  */
 export default function TimelineTestPage() {
   return (
@@ -27,8 +27,17 @@ export default function TimelineTestPage() {
           Wichtige Momente und Diskussionen aus dem TradingView-Chat
         </p>
         
-        <div className="border border-foreground/10 rounded-lg p-6 bg-card">
-          <ChatHistoryTimeline autoStart />
+        {/* Timeline Card */}
+        <div className="border border-foreground/10 rounded-lg bg-card overflow-hidden">
+          {/* Main Timeline */}
+          <div className="p-6">
+            <ChatHistoryTimeline autoStart />
+          </div>
+          
+          {/* Activity Strip - thin heatmap at the bottom */}
+          <div className="border-t border-foreground/5 bg-foreground/[0.02] px-6 py-3">
+            <ActivityHeatmap autoStart />
+          </div>
         </div>
       </div>
 
