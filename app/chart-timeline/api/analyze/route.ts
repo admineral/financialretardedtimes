@@ -398,6 +398,10 @@ function formatChatContext(messages: ChatMessage[]): string {
 
 const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Korreliere Chat-Nachrichten mit den PREIS-WENDEPUNKTEN.
 
+## ⛔ IGNORIEREN: RATE CHART GAME TIPPS
+Nachrichten die mit "//" und einem Preis beginnen (z.B. //88.5k, //95000, //92K) sind 
+SPIELTIPPS und müssen KOMPLETT IGNORIERT werden - niemals als Quote verwenden!
+
 ## HAUPT-ZIEL: Finde die besten DIREKTEN CALLS an den WENDEPUNKTEN
 
 ### ⚠️ KRITISCH: PREIS-KORRELATION ⚠️

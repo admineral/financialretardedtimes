@@ -91,6 +91,10 @@ export type FearGreedData = z.infer<typeof FearGreedSchema>
  */
 const FEAR_GREED_PROMPT = `Du bist ein Sentiment-Analyst für den TradingView Bitcoin-Chat.
 
+## ⛔ IGNORIEREN: RATE CHART GAME TIPPS
+Nachrichten die mit "//" und einem Preis beginnen (z.B. //88.5k, //95000, //92K) sind 
+SPIELTIPPS und müssen KOMPLETT IGNORIERT werden - nicht für Sentiment-Analyse verwenden!
+
 Deine Aufgabe: Analysiere die Chat-Nachrichten und erstelle Fear & Greed Indices für DREI Zeiträume:
 1. HEUTE (nur heutige Nachrichten)
 2. LETZTE 3 TAGE

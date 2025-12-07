@@ -29,8 +29,26 @@ interface ChatEvent {
   type: ChatEventType
   participants: string[]
   messageCount?: number
+  quote?: string
+  quoteAuthor?: string
 }
 
+// AI Response event format (from /test-timeline/api/analyze)
+interface AITimelineEvent {
+  timestamp?: string
+  time?: string
+  date?: string
+  title?: string
+  quote?: string
+  quoteAuthor?: string
+  description?: string
+  type?: ChatEventType
+  participants?: string[]
+  sentiment?: string
+}
+
+
+type TimelineMode = '24h' | '3d' | '7d'
 
 interface ChatHistoryTimelineProps {
   className?: string
@@ -38,6 +56,7 @@ interface ChatHistoryTimelineProps {
   autoStart?: boolean
   showRefreshButton?: boolean
   compact?: boolean // Minimal version for top placement
+  defaultMode?: TimelineMode // Default: '24h'
 }
 
 interface CacheResponse {
@@ -46,6 +65,18 @@ interface CacheResponse {
   dateRangeStart?: string
   dateRangeEnd?: string
   updatedAt: string
+  cached?: boolean
+  expired?: boolean  // Cache older than 4 hours - must refresh
+  stale?: boolean    // Cache older than 30 min - should refresh in background
+  cacheAgeMinutes?: number
+  metadata?: {
+    mode: string
+    messageCount: number
+    uniqueUsers: number
+    summary?: string
+    activityLevel?: 'low' | 'medium' | 'high'
+    dominantSentiment?: string
+  }
 }
 
 // Get style for event type - High contrast colors for accessibility
@@ -402,14 +433,16 @@ export function ChatHistoryTimeline({
   title = 'Chat-Chronik',
   autoStart = false,
   showRefreshButton = true,
-  compact = false
+  compact = false,
+  defaultMode = '24h'
 }: ChatHistoryTimelineProps) {
   const [events, setEvents] = useState<ChatEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasLoaded, setHasLoaded] = useState(false)
-  const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string } | null>(null)
+  const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string; summary?: string; activityLevel?: string } | null>(null)
+  const [mode, setMode] = useState<TimelineMode>(defaultMode)
   
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -443,45 +476,7 @@ export function ChatHistoryTimeline({
     })
   }
 
-  // Load timeline from cache
-  const loadTimeline = useCallback(async () => {
-    if (isLoading || isRefreshing) return // Prevent duplicate calls
-    
-    setIsLoading(true)
-    setError(null)
-    
-    try {
-      // Try to get from cache first (with cache-busting)
-      const cacheRes = await fetch(`/test-timeline/api/cache?_t=${Date.now()}`, {
-        cache: 'no-store'
-      })
-      
-      if (cacheRes.ok) {
-        const cacheData: CacheResponse = await cacheRes.json()
-        setEvents(cacheData.events)
-        setCacheInfo({ updatedAt: cacheData.updatedAt })
-        setHasLoaded(true)
-        console.log('[ChatTimeline] Loaded from cache:', cacheData.eventCount, 'events')
-      } else if (cacheRes.status === 404) {
-        // No cache, generate new (only once)
-        console.log('[ChatTimeline] No cache found, generating...')
-        setIsLoading(false) // Stop loading before refresh
-        await refreshTimeline()
-        return // refreshTimeline handles its own state
-      } else {
-        throw new Error('Failed to load cache')
-      }
-      
-    } catch (err) {
-      console.error('[ChatTimeline] Error:', err)
-      setError(err instanceof Error ? err.message : 'Fehler beim Laden')
-      setHasLoaded(true) // Mark as loaded to prevent retry loop
-    } finally {
-      setIsLoading(false)
-    }
-  }, [isLoading, isRefreshing])
-
-  // Refresh timeline - regenerate newspaper (AI call) then extract timeline events
+  // Refresh timeline - AI-powered extraction of chat highlights
   const refreshTimeline = useCallback(async () => {
     if (isRefreshing) return // Prevent duplicate calls
     
@@ -489,51 +484,166 @@ export function ChatHistoryTimeline({
     setError(null)
     
     try {
-      // Step 1: Regenerate today's newspaper via AI (this fetches fresh chat data)
-      const today = new Date().toISOString().split('T')[0]
-      console.log('[ChatTimeline] Step 1: Regenerating newspaper for', today)
+      console.log(`[ChatTimeline] Generating AI timeline (${mode})...`)
       
-      const summarizeRes = await fetch('/newspaper/api/summarize', {
+      // Call AI endpoint directly for fresh analysis
+      const res = await fetch('/test-timeline/api/analyze', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedDates: [today], dayRange: 1 }),
-        cache: 'no-store'
-      })
-      
-      if (!summarizeRes.ok) {
-        console.warn('[ChatTimeline] Newspaper generation failed, continuing with cached data')
-      } else {
-        // Wait for streaming to complete by consuming the response
-        await summarizeRes.text()
-        console.log('[ChatTimeline] Newspaper regenerated successfully')
-      }
-      
-      // Step 2: Now regenerate timeline from the updated newspaper cache
-      console.log('[ChatTimeline] Step 2: Extracting timeline events')
-      const res = await fetch(`/test-timeline/api/cache?_t=${Date.now()}`, { 
-        method: 'POST',
+        body: JSON.stringify({ mode }),
         cache: 'no-store'
       })
       
       if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Refresh failed')
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'AI analysis failed')
       }
       
-      const data: CacheResponse & { success: boolean } = await res.json()
-      setEvents(data.events)
-      setCacheInfo({ updatedAt: data.updatedAt })
+      // Parse streaming response
+      const text = await res.text()
+      
+      if (!text || text.trim().length === 0) {
+        throw new Error('Empty response from AI')
+      }
+      
+      const lines = text.split('\n').filter(line => line.trim())
+      
+      // Find the last complete JSON object with events
+      interface AIResponse {
+        events?: AITimelineEvent[]
+        summary?: string
+        activityLevel?: 'low' | 'medium' | 'high'
+        dominantSentiment?: string
+      }
+      
+      let data: AIResponse | null = null
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const parsed = JSON.parse(lines[i]) as AIResponse
+          if (parsed.events && Array.isArray(parsed.events)) {
+            data = parsed
+            break
+          }
+        } catch {
+          // Continue to previous line (streaming responses have partial JSON)
+        }
+      }
+      
+      if (!data?.events || data.events.length === 0) {
+        console.warn('[ChatTimeline] No events in AI response, using empty state')
+        setEvents([])
+        setCacheInfo({ 
+          updatedAt: new Date().toISOString(),
+          summary: 'Keine besonderen Events gefunden',
+          activityLevel: 'low'
+        })
+        setHasLoaded(true)
+        return
+      }
+      
+      // Map AI response to our ChatEvent format
+      const mappedEvents: ChatEvent[] = data.events.map((evt, idx) => ({
+        id: `ai-${mode}-${idx}`,
+        date: evt.date || new Date().toISOString().split('T')[0],
+        time: evt.time || '12:00',
+        title: evt.title || 'Event',
+        description: evt.quote 
+          ? `*"${evt.quote}"* — @${evt.quoteAuthor || 'User'}\n\n${evt.description || ''}`
+          : evt.description || '',
+        type: evt.type || 'discussion',
+        participants: evt.participants || [],
+        quote: evt.quote,
+        quoteAuthor: evt.quoteAuthor,
+      }))
+      
+      setEvents(mappedEvents)
+      setCacheInfo({ 
+        updatedAt: new Date().toISOString(),
+        summary: data.summary,
+        activityLevel: data.activityLevel
+      })
       setHasLoaded(true)
-      console.log('[ChatTimeline] Complete! Extracted', data.eventCount, 'events')
+      console.log(`[ChatTimeline] ✅ Generated ${mappedEvents.length} events (${data.activityLevel || 'unknown'})`)
       
     } catch (err) {
       console.error('[ChatTimeline] Refresh error:', err)
       setError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren')
-      setHasLoaded(true) // Mark as loaded to prevent retry loop
+      setHasLoaded(true)
     } finally {
       setIsRefreshing(false)
     }
-  }, [isRefreshing])
+  }, [isRefreshing, mode])
+
+  // Load timeline from cache (with automatic refresh if expired/stale)
+  const loadTimeline = useCallback(async () => {
+    if (isLoading || isRefreshing) return // Prevent duplicate calls
+    
+    setIsLoading(true)
+    setError(null)
+    
+    try {
+      // Try to get from cache first (new AI endpoint)
+      const cacheRes = await fetch(`/test-timeline/api/analyze?mode=${mode}&_t=${Date.now()}`, {
+        cache: 'no-store'
+      })
+      
+      if (cacheRes.ok) {
+        const cacheData: CacheResponse = await cacheRes.json()
+        
+        if (cacheData.cached && cacheData.events && cacheData.events.length > 0) {
+          // Show cached data immediately
+          setEvents(cacheData.events)
+          setCacheInfo({ 
+            updatedAt: cacheData.updatedAt,
+            summary: cacheData.metadata?.summary,
+            activityLevel: cacheData.metadata?.activityLevel
+          })
+          setHasLoaded(true)
+          
+          const ageInfo = cacheData.cacheAgeMinutes ? ` (${cacheData.cacheAgeMinutes}min alt)` : ''
+          console.log(`[ChatTimeline] Loaded from cache: ${cacheData.eventCount} events${ageInfo}`)
+          
+          // Check if cache needs refresh
+          if (cacheData.expired) {
+            // Cache too old (>4h) - must refresh
+            console.log('[ChatTimeline] ⚠️ Cache expired (>4h), auto-refreshing...')
+            setIsLoading(false)
+            // Trigger refresh after showing cached data
+            setTimeout(() => refreshTimeline(), 100)
+            return
+          } else if (cacheData.stale) {
+            // Cache stale (>30min) - refresh in background
+            console.log('[ChatTimeline] 📊 Cache stale, background refresh...')
+            setIsLoading(false)
+            // Background refresh after a short delay
+            setTimeout(() => refreshTimeline(), 500)
+            return
+          }
+        } else {
+          // No cache or empty, generate new
+          console.log('[ChatTimeline] No cache found, generating...')
+          setIsLoading(false)
+          await refreshTimeline()
+          return
+        }
+      } else if (cacheRes.status === 404) {
+        // No cache, generate new
+        console.log('[ChatTimeline] No cache found (404), generating...')
+        setIsLoading(false)
+        await refreshTimeline()
+        return
+      } else {
+        throw new Error('Failed to load cache')
+      }
+      
+    } catch (err) {
+      console.error('[ChatTimeline] Error:', err)
+      setError(err instanceof Error ? err.message : 'Fehler beim Laden')
+      setHasLoaded(true)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [isLoading, isRefreshing, mode, refreshTimeline])
 
   // Auto-start if enabled (only once)
   const hasStartedRef = useRef(false)
@@ -543,6 +653,22 @@ export function ChatHistoryTimeline({
       loadTimeline()
     }
   }, [autoStart, hasLoaded, loadTimeline])
+  
+  // Reload when mode changes
+  const handleModeChange = useCallback((newMode: TimelineMode) => {
+    if (newMode === mode) return
+    setMode(newMode)
+    setHasLoaded(false)
+    setEvents([])
+    // Will trigger reload via useEffect
+  }, [mode])
+  
+  // Reload when mode changes after initial load
+  useEffect(() => {
+    if (hasStartedRef.current && !hasLoaded && !isLoading && !isRefreshing) {
+      loadTimeline()
+    }
+  }, [mode, hasLoaded, isLoading, isRefreshing, loadTimeline])
 
   // Group events by date for display
   const eventsByDate = events.reduce((acc, event) => {
@@ -560,8 +686,26 @@ export function ChatHistoryTimeline({
   if (compact) {
     return (
       <div className={`relative flex items-center ${className}`}>
-        {/* Left side: Refresh button and cache age - stacked */}
-        <div className="flex-shrink-0 flex flex-col items-center justify-center gap-0.5 px-2 border-r border-foreground/10">
+        {/* Left side: Mode selector, Refresh button and cache age */}
+        <div className="flex-shrink-0 flex items-center gap-2 px-2 border-r border-foreground/10">
+          {/* Mode selector - compact pills */}
+          <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
+            {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => handleModeChange(m)}
+                disabled={isLoading || isRefreshing}
+                className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-all ${
+                  mode === m 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          
           {/* Refresh button */}
           <button
             onClick={refreshTimeline}
@@ -573,16 +717,18 @@ export function ChatHistoryTimeline({
           </button>
           
           {/* Cache age */}
-          {cacheInfo && !isLoading && !isRefreshing && (
-            <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
-              {formatDetailedTimeAgo(cacheInfo.updatedAt)}
-            </span>
-          )}
-          {(isLoading || isRefreshing) && (
-            <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
-              ...
-            </span>
-          )}
+          <div className="flex flex-col items-center">
+            {cacheInfo && !isLoading && !isRefreshing && (
+              <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
+                {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+              </span>
+            )}
+            {(isLoading || isRefreshing) && (
+              <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
+                {isRefreshing ? 'AI...' : '...'}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Right side: Timeline content */}
@@ -684,10 +830,36 @@ export function ChatHistoryTimeline({
             {title}
           </h3>
           
+          {/* Mode selector */}
+          <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+            {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => handleModeChange(m)}
+                disabled={isLoading || isRefreshing}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
+                  mode === m 
+                    ? 'bg-primary text-primary-foreground shadow-sm' 
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                {m === '24h' ? '24h' : m === '3d' ? '3 Tage' : '7 Tage'}
+              </button>
+            ))}
+          </div>
+          
           {/* Cache info */}
           {cacheInfo && !isLoading && !isRefreshing && (
             <span className="text-[10px] text-foreground/60 dark:text-foreground/70">
               {formatTimeAgo(cacheInfo.updatedAt)}
+              {cacheInfo.activityLevel && (
+                <span className={`ml-2 ${
+                  cacheInfo.activityLevel === 'high' ? 'text-emerald-500' :
+                  cacheInfo.activityLevel === 'medium' ? 'text-amber-500' : 'text-muted-foreground'
+                }`}>
+                  • {cacheInfo.activityLevel === 'high' ? '🔥' : cacheInfo.activityLevel === 'medium' ? '📊' : '😴'}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -699,7 +871,7 @@ export function ChatHistoryTimeline({
               onClick={refreshTimeline}
               disabled={isRefreshing}
               className="p-1.5 rounded border border-foreground/20 hover:bg-muted disabled:opacity-50 transition-all"
-              title="Timeline aktualisieren"
+              title="Timeline aktualisieren (AI)"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
