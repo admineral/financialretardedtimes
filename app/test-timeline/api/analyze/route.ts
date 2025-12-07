@@ -64,6 +64,19 @@ Analysiere den Chat und extrahiere die INTERESSANTESTEN MOMENTE mit:
 - ECHTEN Zitaten (Originaltext!)
 - Den beteiligten Usern
 
+## 📊 BAR CHART KONTEXT
+
+Die Timeline zeigt ein Balkendiagramm mit Chat-Aktivität pro Zeitslot.
+**Jeder Balken kann eine "Textbox" (Event-Card) bekommen!**
+
+Du bekommst eine Liste der Peak-Stunden - das sind die Zeitfenster mit der höchsten Aktivität.
+**PRIORISIERE Events in diesen Peak-Stunden**, weil dort die interessantesten Diskussionen stattfinden!
+
+Idealerweise:
+- Mindestens 1 Event pro Peak-Stunde
+- Events zeitlich auf die Balken verteilen
+- Bei hohen Balken nach mehreren Events suchen
+
 ## EVENT-TYPEN
 
 - **discussion**: Technische Diskussionen, Analysen
@@ -81,6 +94,7 @@ Analysiere den Chat und extrahiere die INTERESSANTESTEN MOMENTE mit:
 4. **CHRONOLOGISCH**: Events zeitlich verteilen über den gesamten Zeitraum
 5. **VIELFALT**: Verschiedene Event-Typen mischen - nicht nur discussions!
 6. **KLEINIGKEITEN ZÄHLEN**: Auch kleine lustige Momente, kurze Calls, witzige Kommentare sind Events!
+7. **PEAK-FOKUS**: In Peak-Stunden IMMER nach Events suchen - dort passiert am meisten!
 
 ## FORMAT
 

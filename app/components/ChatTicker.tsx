@@ -5,10 +5,11 @@
  * Scrollt horizontal von rechts nach links wie ein Nachrichtenticker.
  * 
  * Features:
- * - Live-Events aus dem Chat
+ * - Live-Events aus dem Chat (cached in Supabase)
  * - Farbcodierte Kategorien (bullish/bearish/funny/drama)
  * - Smooth infinite scroll animation
  * - AI-kuratierte Highlights
+ * - Relative Datumsanzeige (heute, gestern, vorgestern)
  */
 
 'use client'
@@ -21,6 +22,7 @@ type TickerEventType = 'bullish' | 'bearish' | 'funny' | 'drama' | 'insight' | '
 
 interface TickerEvent {
   id: string
+  date: string // YYYY-MM-DD format
   time: string
   username: string
   text: string
@@ -101,11 +103,32 @@ const speedSettings = {
 }
 
 /**
+ * Convert YYYY-MM-DD date to relative German label
+ */
+function getRelativeDate(dateStr: string): string {
+  const eventDate = new Date(dateStr + 'T12:00:00')
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  
+  const diffMs = today.getTime() - eventDate.getTime()
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  
+  if (diffDays === 0) return 'heute'
+  if (diffDays === 1) return 'gestern'
+  if (diffDays === 2) return 'vorgestern'
+  
+  // For older dates, show the weekday
+  const weekdays = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
+  return weekdays[eventDate.getDay()]
+}
+
+/**
  * Single ticker item
  */
 function TickerItem({ event }: { event: TickerEvent }) {
   const style = eventStyles[event.type]
   const Icon = style.icon
+  const relativeDate = getRelativeDate(event.date)
   
   return (
     <div className={`
@@ -115,7 +138,11 @@ function TickerItem({ event }: { event: TickerEvent }) {
       transition-transform hover:scale-105
     `}>
       <span className="text-sm">{event.emoji || style.emoji}</span>
-      <span className="text-[10px] font-mono text-muted-foreground">{event.time}</span>
+      <span className="text-[10px] font-mono text-muted-foreground">
+        <span className="text-primary/80 font-semibold">{relativeDate}</span>
+        <span className="mx-0.5 opacity-50">·</span>
+        <span>{event.time}</span>
+      </span>
       <span className={`text-xs font-bold ${style.text}`}>@{event.username}</span>
       <span className="text-xs text-foreground/90 max-w-[300px] truncate">
         {event.text}
@@ -137,42 +164,53 @@ export function ChatTicker({
   const [isLoading, setIsLoading] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string; stale: boolean } | null>(null)
   const tickerRef = useRef<HTMLDivElement>(null)
   const animationRef = useRef<number | null>(null)
   const positionRef = useRef(0)
   
-  // Fetch ticker events
-  const fetchEvents = useCallback(async () => {
+  // Fetch ticker events (GET for cached, POST for refresh)
+  const fetchEvents = useCallback(async (forceRefresh = false) => {
     setIsLoading(true)
     setError(null)
     
     try {
       const res = await fetch('/api/chat-ticker', {
-        method: 'POST',
+        method: forceRefresh ? 'POST' : 'GET',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store'
       })
       
       if (!res.ok) throw new Error('Failed to fetch ticker events')
       
-      const text = await res.text()
-      const lines = text.split('\n').filter(l => l.trim())
+      const data = await res.json()
       
-      // Find last complete JSON
-      let data: { events?: TickerEvent[] } | null = null
-      for (let i = lines.length - 1; i >= 0; i--) {
-        try {
-          const parsed = JSON.parse(lines[i])
-          if (parsed.events) {
-            data = parsed
-            break
-          }
-        } catch { /* continue */ }
-      }
-      
-      if (data?.events) {
+      if (data.events && data.events.length > 0) {
         setEvents(data.events)
-        console.log(`[Ticker] Loaded ${data.events.length} events`)
+        setCacheInfo({
+          updatedAt: data.updatedAt,
+          stale: data.stale || false
+        })
+        console.log(`[Ticker] Loaded ${data.events.length} events (cached=${data.cached}, stale=${data.stale || false})`)
+        
+        // If cache is stale, trigger background refresh
+        if (data.stale && !forceRefresh) {
+          console.log('[Ticker] Cache stale, refreshing in background...')
+          setTimeout(() => {
+            fetch('/api/chat-ticker', { method: 'POST' })
+              .then(r => r.json())
+              .then(newData => {
+                if (newData.events && newData.events.length > 0) {
+                  setEvents(newData.events)
+                  setCacheInfo({ updatedAt: newData.updatedAt, stale: false })
+                  console.log('[Ticker] Background refresh complete')
+                }
+              })
+              .catch(err => console.error('[Ticker] Background refresh failed:', err))
+          }, 1000)
+        }
+      } else if (data.error) {
+        throw new Error(data.error)
       }
       
     } catch (err) {
@@ -250,7 +288,7 @@ export function ChatTicker({
     return (
       <div className={`bg-card/50 border border-primary/20 rounded-lg p-2 ${className}`}>
         <button 
-          onClick={fetchEvents}
+          onClick={() => fetchEvents()}
           className="text-xs text-primary hover:underline"
         >
           📺 Ticker starten
@@ -301,7 +339,7 @@ export function ChatTicker({
       
       {/* Refresh button */}
       <button
-        onClick={fetchEvents}
+        onClick={() => fetchEvents(true)}
         disabled={isLoading}
         className="absolute right-12 top-1/2 -translate-y-1/2 z-20 p-1 rounded hover:bg-muted/50 transition-colors"
         title="Ticker aktualisieren"
@@ -313,4 +351,3 @@ export function ChatTicker({
 }
 
 export default ChatTicker
-

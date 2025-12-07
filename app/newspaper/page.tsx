@@ -31,6 +31,7 @@ import {
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedWidget } from '@/app/test-fg/components'
 import { ChartTimelineWidget } from '@/app/chart-timeline/components'
+import { ChatTicker } from '@/app/components/ChatTicker'
 import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats, UnifiedNewspaperData } from './lib/types'
@@ -294,6 +295,13 @@ export default function NewspaperPage() {
             cumulativeUsers={cumulativeUsers}
           />
         </div>
+
+        {/* Live Chat Ticker - Breaking News Style */}
+        {dayRange === 1 && (
+          <div className="w-full border-b border-primary/20 bg-gradient-to-r from-card via-card/95 to-card relative z-10">
+            <ChatTicker speed="normal" autoStart className="newspaper-ticker" />
+          </div>
+        )}
 
         {/* Chat Activity Timeline - Always visible for dayRange 1 */}
         {dayRange === 1 && (
