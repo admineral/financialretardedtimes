@@ -195,6 +195,7 @@ function TickerItem({ event }: { event: TickerEvent }) {
           min-w-[180px] max-w-[220px]
           hover:min-w-[280px] hover:max-w-[320px]
           transition-all duration-300 ease-out
+          delay-300 hover:delay-0
           hover:shadow-xl hover:z-50
           cursor-pointer select-none active:scale-95
         `}
@@ -216,14 +217,14 @@ function TickerItem({ event }: { event: TickerEvent }) {
           </p>
         )}
         
-        {/* Preview text - always visible */}
-        <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2 group-hover/card:line-clamp-none transition-all duration-300">
-          {event.text}
-        </p>
-        
-        {/* Full quote - expands on hover */}
-        {event.quote && (
-          <div className="max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-24 group-hover/card:opacity-100 transition-all duration-300 ease-out">
+      {/* Preview text - always visible */}
+      <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2 group-hover/card:line-clamp-none transition-all duration-300 delay-300 group-hover/card:delay-150">
+        {event.text}
+      </p>
+      
+      {/* Full quote - expands on hover with delay */}
+      {event.quote && (
+        <div className="max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-24 group-hover/card:opacity-100 transition-all duration-300 ease-out delay-300 group-hover/card:delay-150">
             <blockquote className={`mt-1.5 pt-1.5 border-t ${style.border} border-dashed`}>
               <p className="text-[10px] italic text-foreground/80 leading-snug">
                 „{event.quote}"
@@ -628,9 +629,19 @@ export function ChatTicker({
     })
   }
   
-  // Handle wheel scroll - automatically stops ticker and enables manual scroll
+  // Handle wheel scroll - only capture horizontal scroll, let vertical pass through for page scroll
   const handleWheel = (e: React.WheelEvent) => {
-    // Auto-stop ticker on first scroll attempt
+    // Ignore if predominantly vertical scroll (user is scrolling the page)
+    const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.5
+    const hasHorizontalIntent = Math.abs(e.deltaX) > 5
+    
+    // Only capture horizontal scrolls or trackpad gestures with horizontal intent
+    if (!isHorizontalScroll && !hasHorizontalIntent) {
+      // Let vertical scroll pass through to the page
+      return
+    }
+    
+    // Auto-stop ticker on horizontal scroll
     if (!isStopped) {
       setIsStopped(true)
       setIsPaused(true)
@@ -641,8 +652,8 @@ export function ChatTicker({
     const container = scrollContainerRef.current
     if (!container) return
     
-    // Scroll horizontally with wheel (deltaY maps to horizontal scroll)
-    container.scrollLeft += e.deltaY + e.deltaX
+    // Scroll horizontally (use deltaX for trackpad, ignore deltaY)
+    container.scrollLeft += e.deltaX || e.deltaY * 0.3
   }
   
   // Group events with date separators
