@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart } from 'lucide-react'
+import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart, ChevronDown, ChevronUp } from 'lucide-react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import dynamic from 'next/dynamic'
@@ -18,7 +18,8 @@ const ChartQuoteSchema = z.object({
   id: z.string(),
   timestamp: z.string(),
   username: z.string(),
-  quote: z.string(), // Max 50 chars for chart labels
+  title: z.string(), // Short title for chart labels - "LONG bei 92K!"
+  fullQuote: z.string(), // The exact quote from the user - verbatim!
   priceContext: z.enum([
     'pump_call', 'dump_call', 'top_call', 'bottom_call',
     'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
@@ -26,6 +27,7 @@ const ChartQuoteSchema = z.object({
   sentiment: z.enum(['bullish', 'bearish', 'neutral']),
   wasCorrect: z.boolean().optional(),
   priceAtQuote: z.number(),
+  hasTimeframe: z.boolean().optional(), // Did they specify a timeframe?
 })
 
 const AnalysisResponseSchema = z.object({
@@ -64,6 +66,7 @@ interface TimelineEvent {
   date: string
   time: string
   title: string
+  fullQuote: string // The exact quote from the user
   description: string
   type: 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
   participants: string[]
@@ -71,6 +74,7 @@ interface TimelineEvent {
   sentiment?: string
   wasCorrect?: boolean
   priceAtQuote?: number
+  hasTimeframe?: boolean
 }
 
 interface OHLCData {
@@ -156,6 +160,92 @@ function getContextStyle(context: string) {
   }
 }
 
+// Single Quote Card with expand functionality
+function QuoteCard({ event }: { event: TimelineEvent }) {
+  const [expanded, setExpanded] = useState(false)
+  const style = getContextStyle(event.priceContext || '')
+  const hasFullQuote = event.fullQuote && event.fullQuote !== event.title
+  
+  return (
+    <div 
+      className={`p-3 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm transition-all ${
+        hasFullQuote ? 'cursor-pointer hover:border-opacity-80' : ''
+      }`}
+      onClick={() => hasFullQuote && setExpanded(!expanded)}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold uppercase tracking-wider ${style.text}`}>
+            {style.label}
+          </span>
+          {event.hasTimeframe && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300 flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5" />
+              Zeit
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {event.wasCorrect !== undefined && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+              event.wasCorrect ? 'bg-emerald-500/30 text-emerald-400' : 'bg-red-500/30 text-red-400'
+            }`}>
+              {event.wasCorrect ? '✓ Richtig' : '✗ Falsch'}
+            </span>
+          )}
+          {hasFullQuote && (
+            expanded 
+              ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> 
+              : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+          )}
+        </div>
+      </div>
+      
+      {/* Title - always visible */}
+      <p className="text-sm font-bold leading-snug">„{event.title}"</p>
+      
+      {/* Full Quote - when expanded */}
+      {expanded && hasFullQuote && (
+        <div className="mt-2 pt-2 border-t border-foreground/10">
+          <p className="text-xs text-muted-foreground italic leading-relaxed">
+            „{event.fullQuote}"
+          </p>
+        </div>
+      )}
+      
+      <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+        <span>@{event.participants[0]}</span>
+        <div className="flex items-center gap-2">
+          <span className="opacity-70">{event.date} {event.time}</span>
+          <span className="font-mono">${event.priceAtQuote?.toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Quotes Grid Component
+function QuotesGrid({ events }: { events: TimelineEvent[] }) {
+  return (
+    <div className="max-w-7xl mx-auto px-4 pb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <Quote className="w-4 h-4 text-muted-foreground" />
+        <h3 className="font-headline text-sm font-bold uppercase tracking-wider">
+          Zitate auf dem Chart ({events.length})
+        </h3>
+        <span className="text-xs text-muted-foreground ml-2">
+          Klick für volles Zitat
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {events.map(event => (
+          <QuoteCard key={event.id} event={event} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function ChartTimelinePage() {
   const [timeframe, setTimeframe] = useState<Timeframe>('15m')
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
@@ -196,7 +286,7 @@ export default function ChartTimelinePage() {
       .filter((q): q is ChartQuote => 
         q !== undefined && 
         typeof q.id === 'string' && 
-        typeof q.quote === 'string' &&
+        typeof q.title === 'string' &&
         typeof q.username === 'string' &&
         typeof q.timestamp === 'string'
       )
@@ -207,14 +297,16 @@ export default function ChartTimelinePage() {
           id: q.id,
           date,
           time,
-          title: q.quote,
+          title: q.title,
+          fullQuote: q.fullQuote || q.title, // Fallback to title if no fullQuote
           description: `@${q.username} • $${q.priceAtQuote?.toLocaleString() || '?'}`,
           type: mapContextToType(q.priceContext),
           participants: [q.username],
           priceContext: q.priceContext,
           sentiment: q.sentiment,
           wasCorrect: q.wasCorrect,
-          priceAtQuote: q.priceAtQuote
+          priceAtQuote: q.priceAtQuote,
+          hasTimeframe: q.hasTimeframe
         }
       })
   }, [aiAnalysis])
@@ -567,43 +659,7 @@ export default function ChartTimelinePage() {
 
       {/* Quotes Grid */}
       {aiEvents.length > 0 && (
-        <div className="max-w-7xl mx-auto px-4 pb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <Quote className="w-4 h-4 text-muted-foreground" />
-            <h3 className="font-headline text-sm font-bold uppercase tracking-wider">
-              Zitate auf dem Chart ({aiEvents.length})
-            </h3>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {aiEvents.map(event => {
-              const style = getContextStyle(event.priceContext || '')
-              return (
-                <div 
-                  key={event.id}
-                  className={`p-3 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${style.text}`}>
-                      {style.label}
-                    </span>
-                    {event.wasCorrect !== undefined && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                        event.wasCorrect ? 'bg-emerald-500/30 text-emerald-400' : 'bg-red-500/30 text-red-400'
-                      }`}>
-                        {event.wasCorrect ? '✓ Richtig' : '✗ Falsch'}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm font-medium leading-snug">„{event.title}"</p>
-                  <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
-                    <span>@{event.participants[0]}</span>
-                    <span className="font-mono">${event.priceAtQuote?.toLocaleString()}</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        <QuotesGrid events={aiEvents} />
       )}
 
       {/* No Analysis Prompt */}

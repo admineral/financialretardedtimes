@@ -20,7 +20,8 @@ const ChartQuoteSchema = z.object({
   id: z.string(),
   timestamp: z.string(), // ISO format datetime
   username: z.string(),
-  quote: z.string().max(50), // MAX 50 chars - must be short for chart labels!
+  title: z.string().max(40), // Short title for chart labels - "LONG bei 92K!"
+  fullQuote: z.string().max(200), // The exact quote from the user - verbatim!
   priceContext: z.enum([
     'pump_call',        // Called a pump before it happened
     'dump_call',        // Called a dump before it happened  
@@ -36,6 +37,7 @@ const ChartQuoteSchema = z.object({
   sentiment: z.enum(['bullish', 'bearish', 'neutral']),
   wasCorrect: z.boolean().optional(), // For predictions: was it correct?
   priceAtQuote: z.number(), // BTC price when quote was made
+  hasTimeframe: z.boolean().optional(), // Did they specify a timeframe? ("heute", "morgen", "diese Woche")
 })
 
 const AnalysisResponseSchema = z.object({
@@ -362,8 +364,6 @@ function formatPriceContext(ohlcData: OHLCData[]): { text: string; summary: obje
 // Format chat for AI - GROUPED BY DAY so model sees full timeline
 function formatChatContext(messages: ChatMessage[]): string {
   const lines: string[] = []
-  lines.push(`## Chat-Nachrichten (${messages.length} total):`)
-  lines.push('')
   
   // Group messages by day
   const messagesByDay = new Map<string, ChatMessage[]>()
@@ -376,13 +376,27 @@ function formatChatContext(messages: ChatMessage[]): string {
   // Sort days chronologically
   const sortedDays = Array.from(messagesByDay.keys()).sort()
   
+  // Summary header with day counts
+  lines.push(`## Chat-Nachrichten (${messages.length} total, ${sortedDays.length} Tage):`)
+  lines.push('')
+  lines.push(`⚠️ PFLICHT: Finde Zitate aus JEDEM dieser Tage:`)
+  sortedDays.forEach((day, idx) => {
+    const count = messagesByDay.get(day)!.length
+    const dayNum = idx + 1
+    const required = dayNum <= 2 ? '(mind. 1 Zitat!)' : dayNum <= 4 ? '(mind. 1-2 Zitate!)' : '(mind. 2 Zitate!)'
+    lines.push(`  • ${day}: ${count} Nachrichten ${required}`)
+  })
+  lines.push('')
+  lines.push('═══════════════════════════════════════════════════')
+  lines.push('')
+  
   for (const day of sortedDays) {
     const dayMessages = messagesByDay.get(day)!
     const dayFormatted = new Date(day).toLocaleDateString('de-DE', { 
       weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' 
     })
     
-    lines.push(`### ${dayFormatted} (${dayMessages.length} Nachrichten):`)
+    lines.push(`### 📅 ${dayFormatted} (${dayMessages.length} Nachrichten) - FINDE HIER ZITATE!`)
     lines.push('')
     
     for (const msg of dayMessages) {
@@ -396,81 +410,127 @@ function formatChatContext(messages: ChatMessage[]): string {
   return lines.join('\n')
 }
 
-const ANALYSIS_PROMPT = `Du bist ein Chart-Analyst. Korreliere Chat-Nachrichten mit den PREIS-WENDEPUNKTEN.
+const ANALYSIS_PROMPT = `Du bist Chart-Analyst der "Financial Retarded Times" – trocken, neutral, marktberichtartig.
 
-## ⛔ IGNORIEREN: RATE CHART GAME TIPPS
+═══════════════════════════════════════════════════════════════════════
+⛔ ABSOLUT IGNORIEREN – RATE CHART GAME TIPPS
+═══════════════════════════════════════════════════════════════════════
 Nachrichten die mit "//" und einem Preis beginnen (z.B. //88.5k, //95000, //92K) sind 
 SPIELTIPPS und müssen KOMPLETT IGNORIERT werden - niemals als Quote verwenden!
 
-## HAUPT-ZIEL: Finde die besten DIREKTEN CALLS an den WENDEPUNKTEN
+═══════════════════════════════════════════════════════════════════════
+HAUPT-ZIEL: ECHTE, CHART-RELEVANTE AUSSAGEN MIT ZEITANGABEN
+═══════════════════════════════════════════════════════════════════════
 
-### ⚠️ KRITISCH: PREIS-KORRELATION ⚠️
+Finde die WERTVOLLSTEN Aussagen die wirklich relevant für den Bitcoin-Chart sind.
+Bevorzuge Calls mit ZEITLICHEN Angaben – das macht sie überprüfbar und spannend!
 
-Analysiere zuerst die Preis-Daten und identifiziere:
-1. **LOKALE HOCHS**: Wann war der Preis auf einem lokalen Maximum?
-2. **LOKALE TIEFS**: Wann war der Preis auf einem lokalen Minimum?
-3. **STARKE MOVES**: Wann gab es >2% Bewegungen in kurzer Zeit?
+### 🥇 HÖCHSTE PRIORITÄT – CALLS MIT ZEITANGABE:
+- "HEUTE noch 100K!" / "Morgen Short-Squeeze"
+- "Diese Woche Boden" / "Am Wochenende dump"
+- "Innerhalb 24h wieder bei 95K"
+- "Daily Close entscheidend"
+→ Diese setzen hasTimeframe=true!
+
+### 🥈 HOHE PRIORITÄT – KLARE RICHTUNGSCALLS AN WENDEPUNKTEN:
+- "LONG JETZT!" / "SHORT!" (genau am Wendepunkt)
+- "Das ist der Boden" / "Top ist erreicht"
+- "All in!" / "Alles raus hier!"
+- Konkrete Preislevel: "Bei 92K Long", "95K ist der deckel"
+
+### 🥉 MITTEL – REAKTIONEN MIT SUBSTANZ:
+- Technische Begründung: "RSI oversold, bounce incoming"
+- Emotionale Momente: FOMO, Panik, Diamond Hands
+- Konkrete Prognosen: "100k incoming", "80k wir kommen"
+
+### ❌ IGNORIEREN – WERTLOSE KOMMENTARE:
+- Fragen: "Was denkt ihr?", "Geht's hoch?"
+- Passives: "Interessant", "Hmm", "Mal sehen", "Sieht bullish aus"
+- Allgemeines Gerede ohne Position
+- Rate Chart Game Tipps (//PREIS)
+
+═══════════════════════════════════════════════════════════════════════
+ZITAT-FORMAT – TITEL + ORIGINAL-ZITAT
+═══════════════════════════════════════════════════════════════════════
+
+Für jeden Quote brauchst du ZWEI Felder:
+
+1. **title** (max 40 Zeichen): Knackiger Titel für Chart-Label
+   - "LONG bei 92K!" / "Top Call" / "Morgen 100K"
+   - Kurz, prägnant, zeigt die Kernaussage
+
+2. **fullQuote** (max 200 Zeichen): Das EXAKTE Original-Zitat!
+   - WORTWÖRTLICH aus dem Chat kopieren!
+   - Nicht umformulieren oder kürzen
+   - Der User soll sich selbst erkennen
+   - Beispiel: "Achtung Leute, heute noch 100k. Wer jetzt noch short ist, wird das bereuen. Letzte Warnung!"
+
+═══════════════════════════════════════════════════════════════════════
+PREIS-KORRELATION – CALLS AN WENDEPUNKTEN
+═══════════════════════════════════════════════════════════════════════
+
+Analysiere die Preis-Daten und identifiziere:
+1. LOKALE HOCHS: Wann war der Preis auf einem lokalen Maximum?
+2. LOKALE TIEFS: Wann war der Preis auf einem lokalen Minimum?
+3. STARKE MOVES: Wann gab es >2% Bewegungen in kurzer Zeit?
 
 Dann suche Chat-Nachrichten die GENAU ZU DIESEN ZEITPUNKTEN passen:
 - Bei einem TIEF → Finde "bottom_call" oder "pump_call" Nachrichten
 - Bei einem HOCH → Finde "top_call" oder "dump_call" Nachrichten
 - Bei starken Moves → Finde FOMO/Panik Reaktionen
 
-## NUR DIREKTE CALLS - KEINE PASSIVEN KOMMENTARE!
+**wasCorrect setzen:**
+- Call war richtig → wasCorrect=true (Preis ging in die vorhergesagte Richtung)
+- Call war falsch → wasCorrect=false (Preis ging gegen die Vorhersage)
 
-### ✅ GUTE Zitate (DIREKTE Predictions):
-- "LONG JETZT!" / "SHORT!" / "KAUFEN!" / "VERKAUFEN!"
-- "Das ist der Boden" / "Top ist erreicht"
-- "100k incoming" / "80k wir kommen"
-- "All in!" / "Alles raus!"
-- Konkrete Preisprognosen mit Zahlen
+═══════════════════════════════════════════════════════════════════════
+⚠️ KRITISCH: ZEITLICHE VERTEILUNG ÜBER ALLE 7 TAGE!
+═══════════════════════════════════════════════════════════════════════
 
-### ❌ SCHLECHTE Zitate (IGNORIEREN):
-- "Interessant" / "Hmm" / "Mal sehen"
-- Fragen: "Was denkt ihr?" / "Geht's hoch?"
-- Passive Beobachtungen: "Sieht bullish aus"
-- Allgemeine Kommentare ohne klare Position
+Du MUSST Zitate aus JEDEM Tag des 7-Tage-Zeitraums finden!
 
-## WENDEPUNKT-PRIORISIERUNG
+PFLICHT-VERTEILUNG (15-18 Zitate total):
+- Tag 1-2 (älteste): Mindestens 2 Zitate
+- Tag 3-4: Mindestens 3 Zitate  
+- Tag 5-6: Mindestens 3 Zitate
+- Tag 7 (heute/gestern): Mindestens 3 Zitate
 
-1. **TOP-PRIORITÄT - Calls an Wendepunkten:**
-   - Jemand ruft "Long!" genau am Tief → GOLD WERT!
-   - Jemand ruft "Short!" genau am Hoch → GOLD WERT!
-   - wasCorrect=true wenn danach der Preis in die richtige Richtung ging
-
-2. **HOCH-PRIORITÄT - Falsche Calls an Wendepunkten:**
-   - Jemand ruft "Short!" am Tief → Für worstCall
-   - Jemand ruft "Long!" am Hoch → Für worstCall
-   - wasCorrect=false
-
-3. **MITTEL-PRIORITÄT - Reaktionen auf Moves:**
-   - FOMO bei starkem Pump
-   - Panik bei starkem Dump
-   - Diamond Hands in kritischen Momenten
-
-## ZEITLICHE VERTEILUNG
-
-Verteile die 12-18 Zitate über die GESAMTEN 7 Tage:
-- Fokus auf die WENDEPUNKTE in den Preis-Daten
-- Mindestens 2-3 Zitate pro 2-Tages-Periode
+REGELN:
+- MAXIMAL 3 Zitate pro Tag erlaubt (Cluster vermeiden!)
 - Nicht mehr als 2 Zitate innerhalb von 4 Stunden
+- Bevorzuge Zitate mit hasTimeframe=true!
+- Wenn ein Tag "langweilig" ist, finde trotzdem 1-2 interessante Aussagen
 
-## FORMAT
+WARUM: Der User will die GANZE Woche sehen, nicht nur den einen Tag mit Crash/Pump!
 
-- quote: MAX 50 ZEICHEN! Nur der Kern des Calls
-- timestamp: Exakt aus dem Chat (ISO format)
-- priceAtQuote: BTC-Preis zu dem Zeitpunkt (aus Preis-Daten ablesen!)
-- wasCorrect: IMMER setzen bei Predictions! true/false basierend auf Preisverlauf
-- priceContext: pump_call/dump_call/top_call/bottom_call/fomo/panic/reversal/analysis
+═══════════════════════════════════════════════════════════════════════
+BESTCALL & WORSTCALL – DIE HIGHLIGHTS
+═══════════════════════════════════════════════════════════════════════
 
-## bestCall & worstCall
+bestCall: Der BESTE Call der Woche
+- Idealer­weise mit Zeitangabe die sich bewahrheitet hat
+- Genau am Wendepunkt richtig gelegen
+- quote: Das exakte Zitat (etwas länger erlaubt, bis 60 Zeichen)
+- context: Warum war es so gut? "Rief Long genau am Wochentief, 5% Pump folgte"
 
-- bestCall: Der BESTE Call der Woche - jemand der genau richtig lag am Wendepunkt
-- worstCall: Der SCHLECHTESTE Call - komplett falsch gelegen am Wendepunkt
+worstCall: Der SCHLECHTESTE Call der Woche
+- Komplett falsch gelegen, idealer­weise mit Zeitangabe
+- quote: Das exakte Zitat
+- context: Neutral beschreiben was passierte "Short-Call am Tief, Preis stieg 8%"
 
-## HEADLINE
+═══════════════════════════════════════════════════════════════════════
+HEADLINE & SUBHEADLINE
+═══════════════════════════════════════════════════════════════════════
 
-Kurz, knackig, bezieht sich auf die Preisentwicklung. Max 60 Zeichen.
+headline (max 60 Zeichen): Knackig, bezieht sich auf die Woche
+- "Wilde Woche: 92K → 100K → 95K"
+- "Die Bären lagen falsch"
+- "Weekend-Dump, dann V-Recovery"
+
+subheadline (max 100 Zeichen): Etwas mehr Kontext
+- "Wer am Montag Long ging, wurde belohnt. Die Short-Fraktion leckt Wunden."
+
+TON: Trocken, neutral, marktberichtartig. Nicht cringe oder übertrieben emotional.
 
 NUR JSON ausgeben, keine Erklärungen.`
 

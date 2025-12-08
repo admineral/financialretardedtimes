@@ -16,7 +16,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper } from 'lucide-react'
+import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
@@ -47,20 +47,50 @@ interface BTCData {
   cachedAt: number
 }
 
-function CurrentDate() {
+function CurrentDate({ cacheUpdatedAt }: { cacheUpdatedAt?: string }) {
   const [date, setDate] = useState<string>('')
+  const [time, setTime] = useState<string>('')
+  const [ago, setAgo] = useState<string>('')
   
   useEffect(() => {
-    const now = new Date()
-    setDate(now.toLocaleDateString('de-DE', { 
+    // Use cache timestamp if available, otherwise current date
+    const dateToUse = cacheUpdatedAt ? new Date(cacheUpdatedAt) : new Date()
+    setDate(dateToUse.toLocaleDateString('de-DE', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
       day: 'numeric' 
     }))
-  }, [])
+    setTime(dateToUse.toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }))
+    
+    // Calculate ago
+    if (cacheUpdatedAt) {
+      const updateAgo = () => {
+        const now = new Date()
+        const diffMs = now.getTime() - dateToUse.getTime()
+        const diffMins = Math.floor(diffMs / 60000)
+        const diffHours = Math.floor(diffMins / 60)
+        const diffDays = Math.floor(diffHours / 24)
+        
+        if (diffMins < 1) setAgo('just now')
+        else if (diffMins < 60) setAgo(`${diffMins}m ago`)
+        else if (diffHours < 24) setAgo(`${diffHours}h ago`)
+        else setAgo(`${diffDays}d ago`)
+      }
+      updateAgo()
+      const interval = setInterval(updateAgo, 60000)
+      return () => clearInterval(interval)
+    }
+  }, [cacheUpdatedAt])
   
-  return <span className="text-muted-foreground">{date || '...'}</span>
+  return (
+    <span className="text-muted-foreground">
+      {date || '...'}{time && `, ${time}`}{ago && ` (${ago})`}
+    </span>
+  )
 }
 
 function formatTimeAgo(dateString: string): string {
@@ -71,10 +101,10 @@ function formatTimeAgo(dateString: string): string {
   const diffHours = Math.floor(diffMins / 60)
   const diffDays = Math.floor(diffHours / 24)
   
-  if (diffMins < 1) return 'gerade eben'
-  if (diffMins < 60) return `vor ${diffMins}m`
-  if (diffHours < 24) return `vor ${diffHours}h`
-  return `vor ${diffDays}d`
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  return `${diffDays}d ago`
 }
 
 /**
@@ -212,15 +242,7 @@ export default function NewspaperPage() {
           <div className="w-full border-b border-primary/10 bg-card/50 backdrop-blur-sm">
             <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex justify-between items-center">
               <div className="flex items-center gap-3 text-xs">
-                <CurrentDate />
-                {cacheInfo && !isLoading && (
-                  <span className="hidden md:flex items-center gap-1.5 text-muted-foreground/60 border-l border-primary/20 pl-3">
-                    <span className="text-primary">{cacheInfo.dayRange}d</span>
-                    <span>•</span>
-                    <span>{formatTimeAgo(cacheInfo.updatedAt)}</span>
-                    {cacheInfo.isFromCache && <span className="text-emerald-500/60">(cache)</span>}
-                  </span>
-                )}
+                <CurrentDate cacheUpdatedAt={cacheInfo?.updatedAt} />
               </div>
               <div className="flex items-center gap-3">
                 {isLoading && (
@@ -229,6 +251,21 @@ export default function NewspaperPage() {
                     <span className="hidden sm:inline">Kuratiere...</span>
                   </span>
                 )}
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    onClick={handleRefresh}
+                    disabled={isLoading}
+                    className="p-2 hover:bg-primary/10 rounded-full transition-all disabled:opacity-50"
+                    aria-label="Aktualisieren"
+                  >
+                    <RefreshCwIcon className={`h-4 w-4 text-muted-foreground hover:text-primary transition-colors ${isLoading ? 'animate-spin text-primary' : ''}`} />
+                  </button>
+                  {cacheInfo && !isLoading && (
+                    <span className="text-xs text-muted-foreground/70 font-mono">
+                      {formatTimeAgo(cacheInfo.updatedAt)}
+                    </span>
+                  )}
+                </div>
                 <ThemeSwitcher />
               </div>
             </div>

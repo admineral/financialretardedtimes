@@ -17,7 +17,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { TrendingUp, TrendingDown, Laugh, Zap, MessageSquare, AlertTriangle, RefreshCw, Sparkles, X, Play, Pause } from 'lucide-react'
+import { TrendingUp, TrendingDown, Laugh, Zap, MessageSquare, AlertTriangle, RefreshCw, Sparkles, X } from 'lucide-react'
 
 // Event types
 type TickerEventType = 'bullish' | 'bearish' | 'funny' | 'drama' | 'insight' | 'call' | 'fail'
@@ -349,6 +349,22 @@ export function ChatTicker({
   const [isStopped, setIsStopped] = useState(false) // Click to stop for manual scroll
   const [error, setError] = useState<string | null>(null)
   const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string; stale: boolean } | null>(null)
+  const [, forceUpdate] = useState(0) // For re-rendering to update cache age display
+  
+  // Calculate cache age from cacheInfo.updatedAt (from Supabase)
+  const getCacheAgeMinutes = () => {
+    if (!cacheInfo?.updatedAt) return undefined
+    return Math.floor((Date.now() - new Date(cacheInfo.updatedAt).getTime()) / 60000)
+  }
+  const actualCacheAgeMinutes = getCacheAgeMinutes()
+  const isLive = actualCacheAgeMinutes !== undefined ? actualCacheAgeMinutes < 30 : true
+  
+  // Update age display every minute
+  useEffect(() => {
+    if (!cacheInfo?.updatedAt) return
+    const interval = setInterval(() => forceUpdate(n => n + 1), 60000)
+    return () => clearInterval(interval)
+  }, [cacheInfo?.updatedAt])
   const tickerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null) // For manual scroll when stopped
   const animationRef = useRef<number | null>(null)
@@ -476,7 +492,7 @@ export function ChatTicker({
             updatedAt: data.updatedAt,
             stale: data.stale || false
           })
-          console.log(`[Ticker] ✅ Loaded ${data.events.length} events (cached=${data.cached}, stale=${data.stale || false})`)
+          console.log(`[Ticker] ✅ Loaded ${data.events.length} events (cached=${data.cached}, stale=${data.stale || false}, age=${data.cacheAgeMinutes}min)`)
           
           // If cache is stale AND not already refreshing, trigger ONE background refresh
           if (data.stale && !isRefreshingInBackgroundRef.current) {
@@ -696,34 +712,9 @@ export function ChatTicker({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Live/Stopped indicator with Play/Pause button */}
-      <div className="absolute left-0 top-0 bottom-0 z-20 flex items-center gap-1.5 px-2 bg-gradient-to-r from-card via-card/95 to-transparent">
-        {/* Play/Pause Button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setIsStopped(prev => !prev)
-            if (isStopped) {
-              setIsPaused(false) // Resume animation
-            }
-          }}
-          className={`p-1.5 rounded-md transition-all ${
-            isStopped 
-              ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-500' 
-              : 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-500'
-          }`}
-          title={isStopped ? 'Abspielen' : 'Stoppen'}
-        >
-          {isStopped ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-        </button>
-        
-        {/* Status indicator */}
-        {isStopped ? (
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/15 dark:bg-amber-500/20 border border-amber-500/30 rounded-md">
-            <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
-            <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Gestoppt</span>
-          </div>
-        ) : (
+      {/* Live indicator - left side */}
+      <div className="absolute left-0 top-0 bottom-0 z-20 flex items-center gap-2 px-2 bg-gradient-to-r from-card via-card/95 to-transparent pr-8">
+        {isLive && (
           <div className="flex items-center gap-1.5 px-2 py-1 bg-red-500/15 dark:bg-red-500/20 border border-red-500/30 rounded-md">
             <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
             <span className="text-[9px] font-bold text-red-500 dark:text-red-400 uppercase tracking-wider">Live</span>
@@ -731,14 +722,32 @@ export function ChatTicker({
         )}
       </div>
       
-      {/* Gradient fade right */}
-      <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-card to-transparent z-10 pointer-events-none" />
+      {/* Cache age - right side (clickable to refresh) */}
+      {actualCacheAgeMinutes !== undefined && (
+        <div className="absolute right-0 top-0 bottom-0 z-20 flex items-center gap-1 px-3 bg-gradient-to-l from-card via-card/95 to-transparent pl-8">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              fetchEvents(true)
+            }}
+            disabled={isLoading}
+            className="flex items-center gap-1 px-2 py-1 bg-muted/30 border border-muted-foreground/20 rounded-md hover:bg-muted/50 hover:border-muted-foreground/30 transition-all disabled:opacity-50"
+            title="Timeline aktualisieren"
+          >
+            <RefreshCw className={`w-3 h-3 text-muted-foreground/70 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="text-[9px] font-mono text-muted-foreground">
+              {actualCacheAgeMinutes < 1 ? 'just now' : actualCacheAgeMinutes < 60 ? `${actualCacheAgeMinutes}m ago` : `${Math.floor(actualCacheAgeMinutes / 60)}h ago`}
+            </span>
+          </button>
+        </div>
+      )}
+      
       
       {/* Scrolling content - auto-scroll when playing, manual scroll when stopped */}
       <div 
         ref={scrollContainerRef}
         onWheel={handleWheel}
-        className={`py-2.5 pl-[72px] ${isStopped ? 'overflow-x-auto scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent' : ''}`}
+        className={`py-2.5 pl-[72px] pr-[100px] ${isStopped ? 'overflow-x-auto scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent' : ''}`}
       >
         <div 
           ref={tickerRef}
@@ -759,27 +768,6 @@ export function ChatTicker({
         </div>
       </div>
       
-      {/* Status indicator */}
-      {(isPaused || isStopped) && (
-        <div className="absolute right-14 top-1/2 -translate-y-1/2 z-20">
-          <span className="text-[9px] text-muted-foreground bg-card/95 backdrop-blur px-2 py-1 rounded-md border border-foreground/10">
-            {isStopped ? '🖱️ Scrollen • ▶️ zum Starten' : '⏸️ Pausiert'}
-          </span>
-        </div>
-      )}
-      
-      {/* Refresh button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation() // Don't toggle stop state
-          fetchEvents(true)
-        }}
-        disabled={isLoading}
-        className="absolute right-2 top-1/2 -translate-y-1/2 z-20 p-1.5 rounded-md hover:bg-muted/50 transition-colors border border-transparent hover:border-foreground/10"
-        title="Timeline aktualisieren"
-      >
-        <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${isLoading ? 'animate-spin' : ''}`} />
-      </button>
     </div>
   )
 }

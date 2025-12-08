@@ -19,17 +19,14 @@ import {
   ChevronLeftIcon, 
   ChevronRightIcon, 
   RefreshCwIcon,
-  SearchIcon,
-  BarChart3Icon,
-  MessageSquareIcon,
-  CalendarDays
+  BarChart3Icon
 } from 'lucide-react'
 import type { DateStats } from '../lib/types'
 
 export type DayRange = 1 | 3 | 7
 
 const VISIBLE_DATES_MOBILE = 3
-const VISIBLE_DATES_DESKTOP = 7
+const VISIBLE_DATES_DESKTOP = 4
 
 interface DateTimelineProps {
   availableDates: DateStats[]
@@ -53,7 +50,6 @@ export function DateTimeline({
   cumulativeUsers
 }: DateTimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null)
-  const [searchOpen, setSearchOpen] = useState(false)
   const [dayRange, setDayRange] = useState<DayRange>(1)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -318,40 +314,6 @@ export function DateTimeline({
         
         {/* Actions */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Search */}
-          <div className="relative">
-            {searchOpen ? (
-              <input 
-                type="text" 
-                placeholder="Suchen..." 
-                autoFocus
-                onBlur={() => setSearchOpen(false)}
-                className="w-32 px-3 py-1.5 text-xs border border-primary/30 bg-card/90 rounded-sm font-body focus:outline-none focus:border-primary/60 transition-all"
-              />
-            ) : (
-              <button 
-                onClick={() => {
-                  setSearchOpen(true)
-                  track('newspaper_search_open')
-                }}
-                className="p-2 hover:bg-primary/10 rounded-full transition-all"
-                aria-label="Suchen"
-              >
-                <SearchIcon className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
-              </button>
-            )}
-          </div>
-          
-          {/* Refresh */}
-          <button 
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="p-2 hover:bg-primary/10 rounded-full transition-all disabled:opacity-50"
-            aria-label="Aktualisieren"
-          >
-            <RefreshCwIcon className={`h-4 w-4 text-muted-foreground hover:text-primary transition-colors ${isLoading ? 'animate-spin text-primary' : ''}`} />
-          </button>
-          
           {/* Rate-Chart - Always visible */}
           <Link 
             href="/Rate-Chart"
@@ -360,16 +322,6 @@ export function DateTimeline({
           >
             <BarChart3Icon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Rate-Chart</span>
-          </Link>
-          
-          {/* Chat Link - Desktop only */}
-          <Link 
-            href="/Test"
-            onClick={() => track('newspaper_nav_link', { destination: 'chat', source: 'timeline' })}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs hover:bg-primary/10 rounded-sm transition-all text-muted-foreground hover:text-primary"
-          >
-            <MessageSquareIcon className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">Chat</span>
           </Link>
         </div>
       </div>
