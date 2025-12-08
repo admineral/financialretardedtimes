@@ -17,7 +17,7 @@ import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { generateObject } from 'ai'
+import { streamObject } from 'ai'
 import { z } from 'zod'
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -424,109 +424,54 @@ Suche im Chat nach Nachrichten aus dem jeweiligen Zeitfenster und finde das High
 
 ${chatContext}`
     
-    // Try to generate with retry on failure
-    let object: TimelineResponse | null = null
-    let lastError: Error | null = null
+    // Check if client wants streaming
+    const wantsStream = request.headers.get('accept')?.includes('text/event-stream')
     
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        console.log(`[TIMELINE-AI] 🤖 Attempt ${attempt} for ${mode}...`)
-        const result = await generateObject({
-          model: openai('gpt-5.1'),
-          schema: TimelineResponseSchema,
-          system: TIMELINE_PROMPT,
-          prompt: aiPrompt,
-          temperature: attempt === 1 ? 0.7 : 0.5, // Lower temp on retry
-        })
-        object = result.object
-        console.log(`[TIMELINE-AI] ✅ Attempt ${attempt} succeeded`)
-        break // Success, exit retry loop
-      } catch (genError: unknown) {
-        lastError = genError instanceof Error ? genError : new Error(String(genError))
-        console.error(`[TIMELINE-AI] ⚠️ Attempt ${attempt} failed:`, lastError.message)
-        
-        // Log more details if available
-        if (genError && typeof genError === 'object') {
-          const errObj = genError as Record<string, unknown>
-          if (errObj.cause) console.error(`[TIMELINE-AI] Cause:`, errObj.cause)
-          if (errObj.text) console.error(`[TIMELINE-AI] Raw text:`, String(errObj.text).slice(0, 500))
-          if (errObj.response) console.error(`[TIMELINE-AI] Response:`, JSON.stringify(errObj.response).slice(0, 500))
-        }
-        
-        if (attempt === 2) {
-          // Final attempt failed - return empty state instead of error
-          console.log(`[TIMELINE-AI] ❌ All attempts failed, returning empty state`)
-          return new Response(
-            JSON.stringify({
-              events: [],
-              summary: 'Fehler bei der Analyse - keine Events generiert',
-              activityLevel: 'low',
-              dominantSentiment: 'neutral',
-              error: lastError.message
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } }
-          )
-        }
-      }
-    }
+    console.log(`[TIMELINE-AI] 🤖 Generating for ${mode} (streaming: ${wantsStream})...`)
     
-    if (!object) {
-      // Should not happen, but safety fallback
-      return new Response(
-        JSON.stringify({
-          events: [],
-          summary: 'Keine Events generiert',
-          activityLevel: 'low',
-          dominantSentiment: 'neutral'
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-    
-    console.log(`[TIMELINE-AI] ✅ Generated ${object.events?.length || 0} events for ${mode}`)
-    
-    // Save to cache BEFORE returning response
-    try {
-      const cacheData = {
-        cache_key: `timeline-${mode}`,
-        events: object.events,
-        event_count: object.events?.length || 0,
-        date_range_start: startDate.toISOString().split('T')[0],
-        date_range_end: endDate.toISOString().split('T')[0],
-        updated_at: new Date().toISOString(),
-        metadata: {
-          mode,
-          messageCount: allMessages.length,
-          uniqueUsers,
-          summary: object.summary,
-          activityLevel: object.activityLevel,
-          dominantSentiment: object.dominantSentiment
+    // Use streamObject for real-time event streaming
+    const result = streamObject({
+      model: openai('gpt-5.1'),
+      schema: TimelineResponseSchema,
+      system: TIMELINE_PROMPT,
+      prompt: aiPrompt,
+      temperature: 0.7,
+      onFinish: async ({ object }) => {
+        // Save to cache when stream completes
+        if (object && object.events && object.events.length > 0) {
+          console.log(`[TIMELINE-AI] ✅ Stream complete: ${object.events.length} events`)
+          try {
+            const cacheData = {
+              cache_key: `timeline-${mode}`,
+              events: object.events,
+              event_count: object.events.length,
+              date_range_start: startDate.toISOString().split('T')[0],
+              date_range_end: endDate.toISOString().split('T')[0],
+              updated_at: new Date().toISOString(),
+              metadata: {
+                mode,
+                messageCount: allMessages.length,
+                uniqueUsers,
+                summary: object.summary,
+                activityLevel: object.activityLevel,
+                dominantSentiment: object.dominantSentiment
+              }
+            }
+            
+            await supabase
+              .from('chat_timeline_cache')
+              .upsert(cacheData, { onConflict: 'cache_key' })
+            
+            console.log(`[TIMELINE-AI] 💾 Cached ${object.events.length} events for ${mode}`)
+          } catch (cacheError) {
+            console.error(`[TIMELINE-AI] ⚠️ Cache error:`, cacheError)
+          }
         }
       }
-      
-      console.log(`[TIMELINE-AI] 💾 Saving cache for ${mode}...`)
-      
-      const { error: upsertError } = await supabase
-        .from('chat_timeline_cache')
-        .upsert(cacheData, { onConflict: 'cache_key' })
-      
-      if (upsertError) {
-        console.error(`[TIMELINE-AI] ❌ Cache upsert error (${mode}):`, upsertError.message, upsertError.code, upsertError.details, upsertError.hint)
-      } else {
-        console.log(`[TIMELINE-AI] ✅ Cached successfully (${mode}) - ${object.events?.length} events`)
-      }
-    } catch (cacheErr) {
-      console.error('[TIMELINE-AI] ❌ Cache error:', cacheErr)
-    }
+    })
     
-    // Return the generated object as JSON
-    return new Response(
-      JSON.stringify(object),
-      { 
-        status: 200, 
-        headers: { 'Content-Type': 'application/json' } 
-      }
-    )
+    // Return streaming response
+    return result.toTextStreamResponse()
     
   } catch (error) {
     console.error('[TIMELINE-AI] Error:', error)

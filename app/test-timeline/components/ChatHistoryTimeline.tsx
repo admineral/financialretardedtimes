@@ -864,11 +864,13 @@ export function ChatHistoryTimeline({
         console.warn('[ChatTimeline] Activity fetch failed, continuing without:', actErr)
       }
       
-      // STEP 2: Call AI endpoint with activity context
-      console.log(`[ChatTimeline] 🤖 Calling AI with activity context...`)
+      // STEP 2: Call AI endpoint with activity context (STREAMING)
+      console.log(`[ChatTimeline] 🤖 Calling AI with streaming...`)
       const res = await fetch('/test-timeline/api/analyze', { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ 
           mode,
           activityBuckets: fetchedBuckets,
@@ -882,41 +884,12 @@ export function ChatHistoryTimeline({
         throw new Error(errData.error || 'AI analysis failed')
       }
       
-      // Parse JSON response (non-streaming now)
-      interface AIResponse {
-        events?: AITimelineEvent[]
-        summary?: string
-        activityLevel?: 'low' | 'medium' | 'high'
-        dominantSentiment?: string
-        error?: string
-      }
-      
-      const data: AIResponse = await res.json()
-      
-      // Log if there was an error during generation (but still got a response)
-      if (data.error) {
-        console.warn('[ChatTimeline] AI had issues:', data.error)
-      }
-      
-      if (!data?.events || data.events.length === 0) {
-        console.warn('[ChatTimeline] No events in AI response, using empty state')
-        setEvents([])
-        setCacheInfo({ 
-          updatedAt: new Date().toISOString(),
-          summary: data.summary || 'Keine besonderen Events gefunden',
-          activityLevel: data.activityLevel || 'low'
-        })
-        setHasLoaded(true)
-        return
-      }
-      
       // Helper to validate event type
       const validTypes: ChatEventType[] = ['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor']
       const parseType = (t: string | undefined): ChatEventType => {
         if (!t) return 'discussion'
         const lower = t.toLowerCase().trim()
         if (validTypes.includes(lower as ChatEventType)) return lower as ChatEventType
-        // Fuzzy match
         if (lower.includes('discuss') || lower.includes('chat')) return 'discussion'
         if (lower.includes('predict') || lower.includes('prognose') || lower.includes('call')) return 'prediction'
         if (lower.includes('drama') || lower.includes('streit') || lower.includes('beef')) return 'drama'
@@ -926,30 +899,116 @@ export function ChatHistoryTimeline({
         return 'discussion'
       }
       
-      // Map AI response to our ChatEvent format
-      const mappedEvents: ChatEvent[] = data.events.map((evt, idx) => ({
-        id: `ai-${mode}-${idx}`,
-        date: evt.date || new Date().toISOString().split('T')[0],
-        time: evt.time || '12:00',
-        label: evt.label, // AI-generated short label (e.g. "BTC", "LOL", "PUMP")
-        title: evt.title || 'Event',
-        description: evt.quote 
-          ? `*"${evt.quote}"* — @${evt.quoteAuthor || 'User'}\n\n${evt.description || ''}`
-          : evt.description || '',
-        type: parseType(evt.type),
-        participants: evt.participants || [],
-        quote: evt.quote,
-        quoteAuthor: evt.quoteAuthor,
-      }))
+      // Helper to map AI events to our format
+      const mapEvents = (aiEvents: AITimelineEvent[]): ChatEvent[] => {
+        return aiEvents
+          .filter(evt => evt.title && evt.date && evt.time) // Only complete events
+          .map((evt, idx) => ({
+            id: `ai-${mode}-${idx}`,
+            date: evt.date || new Date().toISOString().split('T')[0],
+            time: evt.time || '12:00',
+            label: evt.label,
+            title: evt.title || 'Event',
+            description: evt.quote 
+              ? `*"${evt.quote}"* — @${evt.quoteAuthor || 'User'}\n\n${evt.description || ''}`
+              : evt.description || '',
+            type: parseType(evt.type),
+            participants: evt.participants || [],
+            quote: evt.quote,
+            quoteAuthor: evt.quoteAuthor,
+          }))
+      }
       
-      setEvents(mappedEvents)
-      setCacheInfo({ 
-        updatedAt: new Date().toISOString(),
-        summary: data.summary,
-        activityLevel: data.activityLevel
-      })
-      setHasLoaded(true)
-      console.log(`[ChatTimeline] ✅ Generated ${mappedEvents.length} events (${data.activityLevel || 'unknown'})`)
+      // Read streaming response
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('No response body')
+      
+      const decoder = new TextDecoder()
+      let fullText = ''
+      let lastEventCount = 0
+      
+      setHasLoaded(true) // Show timeline immediately
+      
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        fullText += decoder.decode(value, { stream: true })
+        
+        // Try to parse partial JSON to extract events
+        try {
+          // The stream sends partial JSON, try to parse what we have
+          // Look for complete events in the events array
+          const eventsMatch = fullText.match(/"events"\s*:\s*\[([\s\S]*)/)?.[1]
+          if (eventsMatch) {
+            // Find complete event objects
+            let bracketCount = 0
+            let lastCompleteIdx = -1
+            let inString = false
+            let escape = false
+            
+            for (let i = 0; i < eventsMatch.length; i++) {
+              const char = eventsMatch[i]
+              
+              if (escape) {
+                escape = false
+                continue
+              }
+              if (char === '\\') {
+                escape = true
+                continue
+              }
+              if (char === '"' && !escape) {
+                inString = !inString
+                continue
+              }
+              if (inString) continue
+              
+              if (char === '{') bracketCount++
+              if (char === '}') {
+                bracketCount--
+                if (bracketCount === 0) {
+                  lastCompleteIdx = i
+                }
+              }
+            }
+            
+            if (lastCompleteIdx > 0) {
+              const completeEventsStr = '[' + eventsMatch.slice(0, lastCompleteIdx + 1) + ']'
+              try {
+                const partialEvents = JSON.parse(completeEventsStr)
+                if (Array.isArray(partialEvents) && partialEvents.length > lastEventCount) {
+                  const mapped = mapEvents(partialEvents)
+                  if (mapped.length > lastEventCount) {
+                    console.log(`[ChatTimeline] 🔄 Streaming: ${mapped.length} events`)
+                    setEvents(mapped)
+                    lastEventCount = mapped.length
+                  }
+                }
+              } catch {
+                // Partial JSON not yet valid, continue
+              }
+            }
+          }
+        } catch {
+          // Continue accumulating
+        }
+      }
+      
+      // Final parse of complete response
+      try {
+        const finalData = JSON.parse(fullText)
+        const finalEvents = mapEvents(finalData.events || [])
+        setEvents(finalEvents)
+        setCacheInfo({ 
+          updatedAt: new Date().toISOString(),
+          summary: finalData.summary,
+          activityLevel: finalData.activityLevel
+        })
+        console.log(`[ChatTimeline] ✅ Stream complete: ${finalEvents.length} events (${finalData.activityLevel || 'unknown'})`)
+      } catch (parseErr) {
+        console.warn('[ChatTimeline] Final parse error:', parseErr)
+      }
       
     } catch (err) {
       console.error('[ChatTimeline] Refresh error:', err)
