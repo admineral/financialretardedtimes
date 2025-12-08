@@ -483,8 +483,8 @@ ${chatContext}`
 }
 
 // Cache configuration
-const CACHE_MAX_AGE_HOURS = 4 // Invalidate cache if older than 4 hours
-const CACHE_STALE_MINUTES = 30 // Consider stale after 30 minutes (background refresh)
+const CACHE_MAX_AGE_HOURS = 12 // Invalidate cache if older than 12 hours
+const CACHE_STALE_HOURS = 4 // Consider stale after 4 hours (background refresh)
 
 /**
  * Check if cache is too old and needs refresh
@@ -497,7 +497,7 @@ function getCacheStatus(updatedAt: string): { isValid: boolean; isStale: boolean
   
   return {
     isValid: ageHours < CACHE_MAX_AGE_HOURS,
-    isStale: ageMinutes > CACHE_STALE_MINUTES,
+    isStale: ageHours > CACHE_STALE_HOURS,
     ageMinutes
   }
 }
@@ -507,8 +507,8 @@ function getCacheStatus(updatedAt: string): { isValid: boolean; isStale: boolean
  * 
  * Returns:
  * - cached: true if cache exists
- * - stale: true if cache is older than 30 minutes (client should refresh in background)
- * - expired: true if cache is older than 4 hours (client must refresh)
+ * - stale: true if cache is older than 4 hours (client should refresh in background)
+ * - expired: true if cache is older than 12 hours (client must refresh)
  */
 export async function GET(request: NextRequest) {
   await headers() // Ensure dynamic rendering

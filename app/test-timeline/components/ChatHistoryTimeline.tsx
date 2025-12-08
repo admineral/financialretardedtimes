@@ -84,7 +84,7 @@ interface CacheResponse {
   dateRangeEnd?: string
   updatedAt: string
   cached?: boolean
-  expired?: boolean  // Cache older than 4 hours - must refresh
+  expired?: boolean  // Cache older than 12 hours - must refresh
   stale?: boolean    // Cache older than 30 min - should refresh in background
   cacheAgeMinutes?: number
   metadata?: {

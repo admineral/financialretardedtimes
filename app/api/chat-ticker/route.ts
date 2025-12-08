@@ -24,7 +24,7 @@ import { z } from 'zod'
 // ═══════════════════════════════════════════════════════════════════════
 
 const CACHE_KEY = 'ticker-24h'
-const CACHE_MAX_AGE_MINUTES = 60 // Cache valid for 1 hour
+const CACHE_MAX_AGE_MINUTES = 240 // Cache valid for 4 hours
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
