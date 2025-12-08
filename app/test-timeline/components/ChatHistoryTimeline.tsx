@@ -15,6 +15,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Loader2, MessageSquare, TrendingUp, TrendingDown, Zap, Users, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react'
 
 // Event types for chat moments
@@ -24,6 +25,7 @@ interface ChatEvent {
   id: string
   date: string
   time: string // HH:MM format
+  label?: string // Short label from AI (e.g. "BTC", "LOL", "PUMP")
   title: string
   description: string
   type: ChatEventType
@@ -38,6 +40,7 @@ interface AITimelineEvent {
   timestamp?: string
   time?: string
   date?: string
+  label?: string // Short label from AI (e.g. "BTC", "LOL", "PUMP")
   title?: string
   quote?: string
   quoteAuthor?: string
@@ -103,7 +106,7 @@ function getEventStyle(type: ChatEventType) {
         bg: 'bg-blue-500/20 dark:bg-blue-400/20',
         border: 'border-blue-600 dark:border-blue-400',
         text: 'text-blue-700 dark:text-blue-300',
-        label: 'Diskussion'
+        label: 'TALK'
       }
     case 'prediction':
       return {
@@ -111,7 +114,7 @@ function getEventStyle(type: ChatEventType) {
         bg: 'bg-emerald-500/20 dark:bg-emerald-400/20',
         border: 'border-emerald-600 dark:border-emerald-400',
         text: 'text-emerald-700 dark:text-emerald-300',
-        label: 'Prognose'
+        label: 'CALL'
       }
     case 'drama':
       return {
@@ -119,7 +122,7 @@ function getEventStyle(type: ChatEventType) {
         bg: 'bg-red-500/20 dark:bg-red-400/20',
         border: 'border-red-600 dark:border-red-400',
         text: 'text-red-700 dark:text-red-300',
-        label: 'Drama'
+        label: 'BEEF'
       }
     case 'insight':
       return {
@@ -127,7 +130,7 @@ function getEventStyle(type: ChatEventType) {
         bg: 'bg-amber-500/20 dark:bg-amber-400/20',
         border: 'border-amber-600 dark:border-amber-400',
         text: 'text-amber-700 dark:text-amber-300',
-        label: 'Insight'
+        label: 'AHA'
       }
     case 'milestone':
       return {
@@ -135,7 +138,7 @@ function getEventStyle(type: ChatEventType) {
         bg: 'bg-purple-500/20 dark:bg-purple-400/20',
         border: 'border-purple-600 dark:border-purple-400',
         text: 'text-purple-700 dark:text-purple-300',
-        label: 'Meilenstein'
+        label: 'BOOM'
       }
     case 'humor':
       return {
@@ -143,7 +146,7 @@ function getEventStyle(type: ChatEventType) {
         bg: 'bg-pink-500/20 dark:bg-pink-400/20',
         border: 'border-pink-600 dark:border-pink-400',
         text: 'text-pink-700 dark:text-pink-300',
-        label: 'Humor'
+        label: 'LOL'
       }
   }
 }
@@ -151,7 +154,7 @@ function getEventStyle(type: ChatEventType) {
 
 
 /**
- * Single event card on the timeline - compact with hover expand
+ * Single event card on the timeline - compact with hover expand, click for modal
  */
 function TimelineCard({ 
   event, 
@@ -160,129 +163,431 @@ function TimelineCard({
   event: ChatEvent
   position: 'top' | 'bottom'
 }) {
+  const [isExpanded, setIsExpanded] = useState(false)
   const style = getEventStyle(event.type)
   const Icon = style.icon
   
+  // Use AI label or fall back to style label
+  const displayLabel = event.label || style.label
+  
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  
   return (
-    <div className={`relative flex flex-col items-center ${position === 'top' ? 'mb-4' : 'mt-4'}`}>
-      {/* Connector line */}
-      <div className={`absolute ${position === 'top' ? 'bottom-0 translate-y-full' : 'top-0 -translate-y-full'} left-1/2 w-px h-8 ${style.bg}`} />
-      
-      {/* Card - compact, expands on hover */}
-      <div 
-        className={`group w-48 p-2.5 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm 
-        transition-all duration-300 hover:w-64 hover:shadow-xl cursor-default
-        ${position === 'top' ? 'origin-bottom' : 'origin-top'}`}
-      >
-        {/* Header with type, time and icon */}
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-2">
-            <span className={`text-[9px] font-bold uppercase tracking-wider ${style.text}`}>
-              {style.label}
-            </span>
-            <span className="text-[10px] font-mono text-muted-foreground">
+    <>
+      <div className={`relative flex flex-col items-center ${position === 'top' ? 'mb-4' : 'mt-4'}`}>
+        {/* Connector line */}
+        <div className={`absolute ${position === 'top' ? 'bottom-0 translate-y-full' : 'top-0 -translate-y-full'} left-1/2 w-px h-8 ${style.bg}`} />
+        
+        {/* Card - compact, expands on hover, click for modal */}
+        <div 
+          onClick={() => setIsExpanded(true)}
+          className={`group w-52 p-3 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm 
+          transition-all duration-300 hover:w-72 hover:shadow-xl cursor-pointer select-none active:scale-95
+          ${position === 'top' ? 'origin-bottom' : 'origin-top'}`}
+        >
+          {/* Header: Label badge + timestamp right */}
+          <div className="flex items-start justify-between mb-1.5">
+            <div className="flex items-center gap-2">
+              <span className={`text-[9px] font-black tracking-wide px-1.5 py-0.5 rounded ${style.bg} ${style.text} border ${style.border}`}>
+                {displayLabel}
+              </span>
+              <Icon className={`w-3 h-3 ${style.text} opacity-60`} />
+            </div>
+            <span className="text-[10px] font-mono text-muted-foreground/70">
               {event.time}
             </span>
           </div>
-          <Icon className={`w-3 h-3 ${style.text}`} />
-        </div>
-        
-        {/* Title - always visible */}
-        <h4 className="font-headline text-sm font-bold leading-tight">
-          {event.title}
-        </h4>
-        
-        {/* Description - only on hover */}
-        <div className="max-h-0 overflow-hidden opacity-0 group-hover:max-h-24 group-hover:opacity-100 transition-all duration-300">
-          <p className="text-[11px] text-muted-foreground leading-snug mt-2 line-clamp-3">
-            {event.description}
-          </p>
           
-          {/* Participants - only on hover */}
-          {event.participants.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {event.participants.slice(0, 3).map((p, i) => (
-                <span key={i} className="text-[9px] px-1.5 py-0.5 bg-background/50 rounded">
-                  @{p}
-                </span>
-              ))}
-              {event.participants.length > 3 && (
-                <span className="text-[9px] text-foreground/70 dark:text-foreground/80">
-                  +{event.participants.length - 3}
-                </span>
-              )}
-            </div>
-          )}
+          {/* Title - always visible, full text */}
+          <h4 className={`font-headline text-sm font-bold leading-tight ${style.text}`}>
+            {event.title}
+          </h4>
+          
+          {/* Description preview on hover */}
+          <div className="max-h-0 overflow-hidden opacity-0 group-hover:max-h-12 group-hover:opacity-100 transition-all duration-300">
+            <p className="text-[11px] text-muted-foreground leading-snug mt-2 line-clamp-2">
+              {event.description?.slice(0, 80)}...
+            </p>
+          </div>
         </div>
+        
+        {/* Dot on timeline */}
+        <div className={`absolute ${position === 'top' ? '-bottom-6' : '-top-6'} left-1/2 -translate-x-1/2 
+          w-3 h-3 rounded-full ${style.bg} border-2 ${style.border} z-10`} />
       </div>
       
-      {/* Dot on timeline */}
-      <div className={`absolute ${position === 'top' ? '-bottom-6' : '-top-6'} left-1/2 -translate-x-1/2 
-        w-3 h-3 rounded-full ${style.bg} border-2 ${style.border} z-10`} />
-    </div>
+      {/* Modal overlay - rendered via portal to escape stacking context */}
+      {isExpanded && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: 99999 }}
+          onClick={() => setIsExpanded(false)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className={`relative w-full max-w-md p-5 rounded-xl border-2 ${style.bg} ${style.border} shadow-2xl
+              animate-in fade-in zoom-in-95 duration-200`}
+          >
+            {/* Close button */}
+            <button 
+              onClick={() => setIsExpanded(false)}
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full 
+                bg-background/50 hover:bg-background/80 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              ✕
+            </button>
+            
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className={`text-sm font-black tracking-wide px-2 py-1 rounded ${style.bg} ${style.text} border ${style.border}`}>
+                {displayLabel}
+              </span>
+              <Icon className={`w-5 h-5 ${style.text}`} />
+              <span className="text-sm font-mono text-muted-foreground ml-auto">
+                {formatDate(event.date)} • {event.time}
+              </span>
+            </div>
+            
+            {/* Title */}
+            <h3 className={`text-lg font-bold leading-tight mb-3 ${style.text}`}>
+              {event.title}
+            </h3>
+            
+            {/* Quote if exists */}
+            {event.quote && (
+              <blockquote className={`border-l-4 ${style.border} pl-3 mb-3 italic text-sm`}>
+                "{event.quote}"
+                {event.quoteAuthor && (
+                  <span className="block text-xs text-muted-foreground mt-1">— @{event.quoteAuthor}</span>
+                )}
+              </blockquote>
+            )}
+            
+            {/* Full description */}
+            {event.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                {event.description}
+              </p>
+            )}
+            
+            {/* Participants */}
+            {event.participants.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-border/50">
+                <span className="text-xs text-muted-foreground">Beteiligt:</span>
+                {event.participants.map((p, i) => (
+                  <span key={i} className={`text-xs px-2 py-1 rounded ${style.bg} ${style.text}`}>
+                    @{p}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 
 /**
  * Compact event card for mini timeline - inline display with hover expand
- * Has delayed close so moving between cards feels smooth
+ * Click to open full modal view
  */
 function CompactTimelineCard({ event }: { event: ChatEvent }) {
+  const [isExpanded, setIsExpanded] = useState(false)
   const style = getEventStyle(event.type)
+  const Icon = style.icon
+  
+  // Use AI label or fall back to style label
+  const displayLabel = event.label || style.label
+  
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
   
   return (
-    <div className="group relative flex items-center">
-      {/* Dot on timeline */}
-      <div className={`absolute -bottom-[17px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${style.bg} border ${style.border} z-10
-        transition-transform duration-200 delay-300 group-hover:delay-0 group-hover:scale-125`} />
-      
-      {/* Card - compact, expands on hover with delayed close */}
-      <div className={`px-2 py-1.5 rounded border ${style.bg} ${style.border} backdrop-blur-sm 
-        cursor-default 
-        min-w-[140px] max-w-[180px] group-hover:min-w-[220px] group-hover:max-w-[260px]
-        group-hover:shadow-lg group-hover:z-20
-        transition-all duration-200 ease-out
-        delay-500 group-hover:delay-0`}
-      >
-        {/* Type label and time */}
-        <div className="flex items-center justify-between gap-2 mb-0.5">
-          <span className={`text-[8px] font-bold uppercase tracking-wider ${style.text}`}>
-            {style.label}
-          </span>
-          <span className="text-[9px] font-mono text-muted-foreground">
-            {event.time}
-          </span>
-        </div>
+    <>
+      <div className="group relative flex items-center">
+        {/* Dot on timeline */}
+        <div className={`absolute -bottom-[17px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${style.bg} border ${style.border} z-10
+          transition-transform duration-200 delay-300 group-hover:delay-0 group-hover:scale-125`} />
         
-        {/* Title - truncated, expands on hover */}
-        <p className="text-[10px] font-medium leading-tight line-clamp-2 group-hover:line-clamp-none
-          transition-all duration-200 delay-500 group-hover:delay-0">
-          {event.title}
-        </p>
-        
-        {/* Description - hidden, shows on hover with delayed close */}
-        <div className="max-h-0 overflow-hidden opacity-0 
-          group-hover:max-h-20 group-hover:opacity-100 
+        {/* Card - compact, expands on hover, click for modal */}
+        <div 
+          onClick={() => setIsExpanded(true)}
+          className={`px-2.5 py-2 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm 
+          cursor-pointer select-none
+          min-w-[160px] max-w-[200px] group-hover:min-w-[240px] group-hover:max-w-[280px]
+          group-hover:shadow-lg group-hover:z-20
           transition-all duration-200 ease-out
-          delay-500 group-hover:delay-0">
-          <p className="text-[9px] text-muted-foreground leading-snug mt-1.5 line-clamp-3">
-            {event.description}
+          delay-500 group-hover:delay-0
+          active:scale-95`}
+        >
+          {/* Label badge + timestamp top right */}
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <span className={`text-[9px] font-black tracking-wide px-1.5 py-0.5 rounded ${style.bg} ${style.text} border ${style.border}`}>
+              {displayLabel}
+            </span>
+            <span className="text-[9px] font-mono text-muted-foreground/70 mt-0.5">
+              {event.time}
+            </span>
+          </div>
+          
+          {/* Title - full visibility */}
+          <p className={`text-[11px] font-semibold leading-snug ${style.text}`}>
+            {event.title}
           </p>
           
-          {/* Participants */}
-          {event.participants.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {event.participants.slice(0, 3).map((p, i) => (
-                <span key={i} className="text-[8px] px-1 py-0.5 bg-background/50 rounded">@{p}</span>
-              ))}
-              {event.participants.length > 3 && (
-                <span className="text-[8px] text-foreground/70 dark:text-foreground/80">+{event.participants.length - 3}</span>
-              )}
-            </div>
-          )}
+          {/* Description preview on hover */}
+          <div className="max-h-0 overflow-hidden opacity-0 
+            group-hover:max-h-12 group-hover:opacity-100 
+            transition-all duration-200 ease-out
+            delay-500 group-hover:delay-0">
+            <p className="text-[10px] text-muted-foreground leading-snug mt-1.5 line-clamp-2">
+              {event.description?.slice(0, 80)}...
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+      
+      {/* Modal overlay - rendered via portal to escape stacking context */}
+      {isExpanded && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: 99999 }}
+          onClick={() => setIsExpanded(false)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className={`relative w-full max-w-md p-5 rounded-xl border-2 ${style.bg} ${style.border} shadow-2xl
+              animate-in fade-in zoom-in-95 duration-200`}
+          >
+            {/* Close button */}
+            <button 
+              onClick={() => setIsExpanded(false)}
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full 
+                bg-background/50 hover:bg-background/80 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              ✕
+            </button>
+            
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className={`text-sm font-black tracking-wide px-2 py-1 rounded ${style.bg} ${style.text} border ${style.border}`}>
+                {displayLabel}
+              </span>
+              <Icon className={`w-5 h-5 ${style.text}`} />
+              <span className="text-sm font-mono text-muted-foreground ml-auto">
+                {formatDate(event.date)} • {event.time}
+              </span>
+            </div>
+            
+            {/* Title */}
+            <h3 className={`text-lg font-bold leading-tight mb-3 ${style.text}`}>
+              {event.title}
+            </h3>
+            
+            {/* Quote if exists */}
+            {event.quote && (
+              <blockquote className={`border-l-4 ${style.border} pl-3 mb-3 italic text-sm`}>
+                "{event.quote}"
+                {event.quoteAuthor && (
+                  <span className="block text-xs text-muted-foreground mt-1">— @{event.quoteAuthor}</span>
+                )}
+              </blockquote>
+            )}
+            
+            {/* Full description */}
+            {event.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                {event.description}
+              </p>
+            )}
+            
+            {/* Participants */}
+            {event.participants.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-border/50">
+                <span className="text-xs text-muted-foreground">Beteiligt:</span>
+                {event.participants.map((p, i) => (
+                  <span key={i} className={`text-xs px-2 py-1 rounded ${style.bg} ${style.text}`}>
+                    @{p}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+/**
+ * Inline event card for compact timeline with click-to-expand modal
+ */
+function InlineEventCard({ 
+  event, 
+  style, 
+  displayLabel, 
+  cardWidth, 
+  barHeight, 
+  verticalOffset, 
+  fontSize, 
+  titleSize,
+  isTiny 
+}: { 
+  event: ChatEvent & { bucket?: { timestamp: string; label: string; count: number; uniqueUsers: number; intensity: number } }
+  style: ReturnType<typeof getEventStyle>
+  displayLabel: string
+  cardWidth: number
+  barHeight: number
+  verticalOffset: number
+  fontSize: string
+  titleSize: string
+  isTiny: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const Icon = style.icon
+  
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  
+  return (
+    <>
+      <div 
+        className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card" 
+        style={{ 
+          bottom: `${barHeight + 10 + verticalOffset}px`,
+        }}
+      >
+        {/* Connector line from card to bar */}
+        <div 
+          className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/30 to-transparent" 
+          style={{ 
+            height: `${10 + verticalOffset}px`,
+          }}
+        />
+        
+        {/* Event card - clickable */}
+        <div 
+          onClick={() => setIsExpanded(true)}
+          className={`p-2 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm 
+          transition-all duration-200 hover:shadow-2xl hover:scale-105 hover:z-[100] 
+          cursor-pointer select-none active:scale-95`}
+          style={{ 
+            width: `${cardWidth + 20}px`,
+            minWidth: `${cardWidth + 20}px`,
+          }}
+        >
+          {/* Header: Label badge + time top right */}
+          <div className="flex items-start justify-between gap-1 mb-1">
+            <span className={`text-${fontSize} font-black tracking-wide px-1 py-0.5 rounded ${style.bg} ${style.text} border ${style.border} leading-none`}>
+              {displayLabel}
+            </span>
+            <span className={`text-${fontSize} font-mono text-muted-foreground/60`}>
+              {event.time}
+            </span>
+          </div>
+          
+          {/* Title - full text, wraps */}
+          <h4 className={`text-${titleSize} font-semibold leading-tight ${style.text}`}>
+            {event.title}
+          </h4>
+          
+          {/* Preview on hover */}
+          {!isTiny && (
+            <p className="text-[8px] text-muted-foreground leading-snug mt-1 max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-8 group-hover/card:opacity-100 transition-all duration-200 line-clamp-2">
+              {event.description?.slice(0, 60)}...
+            </p>
+          )}
+        </div>
+        
+        {/* Dot at connection point */}
+        <div 
+          className={`absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full ${style.bg} border ${style.border} z-10`}
+        />
+      </div>
+      
+      {/* Modal overlay - rendered via portal to escape stacking context */}
+      {isExpanded && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: 99999 }}
+          onClick={() => setIsExpanded(false)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className={`relative w-full max-w-md p-5 rounded-xl border-2 ${style.bg} ${style.border} shadow-2xl
+              animate-in fade-in zoom-in-95 duration-200`}
+          >
+            {/* Close button */}
+            <button 
+              onClick={() => setIsExpanded(false)}
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full 
+                bg-background/50 hover:bg-background/80 transition-colors text-muted-foreground hover:text-foreground"
+            >
+              ✕
+            </button>
+            
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className={`text-sm font-black tracking-wide px-2 py-1 rounded ${style.bg} ${style.text} border ${style.border}`}>
+                {displayLabel}
+              </span>
+              <Icon className={`w-5 h-5 ${style.text}`} />
+              <span className="text-sm font-mono text-muted-foreground ml-auto">
+                {formatDate(event.date)} • {event.time}
+              </span>
+            </div>
+            
+            {/* Title */}
+            <h3 className={`text-lg font-bold leading-tight mb-3 ${style.text}`}>
+              {event.title}
+            </h3>
+            
+            {/* Quote if exists */}
+            {event.quote && (
+              <blockquote className={`border-l-4 ${style.border} pl-3 mb-3 italic text-sm`}>
+                "{event.quote}"
+                {event.quoteAuthor && (
+                  <span className="block text-xs text-muted-foreground mt-1">— @{event.quoteAuthor}</span>
+                )}
+              </blockquote>
+            )}
+            
+            {/* Full description */}
+            {event.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                {event.description}
+              </p>
+            )}
+            
+            {/* Participants */}
+            {event.participants && event.participants.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-border/50">
+                <span className="text-xs text-muted-foreground">Beteiligt:</span>
+                {event.participants.map((p, i) => (
+                  <span key={i} className={`text-xs px-2 py-1 rounded ${style.bg} ${style.text}`}>
+                    @{p}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 
@@ -626,6 +931,7 @@ export function ChatHistoryTimeline({
         id: `ai-${mode}-${idx}`,
         date: evt.date || new Date().toISOString().split('T')[0],
         time: evt.time || '12:00',
+        label: evt.label, // AI-generated short label (e.g. "BTC", "LOL", "PUMP")
         title: evt.title || 'Event',
         description: evt.quote 
           ? `*"${evt.quote}"* — @${evt.quoteAuthor || 'User'}\n\n${evt.description || ''}`
@@ -903,13 +1209,13 @@ export function ChatHistoryTimeline({
                     const isCompact = eventCount > 10
                     const isTiny = eventCount > 14
                     
-                    // Card dimensions
-                    const cardHeight = isTiny ? 36 : isCompact ? 44 : 52
-                    const cardWidth = isTiny ? 110 : isCompact ? 130 : 150
-                    const cardGap = 8
+                    // Card dimensions - wider for full titles
+                    const cardHeight = isTiny ? 44 : isCompact ? 52 : 60
+                    const cardWidth = isTiny ? 130 : isCompact ? 160 : 180
+                    const cardGap = 12
                     const bucketWidth = 24 // 22px min + 2px gap
-                    const fontSize = isTiny ? '[6px]' : isCompact ? '[7px]' : '[8px]'
-                    const titleSize = isTiny ? '[7px]' : isCompact ? '[8px]' : '[9px]'
+                    const fontSize = isTiny ? '[7px]' : isCompact ? '[8px]' : '[9px]'
+                    const titleSize = isTiny ? '[8px]' : isCompact ? '[9px]' : '[10px]'
                     
                     // Left padding to prevent cards from being cut off
                     const leftPadding = Math.ceil(cardWidth / 2) + 20
@@ -1002,55 +1308,21 @@ export function ChatHistoryTimeline({
                                   const event = pos.event
                                   const style = getEventStyle(event.type)
                                   const verticalOffset = pos.row * (cardHeight + cardGap)
+                                  const displayLabel = event.label || style.label
                                   
                                   return (
-                                    <div 
+                                    <InlineEventCard
                                       key={`${idx}-${event.id}-${eventIdx}`}
-                                      className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card" 
-                                      style={{ 
-                                        bottom: `${barHeight + 10 + verticalOffset}px`,
-                                      }}
-                                    >
-                                      {/* Connector line from card to bar */}
-                                      <div 
-                                        className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/30 to-transparent" 
-                                        style={{ 
-                                          height: `${10 + verticalOffset}px`,
-                                        }}
-                                      />
-                                      
-                                      {/* Event card - dynamically sized */}
-                                      <div 
-                                        className={`p-1.5 rounded border ${style.bg} ${style.border} backdrop-blur-sm 
-                                        transition-all duration-200 hover:shadow-2xl hover:scale-110 hover:z-[100] cursor-default`}
-                                        style={{ 
-                                          width: `${cardWidth}px`,
-                                          minWidth: `${cardWidth}px`,
-                                        }}
-                                      >
-                                        <div className="flex items-center justify-between mb-0.5">
-                                          <span className={`text-${fontSize} font-bold uppercase ${style.text} leading-none truncate`}>
-                                            {style.label}
-                                          </span>
-                                          <span className={`text-${fontSize} font-mono text-muted-foreground ml-1`}>
-                                            {event.time}
-                                          </span>
-                                        </div>
-                                        <h4 className={`text-${titleSize} font-bold leading-tight line-clamp-1 group-hover/card:line-clamp-2`}>
-                                          {event.title}
-                                        </h4>
-                                        {!isTiny && (
-                                          <p className="text-[7px] text-muted-foreground leading-snug mt-0.5 max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-16 group-hover/card:opacity-100 transition-all duration-200 line-clamp-2">
-                                            {event.description}
-                                          </p>
-                                        )}
-                                      </div>
-                                      
-                                      {/* Dot at connection point */}
-                                      <div 
-                                        className={`absolute top-full left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full ${style.bg} border ${style.border} z-10`}
-                                      />
-                                    </div>
+                                      event={event}
+                                      style={style}
+                                      displayLabel={displayLabel}
+                                      cardWidth={cardWidth}
+                                      barHeight={barHeight}
+                                      verticalOffset={verticalOffset}
+                                      fontSize={fontSize}
+                                      titleSize={titleSize}
+                                      isTiny={isTiny}
+                                    />
                                   )
                                 })}
                                 

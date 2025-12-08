@@ -28,20 +28,21 @@ const TimelineEventSchema = z.object({
   timestamp: z.string().optional().describe('Exakter Zeitstempel aus dem Chat (ISO format oder DD.MM HH:MM)'),
   time: z.string().describe('Uhrzeit für Anzeige (HH:MM format)'),
   date: z.string().describe('Datum (YYYY-MM-DD format)'),
-  title: z.string().describe('Kurzer, prägnanter Titel (max 60 Zeichen)'),
-  quote: z.string().optional().describe('Das beste Zitat zu diesem Event (max 150 Zeichen)'),
+  label: z.string().max(12).describe('Kurzes Label (2-12 Zeichen) wie: BTC, ETH, CALL, LOL, BEEF, PUMP, DUMP, RIP, FOMO, TA, NEWS, ALPHA'),
+  title: z.string().max(50).describe('Prägnante Überschrift (max 50 Zeichen)'),
+  quote: z.string().optional().describe('Das beste Zitat zu diesem Event (max 100 Zeichen)'),
   quoteAuthor: z.string().optional().describe('Username des Zitierten'),
-  description: z.string().optional().describe('Kurze Beschreibung was passiert ist (max 200 Zeichen)'),
-  type: z.string().describe('Event-Typ: discussion, prediction, drama, insight, milestone, oder humor'),
+  description: z.string().optional().describe('Kurze Beschreibung (max 150 Zeichen)'),
+  type: z.enum(['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor']).describe('Event-Typ für Farbe'),
   participants: z.array(z.string()).optional().describe('Beteiligte User (1-6)'),
-  sentiment: z.string().optional().describe('Sentiment: bullish, bearish, neutral, oder mixed'),
+  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).optional().describe('Sentiment'),
 })
 
 const TimelineResponseSchema = z.object({
   events: z.array(TimelineEventSchema).describe('Die wichtigsten Events - MINDESTENS 5-6 bei normaler Aktivität, bis zu 12-15 bei hoher!'),
   summary: z.string().optional().describe('Ein-Satz-Zusammenfassung des Zeitraums (max 200 Zeichen)'),
-  activityLevel: z.string().optional().describe('Wie aktiv war der Chat? low, medium, oder high'),
-  dominantSentiment: z.string().optional().describe('Dominantes Sentiment: bullish, bearish, neutral, oder mixed'),
+  activityLevel: z.enum(['low', 'medium', 'high']).optional().describe('Wie aktiv war der Chat?'),
+  dominantSentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).optional().describe('Dominantes Sentiment'),
 })
 
 export type TimelineEvent = z.infer<typeof TimelineEventSchema>
@@ -107,6 +108,13 @@ Zeitslot: "Sa 14:00 (32 msgs)"
 - timestamp: Der echte Zeitstempel (z.B. "2024-12-07T10:23:00" oder aus dem Chat)
 - time: Nur die Uhrzeit für Anzeige (z.B. "10:23")
 - date: Nur das Datum (z.B. "2024-12-07")
+- **label**: KURZES Tag (2-12 Zeichen) - sei kreativ! z.B.:
+  - Coins: "BTC", "ETH", "SOL", "XRP"
+  - Calls: "LONG", "SHORT", "PUMP", "DUMP"
+  - Reaktionen: "LOL", "RIP", "FOMO", "REKT"
+  - Themen: "TA", "NEWS", "ALPHA", "BEEF"
+  - Oder custom: "100K?", "MOON", "DIP", "TOP"
+- title: Prägnante Überschrift (max 50 Zeichen)
 - quote: Ein echtes Zitat aus dem Chat, mit @username wenn sinnvoll
 - quoteAuthor: Wer hat das gesagt?
 
@@ -424,7 +432,7 @@ ${chatContext}`
       try {
         console.log(`[TIMELINE-AI] 🤖 Attempt ${attempt} for ${mode}...`)
         const result = await generateObject({
-          model: openai('gpt-4o-mini'),
+          model: openai('gpt-5.1'),
           schema: TimelineResponseSchema,
           system: TIMELINE_PROMPT,
           prompt: aiPrompt,

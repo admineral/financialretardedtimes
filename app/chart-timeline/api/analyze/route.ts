@@ -646,7 +646,7 @@ export async function POST(request: NextRequest) {
     
     // Use streamObject for streaming response
     const result = streamObject({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-5.1'),
       schema: AnalysisResponseSchema,
       system: ANALYSIS_PROMPT,
       prompt: fullContext,

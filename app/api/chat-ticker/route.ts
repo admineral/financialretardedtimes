@@ -30,8 +30,8 @@ const CACHE_MAX_AGE_MINUTES = 60 // Cache valid for 1 hour
 // SCHEMAS
 // ═══════════════════════════════════════════════════════════════════════
 
-const TickerEventSchema = z.object({
-  id: z.string(),
+// Schema for AI generation (without id - we add it programmatically)
+const AITickerEventSchema = z.object({
   date: z.string().describe('Datum im Format YYYY-MM-DD'),
   time: z.string().describe('Uhrzeit (HH:MM)'),
   username: z.string(),
@@ -40,8 +40,13 @@ const TickerEventSchema = z.object({
   emoji: z.string().optional().describe('Passendes Emoji'),
 })
 
-const TickerResponseSchema = z.object({
-  events: z.array(TickerEventSchema).min(10).max(30).describe('10-30 Ticker-Events, chronologisch'),
+const AITickerResponseSchema = z.object({
+  events: z.array(AITickerEventSchema).min(10).max(30).describe('10-30 Ticker-Events, chronologisch'),
+})
+
+// Full schema with id (for storage/frontend)
+const TickerEventSchema = AITickerEventSchema.extend({
+  id: z.string(),
 })
 
 type TickerEvent = z.infer<typeof TickerEventSchema>
@@ -218,10 +223,10 @@ async function generateTickerEvents(supabase: Awaited<ReturnType<typeof createCl
   
   console.log(`[TICKER] 📊 Messages: ${messages.length}, Users: ${uniqueUsers}`)
   
-  // Generate with AI
+  // Generate with AI (using schema without id)
   const result = await generateObject({
-    model: openai('gpt-4o-mini'),
-    schema: TickerResponseSchema,
+    model: openai('gpt-5.1'),
+    schema: AITickerResponseSchema,
     system: TICKER_PROMPT,
     prompt: `Extrahiere die unterhaltsamsten Ticker-Events aus diesem Chat (letzte 24h):
 
@@ -233,8 +238,14 @@ WICHTIG: Verwende das exakte Datum (YYYY-MM-DD) aus den Nachrichten!`,
     temperature: 0.8,
   })
   
+  // Add unique IDs to each event
+  const eventsWithIds: TickerEvent[] = result.object.events.map((event, index) => ({
+    ...event,
+    id: `${event.date}-${event.time.replace(':', '')}-${index}`,
+  }))
+  
   return {
-    events: result.object.events,
+    events: eventsWithIds,
     messageCount: messages.length,
     uniqueUsers,
     startDate,
