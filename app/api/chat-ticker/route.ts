@@ -15,9 +15,18 @@
 import { NextResponse, after } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
+
+// Simple Supabase client for background operations (no cookies needed)
+function createBackgroundClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // CONFIG
@@ -170,7 +179,7 @@ async function getCache(supabase: Awaited<ReturnType<typeof createClient>>): Pro
 }
 
 async function saveCache(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createBackgroundClient>,
   events: TickerEvent[],
   startDate: Date,
   endDate: Date,
@@ -356,8 +365,7 @@ export async function POST() {
     
     const chatContext = formatChatForAI(messages)
     
-    // Stream AI response with onFinish for caching
-    // Use after() to ensure cache save completes on serverless (Vercel)
+    // Stream AI response
     const result = streamObject({
       model: openai('gpt-5.1'),
       schema: AITickerResponseSchema,
@@ -375,30 +383,31 @@ ${chatContext}
 
 Erstelle 15-25 Events. Priorisiere: Lustige Headlines, Drama, krasse Calls, Fails.`,
       // Note: temperature not supported for reasoning models like gpt-5.1
-      onFinish: async ({ object }) => {
-        // Use after() to keep serverless function alive until cache save completes
-        // This is critical for Vercel deployments where the function might terminate
-        // after the streaming response is sent but before onFinish completes
-        after(async () => {
-          if (object && object.events && object.events.length > 0) {
-            console.log(`[TICKER POST] ✅ Stream complete: ${object.events.length} events`)
-            
-            // Add unique IDs to each event
-            const eventsWithIds: TickerEvent[] = object.events.map((event, index) => ({
-              ...event,
-              id: `${event.date}-${event.time.replace(':', '')}-${index}`,
-            }))
-            
-            try {
-              // Create a fresh supabase client for the after() context
-              const afterSupabase = await createClient()
-              await saveCache(afterSupabase, eventsWithIds, startDate, endDate, messages.length, uniqueUsers)
-              console.log(`[TICKER POST] 💾 Cached ${eventsWithIds.length} events`)
-            } catch (cacheError) {
-              console.error(`[TICKER POST] ⚠️ Cache error:`, cacheError)
-            }
-          }
-        })
+    })
+    
+    // CRITICAL: Register after() BEFORE returning the response
+    // This ensures Vercel keeps the function alive until cache save completes
+    after(async () => {
+      try {
+        // Wait for stream to complete and get final object
+        const object = await result.object
+        
+        if (object && object.events && object.events.length > 0) {
+          console.log(`[TICKER POST] ✅ Stream complete: ${object.events.length} events`)
+          
+          // Add unique IDs to each event
+          const eventsWithIds: TickerEvent[] = object.events.map((event, index) => ({
+            ...event,
+            id: `${event.date}-${event.time.replace(':', '')}-${index}`,
+          }))
+          
+          // Use simple background client - cookies() not available in after() context!
+          const bgClient = createBackgroundClient()
+          await saveCache(bgClient, eventsWithIds, startDate, endDate, messages.length, uniqueUsers)
+          console.log(`[TICKER POST] 💾 Cached ${eventsWithIds.length} events`)
+        }
+      } catch (cacheError) {
+        console.error(`[TICKER POST] ⚠️ Cache error:`, cacheError)
       }
     })
     

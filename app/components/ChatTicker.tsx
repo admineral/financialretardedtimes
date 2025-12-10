@@ -118,6 +118,117 @@ const speedSettings = {
 }
 
 /**
+ * Parse and render text that may contain quotes in various formats:
+ * - BBCode: [quote="username"]quoted text[/quote]
+ * - Markdown-style: *"quoted text"* — @username
+ */
+function renderTextWithQuotes(text: string, compact = false) {
+  const parts: Array<{ type: 'text' | 'quote'; content: string; username?: string }> = []
+  
+  // First, try to parse BBCode-style quotes
+  const bbcodeRegex = /\[quote="([^"]+)"\]([\s\S]*?)\[\/quote\]/g
+  let hasBBCode = false
+  let lastIndex = 0
+  let match
+  
+  while ((match = bbcodeRegex.exec(text)) !== null) {
+    hasBBCode = true
+    // Add text before quote
+    if (match.index > lastIndex) {
+      const beforeText = text.slice(lastIndex, match.index).trim()
+      if (beforeText) {
+        parts.push({ type: 'text', content: beforeText })
+      }
+    }
+    
+    // Add quote
+    parts.push({
+      type: 'quote',
+      username: match[1],
+      content: match[2].trim()
+    })
+    
+    lastIndex = match.index + match[0].length
+  }
+  
+  if (hasBBCode) {
+    // Add remaining text after last BBCode quote
+    if (lastIndex < text.length) {
+      const remainingText = text.slice(lastIndex).trim()
+      if (remainingText) {
+        parts.push({ type: 'text', content: remainingText })
+      }
+    }
+  } else {
+    // Try markdown-style quotes: *"quoted text"* — @username
+    const markdownQuoteRegex = /^\*"([^"]+)"\*\s*—\s*@(\S+)\s*/
+    const mdMatch = text.match(markdownQuoteRegex)
+    
+    if (mdMatch) {
+      parts.push({
+        type: 'quote',
+        content: mdMatch[1],
+        username: mdMatch[2]
+      })
+      
+      // Get remaining text after the quote
+      const remaining = text.slice(mdMatch[0].length).trim()
+      if (remaining) {
+        parts.push({ type: 'text', content: remaining })
+      }
+    }
+  }
+  
+  // If no quotes found, return original text
+  if (parts.length === 0) {
+    return <span>{text}</span>
+  }
+  
+  if (compact) {
+    // Compact version for cards - inline style
+    return (
+      <span>
+        {parts.map((part, index) => {
+          if (part.type === 'quote') {
+            return (
+              <span key={index} className="text-muted-foreground/70">
+                <span className="text-blue-600 dark:text-blue-400 font-medium">@{part.username}:</span>{' '}
+                <span className="italic">„{part.content}"</span>{' '}
+              </span>
+            )
+          }
+          return <span key={index}>{part.content} </span>
+        })}
+      </span>
+    )
+  }
+  
+  // Full version for modals - block style
+  return (
+    <div className="space-y-2">
+      {parts.map((part, index) => {
+        if (part.type === 'quote') {
+          return (
+            <div key={index} className="border-l-4 border-blue-400/50 dark:border-blue-500/40 pl-3 py-2 bg-blue-50 dark:bg-blue-950/20 rounded-r-md">
+              <div className="flex items-center gap-1 mb-1">
+                <MessageSquare className="h-3 w-3 text-blue-500 dark:text-blue-400" />
+                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                  @{part.username}:
+                </span>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-muted-foreground italic">
+                „{part.content}"
+              </p>
+            </div>
+          )
+        }
+        return <p key={index} className="text-sm text-gray-600 dark:text-muted-foreground">{part.content}</p>
+      })}
+    </div>
+  )
+}
+
+/**
  * Get formatted date info
  */
 function getDateInfo(dateStr: string): { relative: string; formatted: string; isToday: boolean } {
@@ -218,9 +329,9 @@ function TickerItem({ event }: { event: TickerEvent }) {
         )}
         
       {/* Preview text - always visible */}
-      <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2 group-hover/card:line-clamp-none transition-all duration-300 delay-300 group-hover/card:delay-150">
-        {event.text}
-      </p>
+      <div className="text-[10px] text-muted-foreground leading-snug line-clamp-2 group-hover/card:line-clamp-none transition-all duration-300 delay-300 group-hover/card:delay-150">
+        {renderTextWithQuotes(event.text, true)}
+      </div>
       
       {/* Full quote - expands on hover with delay */}
       {event.quote && (
@@ -246,13 +357,14 @@ function TickerItem({ event }: { event: TickerEvent }) {
       {/* Modal - rendered via portal to escape stacking context */}
       {isModalOpen && typeof document !== 'undefined' && createPortal(
         <div 
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/60 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
           style={{ zIndex: 99999 }}
           onClick={() => setIsModalOpen(false)}
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className={`relative w-full max-w-md p-5 rounded-xl border-2 ${style.bg} ${style.border} shadow-2xl
+            className={`relative w-full max-w-md p-5 rounded-xl border-2 
+              bg-white dark:bg-card ${style.border} shadow-2xl
               animate-in fade-in zoom-in-95 duration-200`}
           >
             {/* Close button */}
@@ -270,7 +382,7 @@ function TickerItem({ event }: { event: TickerEvent }) {
                 {displayLabel}
               </span>
               <Icon className={`w-5 h-5 ${style.text}`} />
-              <span className="text-sm font-mono text-muted-foreground ml-auto">
+              <span className="text-sm font-mono text-gray-500 dark:text-muted-foreground ml-auto">
                 {formatEventDate(event.date)} • {event.time}
               </span>
             </div>
@@ -284,19 +396,19 @@ function TickerItem({ event }: { event: TickerEvent }) {
             
             {/* Quote if exists */}
             {event.quote && (
-              <blockquote className={`border-l-4 ${style.border} pl-3 mb-3 italic text-sm`}>
+              <blockquote className={`border-l-4 ${style.border} pl-3 mb-3 italic text-sm text-gray-700 dark:text-inherit`}>
                 „{event.quote}"
-                <span className="block text-xs text-muted-foreground mt-1">— @{quoteAuthor}</span>
+                <span className="block text-xs text-gray-500 dark:text-muted-foreground mt-1">— @{quoteAuthor}</span>
               </blockquote>
             )}
             
             {/* Full description */}
-            <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              {event.text}
-            </p>
+            <div className="text-sm leading-relaxed mb-4">
+              {renderTextWithQuotes(event.text, false)}
+            </div>
             
             {/* Author */}
-            <div className="flex items-center gap-2 pt-3 border-t border-border/50">
+            <div className="flex items-center gap-2 pt-3 border-t border-gray-200 dark:border-border/50">
               <Icon className={`w-4 h-4 ${style.text}`} />
               <span className={`text-sm ${style.text}`}>@{event.username}</span>
               {event.emoji && <span className="text-lg">{event.emoji}</span>}

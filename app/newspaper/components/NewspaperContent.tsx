@@ -155,13 +155,13 @@ function ChartImageDisplay({
   
   const modalContent = isOpen && mounted ? (
     <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/95 backdrop-blur-md"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-md"
       onClick={() => setIsOpen(false)}
     >
-      <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+      <div className="relative max-w-[90vw] max-h-[90vh] bg-white dark:bg-card p-4 rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={() => setIsOpen(false)}
-          className="absolute -top-12 right-0 text-muted-foreground hover:text-primary transition-colors flex items-center gap-2 text-sm"
+          className="absolute -top-12 right-0 text-white/80 hover:text-white transition-colors flex items-center gap-2 text-sm"
         >
           <span>Schließen</span>
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -172,10 +172,10 @@ function ChartImageDisplay({
         <img
           src={imageUrl}
           alt={caption || 'Chart'}
-          className="max-w-full max-h-[85vh] object-contain rounded-sm border border-primary/30 shadow-2xl"
+          className="max-w-full max-h-[85vh] object-contain rounded-sm border border-gray-200 dark:border-primary/30 shadow-xl"
         />
         {(caption || author) && (
-          <div className="mt-4 text-center text-sm text-muted-foreground">
+          <div className="mt-4 text-center text-sm text-gray-600 dark:text-muted-foreground">
             {caption}
             {author && <span className="ml-2 font-medium text-primary">@{author}</span>}
           </div>
@@ -184,7 +184,7 @@ function ChartImageDisplay({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+          className="mt-3 flex items-center justify-center gap-2 text-xs text-gray-500 dark:text-muted-foreground hover:text-primary transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
