@@ -39,19 +39,30 @@ const CACHE_MAX_AGE_MINUTES = 240 // Cache valid for 4 hours
 // SCHEMAS
 // ═══════════════════════════════════════════════════════════════════════
 
-// Schema for AI generation (without id - we add it programmatically)
+// Schema for AI generation - lenient to avoid validation failures
+// We post-process to truncate fields instead of rejecting entire response
 const AITickerEventSchema = z.object({
   date: z.string().describe('Datum im Format YYYY-MM-DD'),
   time: z.string().describe('Uhrzeit (HH:MM)'),
   username: z.string().describe('Exakter Username aus dem Chat'),
-  text: z.string().max(80).describe('Kurze Zusammenfassung/Preview (max 80 Zeichen)'),
+  text: z.string().describe('Kurze Zusammenfassung/Preview (max 80 Zeichen)'),
   type: z.enum(['bullish', 'bearish', 'funny', 'drama', 'insight', 'call', 'fail']),
   emoji: z.string().optional().describe('Passendes Emoji'),
-  label: z.string().max(6).optional().describe('Kurzes Label wie "BTC", "ETH", "PUMP", "REKT" (max 6 Zeichen)'),
-  headline: z.string().max(50).optional().describe('Lustige/catchy Überschrift für das Event (max 50 Zeichen)'),
+  label: z.string().optional().describe('Kurzes Label wie "BTC", "ETH", "PUMP", "REKT" (max 6 Zeichen)'),
+  headline: z.string().optional().describe('Lustige/catchy Überschrift für das Event (max 60 Zeichen)'),
   quote: z.string().optional().describe('Das vollständige Original-Zitat aus dem Chat'),
   quoteAuthor: z.string().optional().describe('Autor des Zitats falls abweichend vom username'),
 })
+
+// Post-process events to enforce limits gracefully (truncate instead of fail)
+function sanitizeEvent(event: z.infer<typeof AITickerEventSchema>): z.infer<typeof AITickerEventSchema> {
+  return {
+    ...event,
+    text: event.text?.slice(0, 100) ?? '', // Allow slightly more, truncate if needed
+    label: event.label?.slice(0, 8), // Allow slightly more than 6
+    headline: event.headline?.slice(0, 80), // Truncate long headlines gracefully
+  }
+}
 
 const AITickerResponseSchema = z.object({
   events: z.array(AITickerEventSchema).min(10).max(30).describe('10-30 Ticker-Events, chronologisch'),
@@ -96,7 +107,7 @@ SPIELTIPPS - diese NIEMALS in den Ticker aufnehmen!
 - **text**: Kurze Zusammenfassung (max 80 Zeichen) - was ist passiert?
 - **emoji**: Ein passendes Emoji (optional)
 - **label**: Kurzes Label wie "BTC", "ETH", "PUMP", "REKT", "LOL" (max 6 Zeichen)
-- **headline**: LUSTIGE/CATCHY Überschrift! Clickbait-Style, max 50 Zeichen. 
+- **headline**: LUSTIGE/CATCHY Überschrift! Clickbait-Style, max 60 Zeichen. 
   Beispiele: "Besen-Wette eskaliert 🧹", "Der ewige Optimist strikes again", "Timing-Fail des Tages"
 - **quote**: Das VOLLSTÄNDIGE Original-Zitat aus dem Chat (wörtlich!)
 - **quoteAuthor**: Autor des Zitats (falls abweichend vom username)
@@ -395,11 +406,14 @@ Erstelle 15-25 Events. Priorisiere: Lustige Headlines, Drama, krasse Calls, Fail
         if (object && object.events && object.events.length > 0) {
           console.log(`[TICKER POST] ✅ Stream complete: ${object.events.length} events`)
           
-          // Add unique IDs to each event
-          const eventsWithIds: TickerEvent[] = object.events.map((event, index) => ({
-            ...event,
-            id: `${event.date}-${event.time.replace(':', '')}-${index}`,
-          }))
+          // Sanitize and add unique IDs to each event
+          const eventsWithIds: TickerEvent[] = object.events.map((event, index) => {
+            const sanitized = sanitizeEvent(event)
+            return {
+              ...sanitized,
+              id: `${sanitized.date}-${sanitized.time.replace(':', '')}-${index}`,
+            }
+          })
           
           // Use simple background client - cookies() not available in after() context!
           const bgClient = createBackgroundClient()
