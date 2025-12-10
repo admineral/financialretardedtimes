@@ -12,7 +12,7 @@
  * Cache is valid for 1 hour, auto-refreshes if older
  */
 
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
@@ -357,6 +357,7 @@ export async function POST() {
     const chatContext = formatChatForAI(messages)
     
     // Stream AI response with onFinish for caching
+    // Use after() to ensure cache save completes on serverless (Vercel)
     const result = streamObject({
       model: openai('gpt-5.1'),
       schema: AITickerResponseSchema,
@@ -375,23 +376,29 @@ ${chatContext}
 Erstelle 15-25 Events. Priorisiere: Lustige Headlines, Drama, krasse Calls, Fails.`,
       // Note: temperature not supported for reasoning models like gpt-5.1
       onFinish: async ({ object }) => {
-        // Save to cache when stream completes
-        if (object && object.events && object.events.length > 0) {
-          console.log(`[TICKER POST] ✅ Stream complete: ${object.events.length} events`)
-          
-          // Add unique IDs to each event
-          const eventsWithIds: TickerEvent[] = object.events.map((event, index) => ({
-            ...event,
-            id: `${event.date}-${event.time.replace(':', '')}-${index}`,
-          }))
-          
-          try {
-            await saveCache(supabase, eventsWithIds, startDate, endDate, messages.length, uniqueUsers)
-            console.log(`[TICKER POST] 💾 Cached ${eventsWithIds.length} events`)
-          } catch (cacheError) {
-            console.error(`[TICKER POST] ⚠️ Cache error:`, cacheError)
+        // Use after() to keep serverless function alive until cache save completes
+        // This is critical for Vercel deployments where the function might terminate
+        // after the streaming response is sent but before onFinish completes
+        after(async () => {
+          if (object && object.events && object.events.length > 0) {
+            console.log(`[TICKER POST] ✅ Stream complete: ${object.events.length} events`)
+            
+            // Add unique IDs to each event
+            const eventsWithIds: TickerEvent[] = object.events.map((event, index) => ({
+              ...event,
+              id: `${event.date}-${event.time.replace(':', '')}-${index}`,
+            }))
+            
+            try {
+              // Create a fresh supabase client for the after() context
+              const afterSupabase = await createClient()
+              await saveCache(afterSupabase, eventsWithIds, startDate, endDate, messages.length, uniqueUsers)
+              console.log(`[TICKER POST] 💾 Cached ${eventsWithIds.length} events`)
+            } catch (cacheError) {
+              console.error(`[TICKER POST] ⚠️ Cache error:`, cacheError)
+            }
           }
-        }
+        })
       }
     })
     
