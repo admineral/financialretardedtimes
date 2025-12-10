@@ -335,24 +335,23 @@ function getDateInfo(dateStr: string): { relative: string; formatted: string; is
 }
 
 /**
- * Date separator in ticker
+ * Date separator in ticker - minimal inline style
  */
 function DateSeparator({ dateStr }: { dateStr: string }) {
   const { relative, formatted, isToday } = getDateInfo(dateStr)
   
   return (
     <div className={`
-      inline-flex flex-col items-center justify-center mx-3 px-3 py-1.5 rounded-lg
+      inline-flex items-center gap-1.5 mx-2 px-2 py-1 rounded-md
       ${isToday 
-        ? 'bg-primary/20 border border-primary/40' 
-        : 'bg-muted/60 border border-foreground/10'
+        ? 'bg-primary/15 border border-primary/30' 
+        : 'bg-muted/40 border border-foreground/10'
       }
-      min-w-[70px]
     `}>
       <span className={`text-[9px] font-black tracking-wider ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
         {relative}
       </span>
-      <span className={`text-sm font-bold font-mono leading-tight ${isToday ? 'text-primary' : 'text-foreground'}`}>
+      <span className={`text-[10px] font-bold font-mono ${isToday ? 'text-primary' : 'text-foreground/70'}`}>
         {formatted}
       </span>
     </div>
@@ -368,7 +367,7 @@ function formatEventDate(dateStr: string): string {
 }
 
 /**
- * Single ticker item - Timeline card style with hover expand + click for modal
+ * Single ticker item - Minimal inline style: badge + time + headline + quote/username below
  */
 function TickerItem({ event }: { event: TickerEvent }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -376,6 +375,36 @@ function TickerItem({ event }: { event: TickerEvent }) {
   const Icon = style.icon
   const displayLabel = event.label || style.label
   const quoteAuthor = event.quoteAuthor || event.username
+  const { relative, formatted } = getDateInfo(event.date)
+  
+  // Truncate headline for inline display
+  const displayHeadline = event.headline || event.text
+  const truncatedHeadline = displayHeadline.length > 60 
+    ? displayHeadline.slice(0, 57) + '...' 
+    : displayHeadline
+  
+  // Parse and truncate quote for preview (handle BBCode)
+  const getCleanQuote = () => {
+    if (!event.quote) return null
+    
+    // Try to parse BBCode quote
+    const parsed = parseBBCodeQuote(event.quote)
+    if (parsed) {
+      // Show the response text if exists, otherwise the quoted text
+      const text = parsed.responseText || parsed.quotedText
+      return {
+        text: text.length > 50 ? text.slice(0, 47) + '...' : text,
+        author: parsed.responseText ? quoteAuthor : parsed.quotedUser
+      }
+    }
+    
+    // Plain text quote
+    return {
+      text: event.quote.length > 50 ? event.quote.slice(0, 47) + '...' : event.quote,
+      author: quoteAuthor
+    }
+  }
+  const cleanQuote = getCleanQuote()
   
   return (
     <>
@@ -383,55 +412,45 @@ function TickerItem({ event }: { event: TickerEvent }) {
         data-ticker-card
         onClick={() => setIsModalOpen(true)}
         className={`
-          group/card relative inline-flex flex-col gap-1 px-3 py-2 mx-1.5 rounded-lg
+          group/card relative inline-flex flex-col gap-0.5 px-3 py-1.5 mx-1
           ${style.bg} border ${style.border}
-          backdrop-blur-sm
-          min-w-[180px] max-w-[220px]
-          hover:min-w-[280px] hover:max-w-[320px]
-          transition-all duration-300 ease-out
-          delay-300 hover:delay-0
-          hover:shadow-xl hover:z-50
-          cursor-pointer select-none active:scale-95
+          backdrop-blur-sm rounded-md
+          hover:shadow-lg hover:z-50
+          cursor-pointer select-none active:scale-[0.98]
+          transition-all duration-200
         `}
       >
-        {/* Top row: Label + Time */}
-        <div className="flex items-center justify-between gap-2">
-          <span className={`text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded ${style.bg} ${style.text} border ${style.border}`}>
+        {/* Top row: Badge + Time + Headline */}
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          {/* Badge */}
+          <span className={`text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded ${style.text} ${style.border} border`}>
             {displayLabel}
           </span>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            {event.time}
+          
+          {/* Date + Time */}
+          <span className="text-[10px] font-mono text-muted-foreground/70">
+            {relative} {formatted} {event.time}
+          </span>
+          
+          {/* Separator */}
+          <span className={`text-[10px] ${style.text} opacity-40`}>•</span>
+          
+          {/* Headline */}
+          <span className={`text-[11px] font-semibold ${style.text}`}>
+            {truncatedHeadline}
           </span>
         </div>
         
-        {/* Headline - funny/catchy title from AI */}
-        {event.headline && (
-          <p className={`text-[11px] font-bold leading-snug ${style.text}`}>
-            {event.headline}
-          </p>
-        )}
-        
-      {/* Preview text - always visible */}
-      <div className="text-[10px] text-muted-foreground leading-snug line-clamp-2 group-hover/card:line-clamp-none transition-all duration-300 delay-300 group-hover/card:delay-150">
-        {renderTextWithQuotes(event.text, true)}
-      </div>
-      
-      {/* Full quote - expands on hover with delay */}
-      {event.quote && (
-        <div className="max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-32 group-hover/card:opacity-100 transition-all duration-300 ease-out delay-300 group-hover/card:delay-150">
-            <div className={`mt-1.5 pt-1.5 border-t ${style.border} border-dashed`}>
-              {renderQuoteContent(event.quote, quoteAuthor, style, true)}
-              <cite className="text-[9px] text-muted-foreground not-italic mt-0.5 block">
-                — @{quoteAuthor}
-              </cite>
-            </div>
-          </div>
-        )}
-        
-        {/* Username + Icon */}
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <Icon className={`w-3 h-3 ${style.text} opacity-60`} />
-          <span className="text-[9px] text-muted-foreground">@{event.username}</span>
+        {/* Bottom row: Quote + Username */}
+        <div className="flex items-center gap-2 text-[9px] text-muted-foreground/60 whitespace-nowrap pl-0.5">
+          {cleanQuote && (
+            <>
+              <span className="italic">„{cleanQuote.text}"</span>
+              <span className="opacity-40">—</span>
+              <span>@{cleanQuote.author}</span>
+            </>
+          )}
+          {!cleanQuote && <span>@{quoteAuthor}</span>}
         </div>
       </div>
       
@@ -534,7 +553,7 @@ export function ChatTicker({
   className = '', 
   speed = 'normal',
   autoStart = true,
-  autoRefreshMinutes = 240 // Default: 4 hours
+  autoRefreshMinutes = 60 // Default: 1 hour
 }: ChatTickerProps) {
   const [events, setEvents] = useState<TickerEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -940,7 +959,7 @@ export function ChatTicker({
       <div 
         ref={scrollContainerRef}
         onWheel={handleWheel}
-        className={`py-2.5 pl-[72px] pr-[100px] ${isStopped ? 'overflow-x-auto scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent' : ''}`}
+        className={`py-2 pl-[72px] pr-[100px] ${isStopped ? 'overflow-x-auto scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent' : ''}`}
       >
         <div 
           ref={tickerRef}

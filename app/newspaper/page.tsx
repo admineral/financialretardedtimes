@@ -340,10 +340,20 @@ export default function NewspaperPage() {
           </div>
         )}
 
-        {/* Chat Activity Timeline - Always visible for dayRange 1 */}
+        {/* Chat Activity Timeline with Fear & Greed - Always visible for dayRange 1 */}
         {dayRange === 1 && (
           <div className="w-full border-b border-primary/10 bg-card/30 relative z-10">
-            <ChatHistoryTimeline autoStart compact />
+            <div className="flex items-stretch">
+              {/* Timeline - takes most of the width */}
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <ChatHistoryTimeline autoStart compact />
+              </div>
+              
+              {/* Fear & Greed Widget - compact version on the right */}
+              <div className="hidden lg:flex items-center border-l border-primary/10 px-4 bg-card/50">
+                <FearGreedWidget autoStart compact />
+              </div>
+            </div>
           </div>
         )}
 

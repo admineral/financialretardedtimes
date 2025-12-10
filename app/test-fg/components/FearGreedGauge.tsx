@@ -133,6 +133,8 @@ interface FearGreedWidgetProps {
   autoStart?: boolean
   /** Custom className for the container */
   className?: string
+  /** Compact mode - minimal horizontal layout for inline display */
+  compact?: boolean
 }
 
 /**
@@ -180,6 +182,7 @@ function isCacheStale(dateString: string): boolean {
 export function FearGreedWidget({ 
   autoStart = false, 
   className,
+  compact = false,
 }: FearGreedWidgetProps) {
   const [cachedData, setCachedData] = useState<FearGreedData | null>(null)
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
@@ -291,6 +294,14 @@ export function FearGreedWidget({
 
   // Loading skeleton - newspaper style
   if (isLoading && !hasData) {
+    if (compact) {
+      return (
+        <div className={cn("flex items-center gap-2 py-2 min-w-[140px]", className)}>
+          <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />
+          <span className="text-[9px] text-muted-foreground">Fear & Greed...</span>
+        </div>
+      )
+    }
     return (
       <div className={cn("", className)}>
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
@@ -314,6 +325,14 @@ export function FearGreedWidget({
 
   // Error state
   if (error) {
+    if (compact) {
+      return (
+        <div className={cn("flex items-center gap-2 py-2 min-w-[140px]", className)}>
+          <span className="text-[9px] text-red-500">F&G Fehler</span>
+          <button onClick={generate} className="text-[9px] text-primary hover:underline">↻</button>
+        </div>
+      )
+    }
     return (
       <div className={cn("", className)}>
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
@@ -348,6 +367,94 @@ export function FearGreedWidget({
     )
   }
 
+  // ========== COMPACT MODE ==========
+  if (compact) {
+    return (
+      <div className={cn("flex flex-col items-center gap-1 py-2 min-w-[140px]", className)}>
+        {/* Header */}
+        <div className="flex items-center gap-1.5">
+          <h4 className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+            Fear & Greed
+          </h4>
+          {cacheInfo && !isLoading && (
+            <span className="text-[8px] text-muted-foreground/60">
+              {formatTimeAgo(cacheInfo.updatedAt)}
+            </span>
+          )}
+          <button
+            onClick={generate}
+            disabled={isLoading}
+            className="p-0.5 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
+            title="Aktualisieren"
+          >
+            <RefreshCw className={cn("w-2.5 h-2.5 text-muted-foreground", isLoading && "animate-spin")} />
+          </button>
+        </div>
+        
+        {/* Compact gauges - 3 in a row */}
+        <div className="flex items-center gap-3">
+          {/* Today */}
+          <div className="flex flex-col items-center">
+            <div className={cn(
+              "text-lg font-bold font-mono tabular-nums leading-none",
+              data?.today?.index !== undefined ? getIndexColor(data.today.index) : 'text-muted-foreground'
+            )}>
+              {data?.today?.index ?? '—'}
+            </div>
+            <div className="text-[8px] text-muted-foreground uppercase">Heute</div>
+          </div>
+          
+          {/* 3 Days */}
+          <div className="flex flex-col items-center">
+            <div className={cn(
+              "text-sm font-semibold font-mono tabular-nums leading-none text-muted-foreground/80",
+              data?.last3Days?.index !== undefined ? getIndexColor(data.last3Days.index) : ''
+            )}>
+              {data?.last3Days?.index ?? '—'}
+            </div>
+            <div className="text-[8px] text-muted-foreground/60 uppercase">3 Tage</div>
+          </div>
+          
+          {/* 7 Days */}
+          <div className="flex flex-col items-center">
+            <div className={cn(
+              "text-sm font-semibold font-mono tabular-nums leading-none text-muted-foreground/80",
+              data?.last7Days?.index !== undefined ? getIndexColor(data.last7Days.index) : ''
+            )}>
+              {data?.last7Days?.index ?? '—'}
+            </div>
+            <div className="text-[8px] text-muted-foreground/60 uppercase">7 Tage</div>
+          </div>
+        </div>
+        
+        {/* Trend */}
+        {data?.trend && (
+          <div className="flex items-center gap-1 text-[9px]">
+            {data.trend === 'rising' && (
+              <>
+                <TrendingUp className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-emerald-600 dark:text-emerald-400">steigend</span>
+              </>
+            )}
+            {data.trend === 'falling' && (
+              <>
+                <TrendingDown className="w-2.5 h-2.5 text-red-600 dark:text-red-400" />
+                <span className="text-red-600 dark:text-red-400">fallend</span>
+              </>
+            )}
+            {data.trend === 'stable' && (
+              <>
+                <Minus className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                <span className="text-amber-600 dark:text-amber-400">stabil</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ========== FULL MODE ==========
   return (
     <div className={cn("", className)}>
       {/* Header with refresh - newspaper style */}
