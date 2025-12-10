@@ -12,11 +12,11 @@
 
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
-import Link from 'next/link'
-import { Quote, ChevronRight, Sparkles, MessageCircle, Users, Zap } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Quote, ChevronRight, Sparkles, MessageCircle, Users, Zap, Loader2 } from 'lucide-react'
 import { UnifiedNewspaperSchema, type UnifiedNewspaperData, type ArticleData, type MoreArticleData } from '../lib/types'
 import { getCategoryStyle, getEventStyle } from './ui/helpers'
 import { ContributorAvatar, prefetchAvatars } from './ContributorAvatar'
@@ -93,10 +93,31 @@ function StreamingCursor({ show }: { show: boolean }) {
 }
 
 function NavigatingLink({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    startTransition(() => {
+      router.push(href)
+    })
+  }
+  
   return (
-    <Link href={href} className={className} prefetch={false}>
-      {children}
-    </Link>
+    <button 
+      onClick={handleClick} 
+      className={className}
+      disabled={isPending}
+    >
+      {isPending ? (
+        <>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Laden...</span>
+        </>
+      ) : (
+        children
+      )}
+    </button>
   )
 }
 

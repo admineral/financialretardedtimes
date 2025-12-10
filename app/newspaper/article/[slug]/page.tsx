@@ -474,6 +474,80 @@ const ChartGallery = React.memo(function ChartGallery({ charts, className = '' }
 
 
 /**
+ * Skeleton component for loading states
+ */
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-muted/50 rounded ${className}`} />
+}
+
+/**
+ * Article skeleton shown while waiting for AI streaming to start
+ */
+function ArticleSkeleton() {
+  return (
+    <div className="space-y-8">
+      {/* Title skeleton */}
+      <div className="space-y-3">
+        <Skeleton className="h-10 sm:h-12 w-full" />
+        <Skeleton className="h-10 sm:h-12 w-3/4" />
+      </div>
+      
+      {/* Subtitle skeleton */}
+      <Skeleton className="h-7 w-full" />
+      
+      {/* Sentiment bar skeleton */}
+      <div className="flex flex-wrap items-center gap-4 p-4 bg-muted/30 border border-foreground/10 rounded-lg">
+        <Skeleton className="h-8 w-24 rounded" />
+        <div className="flex gap-2">
+          <Skeleton className="h-6 w-16 rounded-full" />
+          <Skeleton className="h-6 w-20 rounded-full" />
+          <Skeleton className="h-6 w-14 rounded-full" />
+        </div>
+      </div>
+      
+      {/* Introduction skeleton */}
+      <div className="space-y-2">
+        <Skeleton className="h-5 w-full" />
+        <Skeleton className="h-5 w-full" />
+        <Skeleton className="h-5 w-4/5" />
+      </div>
+      
+      {/* Featured quote skeleton */}
+      <div className="p-6 rounded-lg border-l-4 border-primary/30 bg-muted/20">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-3/4" />
+          <Skeleton className="h-4 w-32 mt-4" />
+        </div>
+      </div>
+      
+      {/* Section skeletons */}
+      {[0, 1, 2].map((idx) => (
+        <div key={idx} className="border-l-2 border-foreground/20 pl-6 space-y-4">
+          <Skeleton className="h-7 w-2/3" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+        </div>
+      ))}
+      
+      {/* Key takeaways skeleton */}
+      <div className="p-6 bg-primary/5 border border-primary/20 rounded-lg space-y-3">
+        <Skeleton className="h-6 w-40" />
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
  * Category badge styling
  */
 function getCategoryStyle(category: string): string {
@@ -616,15 +690,22 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
           )}
         </div>
 
+        {/* Show skeleton when loading and no data yet */}
+        {isLoading && !data?.title && (
+          <ArticleSkeleton />
+        )}
+
         {/* Title */}
         <h1 className="font-headline text-3xl sm:text-4xl md:text-5xl font-bold leading-tight mb-4 min-h-[1.2em]">
           {data?.title}
         </h1>
 
         {/* Subtitle */}
-        <p className="text-xl sm:text-2xl text-muted-foreground font-body mb-8 min-h-[1.5em]">
-          {data?.subtitle}
-        </p>
+        {(data?.subtitle || (!isLoading && data?.title)) && (
+          <p className="text-xl sm:text-2xl text-muted-foreground font-body mb-8 min-h-[1.5em]">
+            {data?.subtitle}
+          </p>
+        )}
 
         {/* Header Image - only show when URL is complete */}
         {data?.headerImage?.url && isCompleteImageUrl(data.headerImage.url) && (
@@ -671,11 +752,13 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
         )}
 
         {/* Introduction */}
-        <div className="prose prose-lg dark:prose-invert max-w-none mb-8">
-          <div className="text-lg leading-relaxed font-body min-h-[3em]">
-            {data?.introduction && renderTextWithLinks(data.introduction)}
+        {(data?.introduction || data?.title) && (
+          <div className="prose prose-lg dark:prose-invert max-w-none mb-8">
+            <div className="text-lg leading-relaxed font-body min-h-[3em]">
+              {data?.introduction && renderTextWithLinks(data.introduction)}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Featured Quote */}
         {data?.featuredQuote?.text && data?.featuredQuote?.from && (
@@ -683,39 +766,41 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
         )}
 
         {/* Main Sections */}
-        <div className="space-y-10">
-          {data?.sections?.map((section, idx) => (
-            <section key={idx} className="border-l-2 border-foreground/20 pl-6 overflow-hidden">
-              <h2 className="font-headline text-xl sm:text-2xl font-bold mb-4">
-                {section.heading}
-              </h2>
-              
-              {/* Newspaper-style layout: Image floats, text wraps around */}
-              <div className="prose dark:prose-invert max-w-none">
-                {/* Inline Image - alternates left/right for visual interest */}
-                {section.inlineImage?.url && isCompleteImageUrl(section.inlineImage.url) && (
-                  <ChartImageDisplay 
-                    chart={section.inlineImage} 
-                    size="small"
-                    float={idx % 2 === 0 ? 'right' : 'left'}
-                  />
-                )}
+        {data?.sections && data.sections.length > 0 && (
+          <div className="space-y-10">
+            {data.sections.map((section, idx) => (
+              <section key={idx} className="border-l-2 border-foreground/20 pl-6 overflow-hidden">
+                <h2 className="font-headline text-xl sm:text-2xl font-bold mb-4">
+                  {section.heading}
+                </h2>
                 
-                <div className="font-body leading-relaxed whitespace-pre-line">
-                  {section.content && renderTextWithLinks(section.content)}
+                {/* Newspaper-style layout: Image floats, text wraps around */}
+                <div className="prose dark:prose-invert max-w-none">
+                  {/* Inline Image - alternates left/right for visual interest */}
+                  {section.inlineImage?.url && isCompleteImageUrl(section.inlineImage.url) && (
+                    <ChartImageDisplay 
+                      chart={section.inlineImage} 
+                      size="small"
+                      float={idx % 2 === 0 ? 'right' : 'left'}
+                    />
+                  )}
+                  
+                  <div className="font-body leading-relaxed whitespace-pre-line">
+                    {section.content && renderTextWithLinks(section.content)}
+                  </div>
                 </div>
-              </div>
-              
-              {/* Clear float before quote */}
-              <div className="clear-both" />
-              
-              {/* Section Quote with sentiment styling */}
-              {section.quote?.text && section.quote?.from && (
-                <StyledQuoteDisplay quote={section.quote} size="normal" />
-              )}
-            </section>
-          ))}
-        </div>
+                
+                {/* Clear float before quote */}
+                <div className="clear-both" />
+                
+                {/* Section Quote with sentiment styling */}
+                {section.quote?.text && section.quote?.from && (
+                  <StyledQuoteDisplay quote={section.quote} size="normal" />
+                )}
+              </section>
+            ))}
+          </div>
+        )}
 
         {/* Key Takeaways */}
         {(data?.keyTakeaways && data.keyTakeaways.length > 0) && (
