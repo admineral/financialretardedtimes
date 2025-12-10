@@ -665,13 +665,13 @@ function MiniEventCard({
       <div 
         className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card transition-all duration-300" 
         style={{ 
-          bottom: `${barHeight + 6 + verticalOffset}px`,
+          bottom: `${barHeight + (isTimelineHovered ? 6 : 3) + verticalOffset}px`,
         }}
       >
         {/* Connector line */}
         <div 
           className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/20 to-transparent transition-all duration-300" 
-          style={{ height: `${6 + verticalOffset}px` }}
+          style={{ height: `${(isTimelineHovered ? 6 : 3) + verticalOffset}px` }}
         />
         
         {/* Event card - mini version, expands on individual card hover */}
@@ -679,17 +679,19 @@ function MiniEventCard({
           onClick={() => setIsExpanded(true)}
           className={`rounded border ${style.bg} ${style.border} backdrop-blur-sm 
           transition-all duration-200 hover:shadow-xl hover:z-[100] 
-          cursor-pointer select-none active:scale-95
-          group-hover/card:min-w-[180px] group-hover/card:w-auto`}
+          cursor-pointer select-none active:scale-95 overflow-hidden
+          group-hover/card:min-w-[180px] group-hover/card:w-auto group-hover/card:h-auto group-hover/card:max-h-none`}
           style={{ 
             width: `${cardWidth}px`,
             minWidth: `${cardWidth}px`,
-            padding: isTimelineHovered ? '6px' : '3px 4px',
+            height: isTimelineHovered ? 'auto' : `${cardHeight}px`,
+            maxHeight: isTimelineHovered ? 'none' : `${cardHeight}px`,
+            padding: isTimelineHovered ? '6px' : '2px 3px',
           }}
         >
           {/* Header: label + time - show on timeline hover OR card hover */}
-          <div className={`flex items-center justify-between gap-1 mb-0.5 transition-all duration-200 ${
-            isTimelineHovered ? 'opacity-100 max-h-6' : 'opacity-0 max-h-0 group-hover/card:opacity-100 group-hover/card:max-h-6'
+          <div className={`flex items-center justify-between gap-1 transition-all duration-200 ${
+            isTimelineHovered ? 'opacity-100 max-h-6 mb-0.5' : 'opacity-0 max-h-0 mb-0 group-hover/card:opacity-100 group-hover/card:max-h-6 group-hover/card:mb-0.5'
           }`}>
             <span className={`text-${fontSize} font-black tracking-wide px-1 py-0.5 rounded ${style.bg} ${style.text} border ${style.border} leading-none`}>
               {displayLabel}
@@ -1528,11 +1530,11 @@ export function ChatHistoryTimeline({
 
   // ========== MINI MODE (same as compact, but smaller heights - expands on hover) ==========
   if (mini) {
-    // Mini mode sizing - smaller than compact
-    const miniCardHeight = isHovered ? 44 : 28  // Much smaller when not hovered
-    const miniCardWidth = isHovered ? 140 : 100
-    const miniBarMaxHeight = isHovered ? 50 : 25
-    const miniCardGap = isHovered ? 10 : 6
+    // Mini mode sizing - ultra compact when not hovered, expands on hover
+    const miniCardHeight = isHovered ? 44 : 14  // Ultra compact when collapsed - just title
+    const miniCardWidth = isHovered ? 140 : 85
+    const miniBarMaxHeight = isHovered ? 50 : 14
+    const miniCardGap = isHovered ? 10 : 4  // Gap between stacked cards (includes connector space)
     
     return (
       <div 
@@ -1543,7 +1545,7 @@ export function ChatHistoryTimeline({
         <div className="flex flex-col">
           {/* Top row: Controls - smaller in mini mode */}
           <div className={`flex items-center gap-2 px-3 border-b border-foreground/5 transition-all duration-200 ${
-            isHovered ? 'py-1.5' : 'py-1'
+            isHovered ? 'py-1.5' : 'py-0.5'
           }`}>
             {/* Mode selector */}
             <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
@@ -1592,7 +1594,7 @@ export function ChatHistoryTimeline({
           <div className="w-full relative">
             {/* Loading */}
             {isLoading && !hasLoaded && (
-              <div className="flex items-center justify-center py-2">
+              <div className="flex items-center justify-center py-1">
                 <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
               </div>
             )}
@@ -1639,14 +1641,14 @@ export function ChatHistoryTimeline({
                     const cardHeight = miniCardHeight
                     const cardWidth = miniCardWidth
                     const cardGap = miniCardGap
-                    const bucketWidth = 24
-                    const fontSize = isHovered ? '[7px]' : '[6px]'
-                    const titleSize = isHovered ? '[8px]' : '[7px]'
+                    const bucketWidth = isHovered ? 24 : 20
+                    const fontSize = isHovered ? '[7px]' : '[5px]'
+                    const titleSize = isHovered ? '[8px]' : '[6px]'
                     
                     // Horizontal spacing between cards (prevents overlap)
-                    const horizontalCardGap = isHovered ? 12 : 8
+                    const horizontalCardGap = isHovered ? 12 : 6
                     
-                    const leftPadding = Math.ceil(cardWidth / 2) + 15
+                    const leftPadding = Math.ceil(cardWidth / 2) + 10
                     
                     const rowOccupancy: Array<Array<{ start: number; end: number }>> = []
                     const maxRows = 15
@@ -1694,8 +1696,8 @@ export function ChatHistoryTimeline({
                     })
                     
                     const rowsUsed = Math.max(1, ...eventPositions.map(p => p.row + 1))
-                    // Container height adjusts based on hover state
-                    const baseHeight = isHovered ? 60 : 35
+                    // Container height adjusts based on hover state - ultra compact when collapsed
+                    const baseHeight = isHovered ? 60 : 22
                     const containerHeight = baseHeight + (rowsUsed * (cardHeight + cardGap))
                     
                     const eventsByBucket = new Map<number, EventPosition[]>()
@@ -1742,7 +1744,7 @@ export function ChatHistoryTimeline({
                     
                     return (
                       <div 
-                        className="relative min-w-max py-2 transition-all duration-300" 
+                        className={`relative min-w-max transition-all duration-300 ${isHovered ? 'py-2' : 'py-0.5'}`}
                         style={{ height: `${containerHeight}px`, paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}
                       >
                         {/* Day boundary markers - vertical lines with labels */}
@@ -1757,14 +1759,14 @@ export function ChatHistoryTimeline({
                             
                             {/* Day label at top */}
                             <div 
-                              className={`absolute top-0 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-b text-[8px] font-bold whitespace-nowrap transition-all duration-300 ${
+                              className={`absolute top-0 left-1/2 -translate-x-1/2 rounded-b font-bold whitespace-nowrap transition-all duration-300 ${
                                 isToday 
                                   ? 'bg-primary text-primary-foreground' 
                                   : 'bg-muted/80 text-foreground/70'
-                              }`}
-                              style={{ fontSize: isHovered ? '9px' : '7px' }}
+                              } ${isHovered ? 'px-1.5 py-0.5' : 'px-1 py-0'}`}
+                              style={{ fontSize: isHovered ? '9px' : '6px' }}
                             >
-                              {isToday && <span className="mr-1">▼</span>}
+                              {isToday && <span className="mr-0.5">▼</span>}
                               {label}
                             </div>
                           </div>
@@ -1773,7 +1775,7 @@ export function ChatHistoryTimeline({
                         <div 
                           className="absolute left-0 right-0 flex items-end gap-[2px] transition-all duration-300" 
                           style={{ 
-                            bottom: isHovered ? '24px' : '12px',
+                            bottom: isHovered ? '24px' : '4px',
                             paddingLeft: `${leftPadding}px`, 
                             paddingRight: `${leftPadding}px` 
                           }}
@@ -1788,7 +1790,7 @@ export function ChatHistoryTimeline({
                             const bucketEventPositions = eventsByBucket.get(idx) || []
                             
                             return (
-                              <div key={idx} className="relative flex flex-col items-center group" style={{ minWidth: '22px' }}>
+                              <div key={idx} className="relative flex flex-col items-center group" style={{ minWidth: isHovered ? '22px' : '18px' }}>
                                 {/* Mini event cards */}
                                 {bucketEventPositions.map((pos, eventIdx) => {
                                   const event = pos.event
@@ -1817,7 +1819,7 @@ export function ChatHistoryTimeline({
                                 <div 
                                   className="rounded-t transition-all duration-300 group-hover:brightness-125"
                                   style={{ 
-                                    width: isHovered ? '20px' : '16px',
+                                    width: isHovered ? '20px' : '14px',
                                     height: `${barHeight}px`,
                                     backgroundColor: getBarColor(bucket.intensity)
                                   }}
@@ -1879,7 +1881,7 @@ export function ChatHistoryTimeline({
 
             {/* Empty state */}
             {hasLoaded && events.length === 0 && !isLoading && !error && (
-              <div className="flex items-center justify-center py-2 text-[9px] text-foreground/50">
+              <div className="flex items-center justify-center py-1 text-[8px] text-foreground/50">
                 Keine Events
               </div>
             )}
