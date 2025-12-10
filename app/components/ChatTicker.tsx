@@ -118,6 +118,89 @@ const speedSettings = {
 }
 
 /**
+ * Parse BBCode quotes and extract structured data
+ * Returns { quotedUser, quotedText, responseText } or null if no quote found
+ */
+function parseBBCodeQuote(text: string): { quotedUser: string; quotedText: string; responseText: string } | null {
+  const bbcodeRegex = /\[quote="([^"]+)"\]([\s\S]*?)\[\/quote\]\s*([\s\S]*)/
+  const match = text.match(bbcodeRegex)
+  
+  if (match) {
+    return {
+      quotedUser: match[1],
+      quotedText: match[2].trim(),
+      responseText: match[3].trim()
+    }
+  }
+  return null
+}
+
+/**
+ * Render a quote field that may contain BBCode
+ */
+function renderQuoteContent(quote: string, quoteAuthor: string, style: { border: string }, compact = false) {
+  const parsed = parseBBCodeQuote(quote)
+  
+  if (parsed) {
+    // Has nested quote - show both
+    if (compact) {
+      return (
+        <div className="space-y-1">
+          <div className="text-[9px] text-blue-600 dark:text-blue-400">
+            <span className="font-medium">@{parsed.quotedUser}:</span>{' '}
+            <span className="italic text-muted-foreground">„{parsed.quotedText.slice(0, 50)}{parsed.quotedText.length > 50 ? '...' : ''}"</span>
+          </div>
+          {parsed.responseText && (
+            <p className="text-[10px] text-foreground/80">
+              {parsed.responseText}
+            </p>
+          )}
+        </div>
+      )
+    }
+    
+    // Full version for modal
+    return (
+      <div className="space-y-2">
+        {/* Nested quote */}
+        <div className="border-l-4 border-blue-400/50 dark:border-blue-500/40 pl-3 py-2 bg-blue-50 dark:bg-blue-950/20 rounded-r-md">
+          <div className="flex items-center gap-1 mb-1">
+            <MessageSquare className="h-3 w-3 text-blue-500 dark:text-blue-400" />
+            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+              @{parsed.quotedUser}:
+            </span>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-muted-foreground italic">
+            „{parsed.quotedText}"
+          </p>
+        </div>
+        {/* Response */}
+        {parsed.responseText && (
+          <p className="text-sm text-gray-700 dark:text-foreground/90">
+            {parsed.responseText}
+          </p>
+        )}
+      </div>
+    )
+  }
+  
+  // No nested quote, render as-is
+  if (compact) {
+    return (
+      <p className="text-[10px] italic text-foreground/80 leading-snug">
+        „{quote}"
+      </p>
+    )
+  }
+  
+  return (
+    <p className="text-sm text-gray-700 dark:text-inherit italic">
+      „{quote}"
+    </p>
+  )
+}
+
+/**
  * Parse and render text that may contain quotes in various formats:
  * - BBCode: [quote="username"]quoted text[/quote]
  * - Markdown-style: *"quoted text"* — @username
@@ -335,15 +418,13 @@ function TickerItem({ event }: { event: TickerEvent }) {
       
       {/* Full quote - expands on hover with delay */}
       {event.quote && (
-        <div className="max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-24 group-hover/card:opacity-100 transition-all duration-300 ease-out delay-300 group-hover/card:delay-150">
-            <blockquote className={`mt-1.5 pt-1.5 border-t ${style.border} border-dashed`}>
-              <p className="text-[10px] italic text-foreground/80 leading-snug">
-                „{event.quote}"
-              </p>
+        <div className="max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-32 group-hover/card:opacity-100 transition-all duration-300 ease-out delay-300 group-hover/card:delay-150">
+            <div className={`mt-1.5 pt-1.5 border-t ${style.border} border-dashed`}>
+              {renderQuoteContent(event.quote, quoteAuthor, style, true)}
               <cite className="text-[9px] text-muted-foreground not-italic mt-0.5 block">
                 — @{quoteAuthor}
               </cite>
-            </blockquote>
+            </div>
           </div>
         )}
         
@@ -396,10 +477,10 @@ function TickerItem({ event }: { event: TickerEvent }) {
             
             {/* Quote if exists */}
             {event.quote && (
-              <blockquote className={`border-l-4 ${style.border} pl-3 mb-3 italic text-sm text-gray-700 dark:text-inherit`}>
-                „{event.quote}"
-                <span className="block text-xs text-gray-500 dark:text-muted-foreground mt-1">— @{quoteAuthor}</span>
-              </blockquote>
+              <div className={`border-l-4 ${style.border} pl-3 mb-3`}>
+                {renderQuoteContent(event.quote, quoteAuthor, style, false)}
+                <span className="block text-xs text-gray-500 dark:text-muted-foreground mt-2">— @{quoteAuthor}</span>
+              </div>
             )}
             
             {/* Full description */}
