@@ -1,61 +1,12 @@
 'use client'
 
-import { useMemo, useEffect, useState, useCallback } from 'react'
+import { useMemo } from 'react'
 import { TrendingUp, TrendingDown, Minus, RefreshCw, Clock } from 'lucide-react'
-import { experimental_useObject as useObject } from '@ai-sdk/react'
-import { z } from 'zod'
 import { cn } from '@/lib/utils'
+import { useFearGreed, FearGreedProvider, type FearGreedData } from './FearGreedContext'
 
-/**
- * Single period sentiment
- */
-interface PeriodSentiment {
-  index: number
-  classification: 'Extreme Fear' | 'Fear' | 'Neutral' | 'Greed' | 'Extreme Greed'
-  classificationDE: 'Extreme Angst' | 'Angst' | 'Neutral' | 'Gier' | 'Extreme Gier'
-}
-
-/**
- * Fear & Greed Data Interface
- */
-export interface FearGreedData {
-  today: PeriodSentiment
-  last3Days: PeriodSentiment
-  last7Days: PeriodSentiment
-  trend: 'rising' | 'falling' | 'stable'
-  insight: string
-  topDrivers: string[]
-}
-
-/**
- * Cache info for displaying date/time
- */
-interface CacheInfo {
-  updatedAt: string
-  isFromToday: boolean
-  isStale: boolean
-  dateRange?: {
-    oldestDate: string
-    newestDate: string
-    todayMessageCount: number
-  }
-}
-
-// Schema for streaming validation
-const PeriodSentimentSchema = z.object({
-  index: z.number().min(0).max(100),
-  classification: z.enum(['Extreme Fear', 'Fear', 'Neutral', 'Greed', 'Extreme Greed']),
-  classificationDE: z.enum(['Extreme Angst', 'Angst', 'Neutral', 'Gier', 'Extreme Gier']),
-})
-
-const FearGreedSchema = z.object({
-  today: PeriodSentimentSchema,
-  last3Days: PeriodSentimentSchema,
-  last7Days: PeriodSentimentSchema,
-  trend: z.enum(['rising', 'falling', 'stable']),
-  insight: z.string(),
-  topDrivers: z.array(z.string()).min(2).max(3),
-})
+// Re-export types for backwards compatibility
+export type { FearGreedData }
 
 /**
  * Get color based on index value - High contrast for accessibility
@@ -66,6 +17,23 @@ function getIndexColor(index: number): string {
   if (index <= 60) return 'text-yellow-700 dark:text-yellow-400'
   if (index <= 80) return 'text-lime-700 dark:text-lime-400'
   return 'text-emerald-700 dark:text-emerald-400'
+}
+
+/**
+ * Format time ago in German
+ */
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  
+  if (diffMins < 1) return 'gerade eben'
+  if (diffMins < 60) return `vor ${diffMins}m`
+  if (diffHours < 24) return `vor ${diffHours}h ${diffMins % 60}m`
+  return `vor ${diffDays}d ${diffHours % 24}h`
 }
 
 /**
@@ -129,8 +97,6 @@ function MiniGauge({
 }
 
 interface FearGreedWidgetProps {
-  /** Auto-start analysis on mount (checks cache first) */
-  autoStart?: boolean
   /** Custom className for the container */
   className?: string
   /** Compact mode - minimal horizontal layout for inline display */
@@ -140,157 +106,14 @@ interface FearGreedWidgetProps {
 /**
  * Fear & Greed Widget Component - Newspaper Style
  * 
- * Self-contained component that fetches and displays Fear & Greed indices
- * for Today, 3 Days, and 7 Days. Uses cache when available.
+ * Uses shared FearGreedContext for data. Must be wrapped in FearGreedProvider.
+ * When refresh is called on any widget, all widgets update together.
  */
-/**
- * Format time ago in German
- */
-function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  
-  if (diffMins < 1) return 'gerade eben'
-  if (diffMins < 60) return `vor ${diffMins}m`
-  if (diffHours < 24) return `vor ${diffHours}h ${diffMins % 60}m`
-  return `vor ${diffDays}d ${diffHours % 24}h`
-}
-
-/**
- * Check if date is from today
- */
-function isFromToday(dateString: string): boolean {
-  const date = new Date(dateString)
-  const today = new Date()
-  return date.toDateString() === today.toDateString()
-}
-
-/**
- * Check if cache is stale (older than 4 hours)
- */
-function isCacheStale(dateString: string): boolean {
-  const cacheTime = new Date(dateString).getTime()
-  const now = Date.now()
-  const fourHoursMs = 4 * 60 * 60 * 1000
-  return (now - cacheTime) >= fourHoursMs
-}
-
 export function FearGreedWidget({ 
-  autoStart = false, 
   className,
   compact = false,
 }: FearGreedWidgetProps) {
-  const [cachedData, setCachedData] = useState<FearGreedData | null>(null)
-  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
-  const [isLoadingCache, setIsLoadingCache] = useState(false)
-  const [hasFetched, setHasFetched] = useState(false)
-  
-  const { object, isLoading: isLoadingAI, error, submit } = useObject({
-    api: '/test-fg/api/analyze',
-    schema: FearGreedSchema,
-  })
-
-  const streamingData = object as Partial<FearGreedData> | undefined
-  const data = cachedData || streamingData
-  const isLoading = isLoadingCache || isLoadingAI
-  const hasData = data?.today || data?.last3Days || data?.last7Days
-
-  // Update cache info when streaming completes (cache is auto-saved by analyze route)
-  useEffect(() => {
-    if (streamingData?.today && streamingData?.last3Days && streamingData?.last7Days && 
-        streamingData?.trend && streamingData?.insight && streamingData?.topDrivers && !isLoadingAI) {
-      const now = new Date().toISOString()
-      // Update local cache info - actual cache is saved by analyze route
-      setCacheInfo({
-        updatedAt: now,
-        isFromToday: true,
-        isStale: false,
-        // dateRange will be available on next cache fetch
-      })
-      
-      // Fetch updated cache to get dateRange info
-      setTimeout(() => {
-        fetch('/test-fg/api/cache')
-          .then(res => res.json())
-          .then(result => {
-            if (result.cached && result.dateRange) {
-              setCacheInfo(prev => prev ? { ...prev, dateRange: result.dateRange } : null)
-            }
-          })
-          .catch(console.error)
-      }, 500) // Small delay to ensure cache is written
-    }
-  }, [streamingData, isLoadingAI])
-
-  // Check cache on mount
-  const checkCache = useCallback(async (): Promise<{ cached: boolean; needsRefresh: boolean }> => {
-    setIsLoadingCache(true)
-    try {
-      const response = await fetch('/test-fg/api/cache')
-      if (response.ok) {
-        const result = await response.json()
-        if (result.cached && result.data && result.updatedAt) {
-          const updatedAt = result.updatedAt
-          const fromToday = isFromToday(updatedAt)
-          const stale = isCacheStale(updatedAt)
-          
-          setCachedData(result.data as FearGreedData)
-          setCacheInfo({
-            updatedAt,
-            isFromToday: fromToday,
-            isStale: stale,
-            dateRange: result.dateRange || undefined
-          })
-          setHasFetched(true)
-          
-          // Need refresh if not from today OR stale (older than 4 hours)
-          const needsRefresh = !fromToday || stale
-          
-          console.log(`[FearGreedWidget] Cache loaded:`, {
-            updatedAt,
-            fromToday,
-            stale,
-            needsRefresh,
-            dateRange: result.dateRange
-          })
-          
-          return { cached: true, needsRefresh }
-        }
-      }
-    } catch (err) {
-      console.error('[FearGreedWidget] Cache check failed:', err)
-    } finally {
-      setIsLoadingCache(false)
-    }
-    return { cached: false, needsRefresh: true }
-  }, [])
-
-  // Generate new data
-  const generate = useCallback(() => {
-    setCachedData(null)
-    setCacheInfo(null)
-    setHasFetched(true)
-    submit({})
-  }, [submit])
-
-  // Auto-start: check cache first, then generate if needed or stale
-  useEffect(() => {
-    if (autoStart && !hasFetched && !isLoading) {
-      checkCache().then(({ cached, needsRefresh }) => {
-        if (!cached || needsRefresh) {
-          // If we have stale cached data, show it while refreshing
-          if (cached && needsRefresh) {
-            console.log('[FearGreedWidget] Cache is stale or not from today, refreshing...')
-          }
-          generate()
-        }
-      })
-    }
-  }, [autoStart, hasFetched, isLoading, checkCache, generate])
+  const { data, cacheInfo, isLoading, error, hasData, refresh } = useFearGreed()
 
   // Loading skeleton - newspaper style
   if (isLoading && !hasData) {
@@ -329,7 +152,7 @@ export function FearGreedWidget({
       return (
         <div className={cn("flex items-center gap-2 py-2 min-w-[140px]", className)}>
           <span className="text-[9px] text-red-500">F&G Fehler</span>
-          <button onClick={generate} className="text-[9px] text-primary hover:underline">↻</button>
+          <button onClick={refresh} className="text-[9px] text-primary hover:underline">↻</button>
         </div>
       )
     }
@@ -339,7 +162,7 @@ export function FearGreedWidget({
           <h4 className="font-headline text-sm font-bold uppercase tracking-wider">
             Fear & Greed
           </h4>
-          <button onClick={generate} className="text-xs text-primary hover:underline">
+          <button onClick={refresh} className="text-xs text-primary hover:underline">
             Retry
           </button>
         </div>
@@ -348,8 +171,8 @@ export function FearGreedWidget({
     )
   }
 
-  // Initial state (no data yet, not loading, not auto-start)
-  if (!hasData && !isLoading && !autoStart) {
+  // Initial state (no data yet, not loading)
+  if (!hasData && !isLoading) {
     return (
       <div className={cn("", className)}>
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-foreground/20">
@@ -358,7 +181,7 @@ export function FearGreedWidget({
           </h4>
         </div>
         <button
-          onClick={generate}
+          onClick={refresh}
           className="w-full py-2 text-xs font-headline text-primary hover:underline"
         >
           📊 Analyse starten
@@ -382,7 +205,7 @@ export function FearGreedWidget({
             </span>
           )}
           <button
-            onClick={generate}
+            onClick={refresh}
             disabled={isLoading}
             className="p-0.5 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
             title="Aktualisieren"
@@ -476,7 +299,7 @@ export function FearGreedWidget({
             </span>
           )}
           <button
-            onClick={generate}
+            onClick={refresh}
             disabled={isLoading}
             className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
             title="Neu analysieren"
@@ -571,5 +394,28 @@ export function FearGreedWidget({
         </div>
       )}
     </div>
+  )
+}
+
+interface StandaloneFearGreedWidgetProps extends FearGreedWidgetProps {
+  /** Auto-start analysis on mount (checks cache first) */
+  autoStart?: boolean
+}
+
+/**
+ * Standalone Fear & Greed Widget - includes its own provider
+ * 
+ * Use this when you only have ONE widget on the page and don't want to 
+ * manually add FearGreedProvider. For multiple widgets that should sync,
+ * use FearGreedProvider + FearGreedWidget instead.
+ */
+export function StandaloneFearGreedWidget({ 
+  autoStart = false,
+  ...props 
+}: StandaloneFearGreedWidgetProps) {
+  return (
+    <FearGreedProvider autoStart={autoStart}>
+      <FearGreedWidget {...props} />
+    </FearGreedProvider>
   )
 }

@@ -188,6 +188,96 @@ interface BTCContext {
 }
 
 /**
+ * Previous Fear & Greed data interface.
+ * Used to provide historical context to the AI for continuity.
+ */
+interface PreviousFearGreed {
+  created_at: string
+  today_index: number
+  today_classification_de: string
+  last_3_days_index: number
+  last_3_days_classification_de: string
+  last_7_days_index: number
+  last_7_days_classification_de: string
+  trend: string
+  insight: string | null
+}
+
+/**
+ * Fetch the most recent Fear & Greed analysis from history.
+ * Used to provide feedback context to the AI model.
+ * 
+ * @param supabase - Supabase client
+ * @returns Previous F&G data or null if none exists
+ */
+async function fetchPreviousFearGreed(supabase: Awaited<ReturnType<typeof createClient>>): Promise<PreviousFearGreed | null> {
+  try {
+    const { data, error } = await supabase
+      .from('fear_greed_history')
+      .select('created_at, today_index, today_classification_de, last_3_days_index, last_3_days_classification_de, last_7_days_index, last_7_days_classification_de, trend, insight')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    
+    if (error) {
+      // No data found is okay, just return null
+      if (error.code === 'PGRST116') {
+        console.log('[FEAR-GREED] No previous F&G history found')
+        return null
+      }
+      console.warn('[FEAR-GREED] Error fetching previous F&G:', error.message)
+      return null
+    }
+    
+    return data as PreviousFearGreed
+  } catch (error) {
+    console.error('[FEAR-GREED] Error fetching previous F&G:', error)
+    return null
+  }
+}
+
+/**
+ * Format previous Fear & Greed data for the AI prompt.
+ * 
+ * @param prev - Previous F&G data
+ * @returns Formatted string with previous analysis context
+ */
+function formatPreviousFearGreed(prev: PreviousFearGreed): string {
+  const prevDate = new Date(prev.created_at)
+  const now = new Date()
+  const diffMs = now.getTime() - prevDate.getTime()
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffDays = Math.floor(diffHours / 24)
+  
+  let timeAgo: string
+  if (diffHours < 1) {
+    timeAgo = 'vor weniger als 1 Stunde'
+  } else if (diffHours < 24) {
+    timeAgo = `vor ${diffHours} Stunde${diffHours > 1 ? 'n' : ''}`
+  } else {
+    timeAgo = `vor ${diffDays} Tag${diffDays > 1 ? 'en' : ''}`
+  }
+  
+  const trendDE = prev.trend === 'rising' ? 'steigend' : prev.trend === 'falling' ? 'fallend' : 'stabil'
+  
+  return `
+═══════════════════════════════════════════════════
+📊 LETZTE FEAR & GREED ANALYSE (${timeAgo})
+═══════════════════════════════════════════════════
+• Heute: ${prev.today_index} (${prev.today_classification_de})
+• 3 Tage: ${prev.last_3_days_index} (${prev.last_3_days_classification_de})
+• 7 Tage: ${prev.last_7_days_index} (${prev.last_7_days_classification_de})
+• Trend: ${trendDE}
+${prev.insight ? `• Insight: "${prev.insight}"` : ''}
+═══════════════════════════════════════════════════
+
+WICHTIG: Berücksichtige diese vorherige Analyse als Kontext. Hat sich die Stimmung 
+seitdem verändert? Sind die gleichen Themen noch relevant? Bestätige Kontinuität 
+oder erkläre Veränderungen.
+`
+}
+
+/**
  * Fetch current Bitcoin market data from CoinGecko API.
  * Used to provide market context to the AI for more relevant analysis.
  * 
@@ -264,14 +354,15 @@ export async function POST(request: NextRequest) {
   }
   
   try {
-    // Fetch BTC data in parallel with request parsing
+    // Initialize Supabase client early for parallel fetches
+    const supabase = await createClient()
+    
+    // Fetch BTC data and previous F&G in parallel with request parsing
     const btcPromise = fetchBTCContext()
+    const prevFGPromise = fetchPreviousFearGreed(supabase)
     
     // Parse request body (no params needed, but consume the body)
     await request.json().catch(() => ({}))
-    
-    // Initialize Supabase client
-    const supabase = await createClient()
     
     // Calculate date range (last 7 days)
     const endDate = new Date()
@@ -356,9 +447,10 @@ export async function POST(request: NextRequest) {
     const uniqueUsers = new Set(allMessages.map(m => m.username)).size
     const todayStr = todayStartBerlin.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })
     
-    // Wait for BTC data
-    const btcContext = await btcPromise
+    // Wait for BTC data and previous F&G
+    const [btcContext, prevFG] = await Promise.all([btcPromise, prevFGPromise])
     const btcContextStr = btcContext ? formatBTCContext(btcContext) : ''
+    const prevFGContextStr = prevFG ? formatPreviousFearGreed(prevFG) : ''
     
     // Find actual date range from messages
     const oldestMsgDate = allMessages.length > 0 ? new Date(allMessages[0].time) : startDate
@@ -374,6 +466,14 @@ export async function POST(request: NextRequest) {
     })
     console.log(`[FEAR-GREED] ════════════════════════════════════════════`)
     console.log(`[FEAR-GREED] 🤖 Sending to model:`)
+    if (prevFG) {
+      const prevDate = new Date(prevFG.created_at).toLocaleString('de-DE', { 
+        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' 
+      })
+      console.log(`[FEAR-GREED]    📜 Previous F&G (${prevDate}): Today=${prevFG.today_index}, 3d=${prevFG.last_3_days_index}, 7d=${prevFG.last_7_days_index}`)
+    } else {
+      console.log(`[FEAR-GREED]    📜 Previous F&G: None (first analysis)`)
+    }
     console.log(`[FEAR-GREED]    🕐 Current time (Berlin): ${nowStr}`)
     console.log(`[FEAR-GREED]    🌅 Today starts at (Berlin midnight): ${todayStartBerlin.toISOString()}`)
     console.log(`[FEAR-GREED]    📅 FIRST message: ${allMessages[0]?.time || 'N/A'} (${oldestMsgStr})`)
@@ -422,7 +522,7 @@ export async function POST(request: NextRequest) {
       prompt: `Analysiere den folgenden Chat und erstelle Fear & Greed Indices für alle drei Zeiträume.
 
 HEUTE ist der ${todayStr}
-${btcContextStr}
+${btcContextStr}${prevFGContextStr}
 Nachrichten-Statistik:
 • Heute: ${todayMessages.length} Nachrichten
 • Letzte 3 Tage: ${last3DaysMessages.length} Nachrichten  
@@ -436,12 +536,13 @@ ${formattedChat}`,
         if (object) {
           console.log(`[FEAR-GREED] ✅ Analysis complete: Today=${object.today?.index}, 3d=${object.last3Days?.index}, 7d=${object.last7Days?.index}`)
           
-          // Auto-save to cache with date range info
+          // Auto-save to BOTH cache (for fast retrieval) AND history (for tracking over time)
           try {
-            const cacheSupabase = await createClient()
+            const saveSupabase = await createClient()
             const cacheDate = new Date().toISOString().split('T')[0]
             
-            await cacheSupabase
+            // Save to cache (upsert - one per day)
+            const cachePromise = saveSupabase
               .from('fear_greed_cache')
               .upsert({
                 cache_date: cacheDate,
@@ -469,9 +570,45 @@ ${formattedChat}`,
                 onConflict: 'cache_date'
               })
             
-            console.log(`[FEAR-GREED] ✅ Auto-saved to cache with date range: ${dateRangeInfo.oldestDate} → ${dateRangeInfo.newestDate}`)
-          } catch (cacheError) {
-            console.error(`[FEAR-GREED] ⚠️ Failed to auto-save cache:`, cacheError)
+            // Save to history (insert - every analysis is stored)
+            const historyPromise = saveSupabase
+              .from('fear_greed_history')
+              .insert({
+                analysis_date: cacheDate,
+                today_index: object.today.index,
+                today_classification: object.today.classification,
+                today_classification_de: object.today.classificationDE,
+                last_3_days_index: object.last3Days.index,
+                last_3_days_classification: object.last3Days.classification,
+                last_3_days_classification_de: object.last3Days.classificationDE,
+                last_7_days_index: object.last7Days.index,
+                last_7_days_classification: object.last7Days.classification,
+                last_7_days_classification_de: object.last7Days.classificationDE,
+                trend: object.trend,
+                insight: object.insight,
+                top_drivers: object.topDrivers,
+                message_count: allMessages.length,
+                unique_users: uniqueUsers,
+                oldest_message_date: dateRangeInfo.oldestDate,
+                newest_message_date: dateRangeInfo.newestDate
+              })
+            
+            // Wait for both saves
+            const [cacheResult, historyResult] = await Promise.all([cachePromise, historyPromise])
+            
+            if (cacheResult.error) {
+              console.error(`[FEAR-GREED] ⚠️ Failed to save cache:`, cacheResult.error)
+            } else {
+              console.log(`[FEAR-GREED] ✅ Saved to cache: ${dateRangeInfo.oldestDate} → ${dateRangeInfo.newestDate}`)
+            }
+            
+            if (historyResult.error) {
+              console.error(`[FEAR-GREED] ⚠️ Failed to save history:`, historyResult.error)
+            } else {
+              console.log(`[FEAR-GREED] ✅ Saved to history for tracking over time`)
+            }
+          } catch (saveError) {
+            console.error(`[FEAR-GREED] ⚠️ Failed to save:`, saveError)
           }
         } else if (finishError) {
           console.error(`[FEAR-GREED] ❌ Schema error:`, String(finishError))

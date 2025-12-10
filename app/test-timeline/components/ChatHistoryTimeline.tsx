@@ -59,6 +59,7 @@ interface ChatHistoryTimelineProps {
   autoStart?: boolean
   showRefreshButton?: boolean
   compact?: boolean // Minimal version for top placement
+  mini?: boolean // Ultra-minimal one-liner, expands on hover
   defaultMode?: TimelineMode // Default: '3d'
 }
 
@@ -626,6 +627,166 @@ function CompactTimelineCard({ event }: { event: ChatEvent }) {
 }
 
 /**
+ * Mini event card for mini timeline mode - very compact, expands details on hover
+ */
+function MiniEventCard({ 
+  event, 
+  style, 
+  displayLabel, 
+  cardWidth, 
+  cardHeight,
+  barHeight, 
+  verticalOffset, 
+  fontSize, 
+  titleSize,
+  isHovered: isTimelineHovered
+}: { 
+  event: ChatEvent & { bucket?: { timestamp: string; label: string; count: number; uniqueUsers: number; intensity: number } }
+  style: ReturnType<typeof getEventStyle>
+  displayLabel: string
+  cardWidth: number
+  cardHeight: number
+  barHeight: number
+  verticalOffset: number
+  fontSize: string
+  titleSize: string
+  isHovered: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const Icon = style.icon
+  
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  
+  return (
+    <>
+      <div 
+        className="absolute left-1/2 -translate-x-1/2 z-10 hover:z-[100] group/card transition-all duration-300" 
+        style={{ 
+          bottom: `${barHeight + 6 + verticalOffset}px`,
+        }}
+      >
+        {/* Connector line */}
+        <div 
+          className="absolute top-full left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-foreground/20 to-transparent transition-all duration-300" 
+          style={{ height: `${6 + verticalOffset}px` }}
+        />
+        
+        {/* Event card - mini version, expands on individual card hover */}
+        <div 
+          onClick={() => setIsExpanded(true)}
+          className={`rounded border ${style.bg} ${style.border} backdrop-blur-sm 
+          transition-all duration-200 hover:shadow-xl hover:z-[100] 
+          cursor-pointer select-none active:scale-95
+          group-hover/card:min-w-[180px] group-hover/card:w-auto`}
+          style={{ 
+            width: `${cardWidth}px`,
+            minWidth: `${cardWidth}px`,
+            padding: isTimelineHovered ? '6px' : '3px 4px',
+          }}
+        >
+          {/* Header: label + time - show on timeline hover OR card hover */}
+          <div className={`flex items-center justify-between gap-1 mb-0.5 transition-all duration-200 ${
+            isTimelineHovered ? 'opacity-100 max-h-6' : 'opacity-0 max-h-0 group-hover/card:opacity-100 group-hover/card:max-h-6'
+          }`}>
+            <span className={`text-${fontSize} font-black tracking-wide px-1 py-0.5 rounded ${style.bg} ${style.text} border ${style.border} leading-none`}>
+              {displayLabel}
+            </span>
+            <span className={`text-${fontSize} font-mono text-muted-foreground/60`}>
+              {event.time}
+            </span>
+          </div>
+          
+          {/* Title - always visible, expands on card hover */}
+          <h4 className={`text-${titleSize} font-semibold leading-tight ${style.text} truncate group-hover/card:whitespace-normal group-hover/card:line-clamp-2`}>
+            {event.title}
+          </h4>
+          
+          {/* Description preview - shows on individual card hover */}
+          <div className="max-h-0 overflow-hidden opacity-0 group-hover/card:max-h-16 group-hover/card:opacity-100 transition-all duration-200">
+            <p className="text-[9px] text-foreground leading-snug mt-1 line-clamp-2">
+              {event.description?.slice(0, 80)}...
+            </p>
+          </div>
+        </div>
+        
+        {/* Dot */}
+        <div className={`absolute top-full left-1/2 -translate-x-1/2 rounded-full ${style.bg} border ${style.border} z-10 transition-all duration-300`}
+          style={{ width: isTimelineHovered ? '6px' : '4px', height: isTimelineHovered ? '6px' : '4px' }}
+        />
+      </div>
+      
+      {/* Modal */}
+      {isExpanded && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/60 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: 99999 }}
+          onClick={() => setIsExpanded(false)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className={`relative w-full max-w-md p-5 rounded-xl border-2 
+              bg-white dark:bg-card ${style.border} shadow-2xl
+              animate-in fade-in zoom-in-95 duration-200`}
+          >
+            <button 
+              onClick={() => setIsExpanded(false)}
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full 
+                bg-gray-100 dark:bg-background/50 hover:bg-gray-200 dark:hover:bg-background/80 transition-colors"
+            >
+              ✕
+            </button>
+            
+            <div className="flex items-center gap-3 mb-3">
+              <span className={`text-sm font-black tracking-wide px-2 py-1 rounded ${style.bg} ${style.text} border ${style.border}`}>
+                {displayLabel}
+              </span>
+              <Icon className={`w-5 h-5 ${style.text}`} />
+              <span className="text-sm font-mono text-gray-500 dark:text-muted-foreground ml-auto">
+                {formatDate(event.date)} • {event.time}
+              </span>
+            </div>
+            
+            <h3 className={`text-lg font-bold leading-tight mb-3 ${style.text}`}>
+              {event.title}
+            </h3>
+            
+            {event.quote && (
+              <div className={`border-l-4 ${style.border} pl-3 mb-3`}>
+                {renderQuoteContent(event.quote, event.quoteAuthor || '', style, false)}
+                {event.quoteAuthor && (
+                  <span className="block text-xs text-gray-500 dark:text-muted-foreground mt-2">— @{event.quoteAuthor}</span>
+                )}
+              </div>
+            )}
+            
+            {event.description && (
+              <div className="text-sm leading-relaxed mb-4">
+                {renderTextWithQuotes(event.description, false)}
+              </div>
+            )}
+            
+            {event.participants && event.participants.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200 dark:border-border/50">
+                <span className="text-xs text-gray-500 dark:text-muted-foreground">Beteiligt:</span>
+                {event.participants.map((p, i) => (
+                  <span key={i} className={`text-xs px-2 py-1 rounded ${style.bg} ${style.text}`}>
+                    @{p}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+/**
  * Inline event card for compact timeline with click-to-expand modal
  */
 function InlineEventCard({ 
@@ -951,6 +1112,7 @@ export function ChatHistoryTimeline({
   autoStart = false,
   showRefreshButton = true,
   compact = false,
+  mini = false,
   defaultMode = '3d'
 }: ChatHistoryTimelineProps) {
   const [events, setEvents] = useState<ChatEvent[]>([])
@@ -960,6 +1122,7 @@ export function ChatHistoryTimeline({
   const [hasLoaded, setHasLoaded] = useState(false)
   const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string; summary?: string; activityLevel?: string } | null>(null)
   const [mode, setMode] = useState<TimelineMode>(defaultMode)
+  const [isHovered, setIsHovered] = useState(false)
   
   // Activity data
   const [activityBuckets, setActivityBuckets] = useState<ActivityBucket[]>([])
@@ -1363,6 +1526,369 @@ export function ChatHistoryTimeline({
     return 'hsl(24 95% 53% / 0.9)'
   }
 
+  // ========== MINI MODE (same as compact, but smaller heights - expands on hover) ==========
+  if (mini) {
+    // Mini mode sizing - smaller than compact
+    const miniCardHeight = isHovered ? 44 : 28  // Much smaller when not hovered
+    const miniCardWidth = isHovered ? 140 : 100
+    const miniBarMaxHeight = isHovered ? 50 : 25
+    const miniCardGap = isHovered ? 10 : 6
+    
+    return (
+      <div 
+        className={`relative ${className}`}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div className="flex flex-col">
+          {/* Top row: Controls - smaller in mini mode */}
+          <div className={`flex items-center gap-2 px-3 border-b border-foreground/5 transition-all duration-200 ${
+            isHovered ? 'py-1.5' : 'py-1'
+          }`}>
+            {/* Mode selector */}
+            <div className="flex items-center gap-0.5 bg-muted/50 rounded p-0.5">
+              {(['24h', '3d', '7d'] as TimelineMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => handleModeChange(m)}
+                  disabled={isLoading || isRefreshing}
+                  className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-all ${
+                    mode === m 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            
+            {/* Refresh button */}
+            <button
+              onClick={refreshTimeline}
+              disabled={isRefreshing || isLoading}
+              className="p-1 rounded hover:bg-muted disabled:opacity-50 transition-all"
+              title="Timeline aktualisieren"
+            >
+              <RefreshCw className={`w-3 h-3 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+            
+            {/* Cache age */}
+            <div className="flex items-center">
+              {cacheInfo && !isLoading && !isRefreshing && (
+                <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
+                  {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+                </span>
+              )}
+              {(isLoading || isRefreshing) && (
+                <span className="text-[8px] text-foreground/50 dark:text-foreground/60 whitespace-nowrap leading-none">
+                  {isRefreshing ? 'AI...' : '...'}
+                </span>
+              )}
+            </div>
+          </div>
+          
+          {/* Timeline content */}
+          <div className="w-full relative">
+            {/* Loading */}
+            {isLoading && !hasLoaded && (
+              <div className="flex items-center justify-center py-2">
+                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {/* Timeline with integrated activity bars */}
+            {hasLoaded && events.length > 0 && activityBuckets.length > 0 && !isLoading && (
+              <div className="relative">
+                {/* Gradient overlays */}
+                {canScrollLeft && (
+                  <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-20 pointer-events-none" />
+                )}
+                {canScrollRight && (
+                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-20 pointer-events-none" />
+                )}
+                
+                {/* Scroll buttons */}
+                {canScrollLeft && (
+                  <button
+                    onClick={() => scroll('left')}
+                    className="absolute left-1 top-1/2 -translate-y-1/2 z-30 p-0.5 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                  </button>
+                )}
+                {canScrollRight && (
+                  <button
+                    onClick={() => scroll('right')}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 z-30 p-0.5 rounded-full bg-background/80 border border-foreground/10 hover:bg-muted transition-all"
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
+                
+                {/* Scrollable container */}
+                <div 
+                  ref={scrollRef}
+                  className="overflow-x-auto"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                  {(() => {
+                    const eventCount = events.length
+                    
+                    // Mini mode: use smaller sizes, expand on hover
+                    const cardHeight = miniCardHeight
+                    const cardWidth = miniCardWidth
+                    const cardGap = miniCardGap
+                    const bucketWidth = 24
+                    const fontSize = isHovered ? '[7px]' : '[6px]'
+                    const titleSize = isHovered ? '[8px]' : '[7px]'
+                    
+                    // Horizontal spacing between cards (prevents overlap)
+                    const horizontalCardGap = isHovered ? 12 : 8
+                    
+                    const leftPadding = Math.ceil(cardWidth / 2) + 15
+                    
+                    const rowOccupancy: Array<Array<{ start: number; end: number }>> = []
+                    const maxRows = 15
+                    
+                    for (let i = 0; i < maxRows; i++) {
+                      rowOccupancy.push([])
+                    }
+                    
+                    type EventPosition = {
+                      event: typeof eventsWithBuckets[0]
+                      bucketIdx: number
+                      row: number
+                      xCenter: number
+                    }
+                    const eventPositions: EventPosition[] = []
+                    
+                    eventsWithBuckets.forEach((event) => {
+                      const bucketIdx = activityBuckets.findIndex(b => b.timestamp === event.bucket?.timestamp)
+                      if (bucketIdx === -1) return
+                      
+                      const xCenter = bucketIdx * bucketWidth
+                      // Add horizontal gap to collision detection
+                      const cardLeft = xCenter - cardWidth / 2 - horizontalCardGap / 2
+                      const cardRight = xCenter + cardWidth / 2 + horizontalCardGap / 2
+                      
+                      let assignedRow = 0
+                      for (let row = 0; row < maxRows; row++) {
+                        const overlaps = rowOccupancy[row].some(occupied => 
+                          !(cardRight < occupied.start || cardLeft > occupied.end)
+                        )
+                        if (!overlaps) {
+                          assignedRow = row
+                          break
+                        }
+                      }
+                      
+                      rowOccupancy[assignedRow].push({ start: cardLeft, end: cardRight })
+                      
+                      eventPositions.push({
+                        event,
+                        bucketIdx,
+                        row: assignedRow,
+                        xCenter
+                      })
+                    })
+                    
+                    const rowsUsed = Math.max(1, ...eventPositions.map(p => p.row + 1))
+                    // Container height adjusts based on hover state
+                    const baseHeight = isHovered ? 60 : 35
+                    const containerHeight = baseHeight + (rowsUsed * (cardHeight + cardGap))
+                    
+                    const eventsByBucket = new Map<number, EventPosition[]>()
+                    eventPositions.forEach(pos => {
+                      const existing = eventsByBucket.get(pos.bucketIdx) || []
+                      existing.push(pos)
+                      eventsByBucket.set(pos.bucketIdx, existing)
+                    })
+                    
+                    // Calculate day boundaries for markers
+                    const today = new Date()
+                    today.setHours(0, 0, 0, 0)
+                    
+                    const getDayLabel = (date: Date): string | null => {
+                      const d = new Date(date)
+                      d.setHours(0, 0, 0, 0)
+                      const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
+                      
+                      if (diffDays === 0) return 'HEUTE'
+                      if (diffDays === 1) return 'GESTERN'
+                      if (diffDays === 2) return 'VORGESTERN'
+                      return null
+                    }
+                    
+                    // Find bucket indices where day changes
+                    const dayBoundaries: { idx: number; label: string; isToday: boolean }[] = []
+                    let lastDateStr = ''
+                    activityBuckets.forEach((bucket, idx) => {
+                      const bucketDate = new Date(bucket.timestamp)
+                      const dateStr = bucketDate.toDateString()
+                      if (dateStr !== lastDateStr) {
+                        const label = getDayLabel(bucketDate)
+                        const dayNames = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
+                        const dayAbbr = dayNames[bucketDate.getDay()]
+                        const displayLabel = label || `${dayAbbr} ${bucketDate.getDate()}.${bucketDate.getMonth() + 1}`
+                        
+                        bucketDate.setHours(0, 0, 0, 0)
+                        const isToday = bucketDate.getTime() === today.getTime()
+                        
+                        dayBoundaries.push({ idx, label: displayLabel, isToday })
+                        lastDateStr = dateStr
+                      }
+                    })
+                    
+                    return (
+                      <div 
+                        className="relative min-w-max py-2 transition-all duration-300" 
+                        style={{ height: `${containerHeight}px`, paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}
+                      >
+                        {/* Day boundary markers - vertical lines with labels */}
+                        {dayBoundaries.map(({ idx, label, isToday }) => (
+                          <div 
+                            key={`day-${idx}`}
+                            className="absolute top-0 bottom-0 flex flex-col items-center pointer-events-none z-30"
+                            style={{ left: `${leftPadding + idx * bucketWidth - 1}px` }}
+                          >
+                            {/* Vertical line */}
+                            <div className={`w-px h-full ${isToday ? 'bg-primary/60' : 'bg-foreground/20'}`} />
+                            
+                            {/* Day label at top */}
+                            <div 
+                              className={`absolute top-0 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-b text-[8px] font-bold whitespace-nowrap transition-all duration-300 ${
+                                isToday 
+                                  ? 'bg-primary text-primary-foreground' 
+                                  : 'bg-muted/80 text-foreground/70'
+                              }`}
+                              style={{ fontSize: isHovered ? '9px' : '7px' }}
+                            >
+                              {isToday && <span className="mr-1">▼</span>}
+                              {label}
+                            </div>
+                          </div>
+                        ))}
+                        
+                        <div 
+                          className="absolute left-0 right-0 flex items-end gap-[2px] transition-all duration-300" 
+                          style={{ 
+                            bottom: isHovered ? '24px' : '12px',
+                            paddingLeft: `${leftPadding}px`, 
+                            paddingRight: `${leftPadding}px` 
+                          }}
+                        >
+                          {activityBuckets.map((bucket, idx) => {
+                            const maxCount = activityStats?.maxPerBucket || Math.max(...activityBuckets.map(b => b.count), 1)
+                            const heightPercent = maxCount > 0 ? (bucket.count / maxCount) * 100 : 0
+                            const barHeight = bucket.count > 0 
+                              ? Math.max(2, (heightPercent / 100) * miniBarMaxHeight)
+                              : 2
+                            
+                            const bucketEventPositions = eventsByBucket.get(idx) || []
+                            
+                            return (
+                              <div key={idx} className="relative flex flex-col items-center group" style={{ minWidth: '22px' }}>
+                                {/* Mini event cards */}
+                                {bucketEventPositions.map((pos, eventIdx) => {
+                                  const event = pos.event
+                                  const eventStyle = getEventStyle(event.type)
+                                  const verticalOffset = pos.row * (cardHeight + cardGap)
+                                  const displayLabel = event.label || eventStyle.label
+                                  
+                                  return (
+                                    <MiniEventCard
+                                      key={`mini-${idx}-${event.id}-${eventIdx}`}
+                                      event={event}
+                                      style={eventStyle}
+                                      displayLabel={displayLabel}
+                                      cardWidth={cardWidth}
+                                      cardHeight={cardHeight}
+                                      barHeight={barHeight}
+                                      verticalOffset={verticalOffset}
+                                      fontSize={fontSize}
+                                      titleSize={titleSize}
+                                      isHovered={isHovered}
+                                    />
+                                  )
+                                })}
+                                
+                                {/* Activity bar */}
+                                <div 
+                                  className="rounded-t transition-all duration-300 group-hover:brightness-125"
+                                  style={{ 
+                                    width: isHovered ? '20px' : '16px',
+                                    height: `${barHeight}px`,
+                                    backgroundColor: getBarColor(bucket.intensity)
+                                  }}
+                                />
+                                
+                                {/* Tooltip on hover */}
+                                {isHovered && (
+                                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 
+                                    transition-opacity duration-100 pointer-events-none z-50 whitespace-nowrap">
+                                    <div className="bg-popover/95 backdrop-blur border border-border rounded px-1 py-0.5 text-[7px]">
+                                      <span className="font-mono">{bucket.label}</span>
+                                      <span className="text-muted-foreground ml-1">{bucket.count}</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+                
+                {/* Time scale - only show when hovered */}
+                <div className={`flex items-start gap-[2px] border-t border-foreground/5 overflow-x-auto transition-all duration-300 ${
+                  isHovered ? 'py-1 opacity-100 max-h-8' : 'py-0 opacity-0 max-h-0'
+                }`} style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', paddingLeft: '70px', paddingRight: '70px' }}>
+                  {activityBuckets.map((bucket, idx) => {
+                    const bucketDate = new Date(bucket.timestamp)
+                    const prevBucket = idx > 0 ? activityBuckets[idx - 1] : null
+                    const prevDate = prevBucket ? new Date(prevBucket.timestamp) : null
+                    
+                    const isNewDay = !prevDate || bucketDate.toDateString() !== prevDate.toDateString()
+                    
+                    const dayNames = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
+                    const dayAbbr = dayNames[bucketDate.getDay()]
+                    const dayAndMonth = `${dayAbbr} ${bucketDate.getDate()}.${bucketDate.getMonth() + 1}`
+                    
+                    return (
+                      <div key={idx} className="relative flex flex-col items-center" style={{ minWidth: '22px' }}>
+                        {isNewDay && (
+                          <div className="text-[8px] font-bold text-foreground whitespace-nowrap">
+                            {dayAndMonth}
+                          </div>
+                        )}
+                        
+                        {idx % 6 === 0 && !isNewDay && (
+                          <div className="text-[6px] text-muted-foreground/70 font-mono whitespace-nowrap">
+                            {bucket.label.split(' ').pop()}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {hasLoaded && events.length === 0 && !isLoading && !error && (
+              <div className="flex items-center justify-center py-2 text-[9px] text-foreground/50">
+                Keine Events
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ========== COMPACT MODE ==========
   if (compact) {
     return (
@@ -1473,6 +1999,9 @@ export function ChatHistoryTimeline({
                     const fontSize = isTiny ? '[7px]' : isCompact ? '[8px]' : '[9px]'
                     const titleSize = isTiny ? '[8px]' : isCompact ? '[9px]' : '[10px]'
                     
+                    // Horizontal spacing between cards
+                    const horizontalCardGap = 12
+                    
                     // Left padding to prevent cards from being cut off
                     const leftPadding = Math.ceil(cardWidth / 2) + 20
                     
@@ -1503,8 +2032,9 @@ export function ChatHistoryTimeline({
                       
                       // Calculate horizontal center position
                       const xCenter = bucketIdx * bucketWidth
-                      const cardLeft = xCenter - cardWidth / 2
-                      const cardRight = xCenter + cardWidth / 2
+                      // Add horizontal gap to collision detection
+                      const cardLeft = xCenter - cardWidth / 2 - horizontalCardGap / 2
+                      const cardRight = xCenter + cardWidth / 2 + horizontalCardGap / 2
                       
                       // Find first row where this card doesn't overlap
                       let assignedRow = 0
@@ -1543,8 +2073,67 @@ export function ChatHistoryTimeline({
                       eventsByBucket.set(pos.bucketIdx, existing)
                     })
                     
+                    // Calculate day boundaries for markers
+                    const today = new Date()
+                    today.setHours(0, 0, 0, 0)
+                    
+                    const getDayLabel = (date: Date): string | null => {
+                      const d = new Date(date)
+                      d.setHours(0, 0, 0, 0)
+                      const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
+                      
+                      if (diffDays === 0) return 'HEUTE'
+                      if (diffDays === 1) return 'GESTERN'
+                      if (diffDays === 2) return 'VORGESTERN'
+                      return null
+                    }
+                    
+                    // Find bucket indices where day changes
+                    const dayBoundaries: { idx: number; label: string; isToday: boolean }[] = []
+                    let lastDateStr = ''
+                    activityBuckets.forEach((bucket, idx) => {
+                      const bucketDate = new Date(bucket.timestamp)
+                      const dateStr = bucketDate.toDateString()
+                      if (dateStr !== lastDateStr) {
+                        const label = getDayLabel(bucketDate)
+                        const dayNames = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA']
+                        const dayAbbr = dayNames[bucketDate.getDay()]
+                        const displayLabel = label || `${dayAbbr} ${bucketDate.getDate()}.${bucketDate.getMonth() + 1}`
+                        
+                        bucketDate.setHours(0, 0, 0, 0)
+                        const isToday = bucketDate.getTime() === today.getTime()
+                        
+                        dayBoundaries.push({ idx, label: displayLabel, isToday })
+                        lastDateStr = dateStr
+                      }
+                    })
+                    
                     return (
                       <div className="relative min-w-max py-3" style={{ height: `${containerHeight}px`, paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}>
+                        {/* Day boundary markers - vertical lines with labels */}
+                        {dayBoundaries.map(({ idx, label, isToday }) => (
+                          <div 
+                            key={`day-${idx}`}
+                            className="absolute top-0 bottom-0 flex flex-col items-center pointer-events-none z-30"
+                            style={{ left: `${leftPadding + idx * bucketWidth - 1}px` }}
+                          >
+                            {/* Vertical line */}
+                            <div className={`w-px h-full ${isToday ? 'bg-primary/60' : 'bg-foreground/20'}`} />
+                            
+                            {/* Day label at top */}
+                            <div 
+                              className={`absolute top-0 left-1/2 -translate-x-1/2 px-2 py-1 rounded-b text-[9px] font-bold whitespace-nowrap ${
+                                isToday 
+                                  ? 'bg-primary text-primary-foreground' 
+                                  : 'bg-muted/80 text-foreground/70'
+                              }`}
+                            >
+                              {isToday && <span className="mr-1">▼</span>}
+                              {label}
+                            </div>
+                          </div>
+                        ))}
+                        
                         {/* Activity bars and timeline scale */}
                         <div className="absolute bottom-8 left-0 right-0 flex items-end gap-[2px]" style={{ paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}>
                           {activityBuckets.map((bucket, idx) => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { FearGreedWidget } from './components'
+import { StandaloneFearGreedWidget } from './components'
 
 /**
  * Fear & Greed Test Page
@@ -28,23 +28,23 @@ export default function FearGreedTestPage() {
         </p>
         
         {/* The Widget - just drop it in! */}
-        <FearGreedWidget />
+        <StandaloneFearGreedWidget />
       </div>
 
       {/* Usage Info */}
       <div className="max-w-md mx-auto px-4 py-8 border-t border-border">
         <h2 className="text-sm font-semibold mb-3">Einbinden in andere Seiten:</h2>
         <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto">
-{`import { FearGreedWidget } from '@/app/test-fg/components'
+{`import { StandaloneFearGreedWidget, FearGreedProvider, FearGreedWidget } from '@/app/test-fg/components'
 
-// Basic usage:
-<FearGreedWidget />
+// Simple standalone usage (includes own provider):
+<StandaloneFearGreedWidget autoStart />
 
-// Auto-start on mount:
-<FearGreedWidget autoStart />
-
-// With custom className:
-<FearGreedWidget className="my-4" />`}
+// Multiple synced widgets (share state & refresh together):
+<FearGreedProvider autoStart>
+  <FearGreedWidget />           {/* full version */}
+  <FearGreedWidget compact />   {/* compact version */}
+</FearGreedProvider>`}
         </pre>
       </div>
     </main>

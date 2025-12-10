@@ -29,7 +29,7 @@ import {
   AvatarProvider,
 } from './components'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
-import { FearGreedWidget } from '@/app/test-fg/components'
+import { FearGreedWidget, FearGreedProvider } from '@/app/test-fg/components'
 import { ChartTimelineWidget } from '@/app/chart-timeline/components'
 import { ChatTicker } from '@/app/components/ChatTicker'
 import type { CacheInfo } from './components'
@@ -232,6 +232,7 @@ export default function NewspaperPage() {
 
   return (
     <AvatarProvider>
+      <FearGreedProvider autoStart>
       <main className="min-h-screen bg-background relative">
         {/* Subtle gradient background - z-0 to stay behind content */}
         <div className="fixed inset-0 bg-gradient-to-br from-background via-background to-primary/5 pointer-events-none z-0" />
@@ -342,16 +343,16 @@ export default function NewspaperPage() {
 
         {/* Chat Activity Timeline with Fear & Greed - Always visible for dayRange 1 */}
         {dayRange === 1 && (
-          <div className="w-full border-b border-primary/10 bg-card/30 relative z-10">
+          <div className="w-full border-b border-primary/10 bg-card/30 relative z-20">
             <div className="flex items-stretch">
-              {/* Timeline - takes most of the width */}
-              <div className="flex-1 min-w-0 overflow-hidden">
-                <ChatHistoryTimeline autoStart compact />
+              {/* Timeline - takes most of the width, mini mode with hover expand */}
+              <div className="flex-1 min-w-0">
+                <ChatHistoryTimeline autoStart mini />
               </div>
               
               {/* Fear & Greed Widget - compact version on the right */}
               <div className="hidden lg:flex items-center border-l border-primary/10 px-4 bg-card/50">
-                <FearGreedWidget autoStart compact />
+                <FearGreedWidget compact />
               </div>
             </div>
           </div>
@@ -403,7 +404,7 @@ export default function NewspaperPage() {
               <div className="sticky top-24 space-y-6">
                 {/* Fear & Greed Index */}
                 <div className="glass-card-gold p-5 rounded-sm">
-                  <FearGreedWidget autoStart />
+                  <FearGreedWidget />
                 </div>
 
                 {/* Short News */}
@@ -514,6 +515,7 @@ export default function NewspaperPage() {
           </div>
         </footer>
       </main>
+      </FearGreedProvider>
     </AvatarProvider>
   )
 }
