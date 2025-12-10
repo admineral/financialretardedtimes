@@ -23,6 +23,15 @@ interface LeaderboardEntry {
   total_bonus_points?: number
 }
 
+interface Participant {
+  username: string
+  avatar?: string
+  prediction: number
+  prediction_difference: number
+  prediction_timestamp: string
+  rank: number
+}
+
 interface DailyResult {
   game_date: string
   midnight_price: number
@@ -43,6 +52,7 @@ interface DailyResult {
   third_timestamp?: string
   total_participants: number
   total_predictions: number
+  all_participants?: Participant[]
 }
 
 /**
@@ -140,10 +150,20 @@ export async function GET(request: NextRequest) {
     
     console.log(`[LEADERBOARD] Yesterday (${yesterdayDate}) results:`, yesterdayResults ? 'found' : 'not found')
     
+    // Fetch all participants for yesterday
+    const { data: yesterdayParticipants } = await supabase
+      .from('prediction_daily_participants')
+      .select('*')
+      .eq('game_date', yesterdayDate)
+      .order('rank', { ascending: true })
+    
+    console.log(`[LEADERBOARD] Yesterday participants:`, yesterdayParticipants?.length || 0)
+    
     return NextResponse.json({
       leaderboard: leaderboard || [],
       recentWinners: recentResults || [],
       yesterdayResults: yesterdayResults || null,
+      yesterdayParticipants: yesterdayParticipants || [],
       lastUpdated: new Date().toISOString()
     })
     
@@ -279,6 +299,51 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('[LEADERBOARD] Error saving results:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    
+    // Save all participants if provided
+    if (body.all_participants && body.all_participants.length > 0) {
+      console.log(`[LEADERBOARD] 📊 Saving ${body.all_participants.length} participants for ${body.game_date}`)
+      
+      const participantsToInsert = body.all_participants.map((p) => {
+        // Calculate points earned for top 3
+        let pointsEarned = 0
+        let timeBonus = 0
+        
+        if (p.rank === 1) {
+          timeBonus = calculateTimeBonus(p.prediction_timestamp)
+          pointsEarned = calculateTotalPoints(3, timeBonus)
+        } else if (p.rank === 2) {
+          timeBonus = calculateTimeBonus(p.prediction_timestamp)
+          pointsEarned = calculateTotalPoints(2, timeBonus)
+        } else if (p.rank === 3) {
+          timeBonus = calculateTimeBonus(p.prediction_timestamp)
+          pointsEarned = calculateTotalPoints(1, timeBonus)
+        }
+        
+        return {
+          game_date: body.game_date,
+          username: p.username,
+          avatar: p.avatar,
+          prediction: p.prediction,
+          prediction_difference: p.prediction_difference,
+          prediction_timestamp: p.prediction_timestamp,
+          rank: p.rank,
+          points_earned: pointsEarned,
+          time_bonus: timeBonus
+        }
+      })
+      
+      const { error: participantsError } = await supabase
+        .from('prediction_daily_participants')
+        .upsert(participantsToInsert, { onConflict: 'game_date,username' })
+      
+      if (participantsError) {
+        console.error('[LEADERBOARD] Error saving participants:', participantsError)
+        // Don't fail the whole request, just log the error
+      } else {
+        console.log(`[LEADERBOARD] ✅ Saved ${body.all_participants.length} participants`)
+      }
     }
     
     console.log(`[LEADERBOARD] ✅ Results saved successfully for ${body.game_date}`)

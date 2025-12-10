@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
       .from('market_user_credits')
       .select('user_identifier, display_name, total_credits, total_bets_placed, total_bets_won, best_streak, current_streak')
       .order('total_credits', { ascending: false })
-      .limit(10)
+      .limit(100)
     
     return NextResponse.json({
       pools: pools || [],

@@ -110,6 +110,8 @@ export default function PredictionMarket({
   const [transactions, setTransactions] = useState<{ id: string; transaction_type: string; amount: number; balance_after: number; description?: string; created_at: string }[]>([])
   const [editingNickname, setEditingNickname] = useState(false)
   const [newNickname, setNewNickname] = useState('')
+  const [leaderboardExpanded, setLeaderboardExpanded] = useState(false)
+  const [leaderboardSortBy, setLeaderboardSortBy] = useState<'points' | 'wins'>('points')
 
   useEffect(() => {
     setUserId(getUserId())
@@ -1169,70 +1171,113 @@ export default function PredictionMarket({
               {/* Top Bettors */}
               <div className="glass-card p-5 rounded-xl">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold flex items-center gap-2">
+                  <button 
+                    onClick={() => setLeaderboardExpanded(!leaderboardExpanded)}
+                    className="font-bold flex items-center gap-2 hover:text-primary transition-colors"
+                  >
                     <Trophy className="w-5 h-5 text-amber-400" />
                     <span>Top Wetteiferer</span>
-                  </h3>
-                  <button
-                    onClick={async () => {
-                      try {
-                        // First sync local user data to Supabase
-                        if (userCredits && userId) {
-                          console.log('[MARKET] Syncing local user to Supabase...')
-                          const syncRes = await fetch('/Rate-Chart/api/market/sync-user', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              userId,
-                              displayName: userCredits.display_name,
-                              totalCredits: userCredits.total_credits,
-                              availableCredits: userCredits.available_credits,
-                              totalBetsPlaced: userCredits.total_bets_placed,
-                              totalBetsWon: userCredits.total_bets_won,
-                              totalCreditsWon: userCredits.total_credits_won,
-                              totalCreditsLost: userCredits.total_credits_lost,
-                              bestWin: userCredits.best_win,
-                              currentStreak: userCredits.current_streak,
-                              bestStreak: userCredits.best_streak,
-                              bets: userBets.map(b => ({
-                                gameDate,
-                                targetUsername: b.target_username,
-                                betType: b.bet_type,
-                                betAmount: b.bet_amount,
-                                odds: b.odds,
-                                potentialPayout: b.potential_payout,
-                                status: b.status
-                              }))
-                            })
-                          })
-                          const syncData = await syncRes.json()
-                          console.log('[MARKET] Sync result:', syncData)
-                        }
-                        
-                        // Then recalculate all credits
-                        const res = await fetch('/Rate-Chart/api/market/recalculate', { method: 'POST' })
-                        const data = await res.json()
-                        console.log('[MARKET] Recalculate result:', data)
-                        
-                        if (data.success && data.updated_leaderboard) {
-                          setTopBettors(data.updated_leaderboard)
-                          localStorage.setItem('market_all_bettors', JSON.stringify(data.updated_leaderboard))
-                        }
-                        fetchMarketData()
-                      } catch (err) {
-                        console.error('[MARKET] Sync error:', err)
-                      }
-                    }}
-                    className="p-1.5 hover:bg-primary/10 rounded-lg text-muted-foreground hover:text-primary transition-all hover:rotate-180 duration-500"
-                    title="Sync credits to server"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <svg 
+                      className={`w-4 h-4 transition-transform duration-300 ${leaderboardExpanded ? 'rotate-180' : ''}`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex bg-card/50 rounded-lg p-0.5 border border-primary/20">
+                      <button
+                        onClick={() => setLeaderboardSortBy('points')}
+                        className={`px-2 py-1 text-[10px] rounded transition-all ${
+                          leaderboardSortBy === 'points'
+                            ? 'bg-primary text-primary-foreground font-semibold'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Punkte
+                      </button>
+                      <button
+                        onClick={() => setLeaderboardSortBy('wins')}
+                        className={`px-2 py-1 text-[10px] rounded transition-all ${
+                          leaderboardSortBy === 'wins'
+                            ? 'bg-primary text-primary-foreground font-semibold'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        Siege
+                      </button>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // First sync local user data to Supabase
+                          if (userCredits && userId) {
+                            console.log('[MARKET] Syncing local user to Supabase...')
+                            const syncRes = await fetch('/Rate-Chart/api/market/sync-user', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                userId,
+                                displayName: userCredits.display_name,
+                                totalCredits: userCredits.total_credits,
+                                availableCredits: userCredits.available_credits,
+                                totalBetsPlaced: userCredits.total_bets_placed,
+                                totalBetsWon: userCredits.total_bets_won,
+                                totalCreditsWon: userCredits.total_credits_won,
+                                totalCreditsLost: userCredits.total_credits_lost,
+                                bestWin: userCredits.best_win,
+                                currentStreak: userCredits.current_streak,
+                                bestStreak: userCredits.best_streak,
+                                bets: userBets.map(b => ({
+                                  gameDate,
+                                  targetUsername: b.target_username,
+                                  betType: b.bet_type,
+                                  betAmount: b.bet_amount,
+                                  odds: b.odds,
+                                  potentialPayout: b.potential_payout,
+                                  status: b.status
+                                }))
+                              })
+                            })
+                            const syncData = await syncRes.json()
+                            console.log('[MARKET] Sync result:', syncData)
+                          }
+                          
+                          // Then recalculate all credits
+                          const res = await fetch('/Rate-Chart/api/market/recalculate', { method: 'POST' })
+                          const data = await res.json()
+                          console.log('[MARKET] Recalculate result:', data)
+                          
+                          if (data.success && data.updated_leaderboard) {
+                            setTopBettors(data.updated_leaderboard)
+                            localStorage.setItem('market_all_bettors', JSON.stringify(data.updated_leaderboard))
+                          }
+                          fetchMarketData()
+                        } catch (err) {
+                          console.error('[MARKET] Sync error:', err)
+                        }
+                      }}
+                      className="p-1.5 hover:bg-primary/10 rounded-lg text-muted-foreground hover:text-primary transition-all hover:rotate-180 duration-500"
+                      title="Sync credits to server"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {topBettors.slice(0, 10).map((bettor, index) => (
+                <div className={`space-y-2 overflow-hidden transition-all duration-300 ${leaderboardExpanded ? 'max-h-[2000px]' : 'max-h-[400px]'}`}>
+                  {[...topBettors]
+                    .sort((a, b) => {
+                      if (leaderboardSortBy === 'wins') {
+                        return (b.total_bets_won ?? 0) - (a.total_bets_won ?? 0)
+                      }
+                      return b.total_credits - a.total_credits
+                    })
+                    .slice(0, leaderboardExpanded ? topBettors.length : 8)
+                    .map((bettor, index) => (
                     <div key={bettor.user_identifier} className="flex items-center gap-3 p-2 rounded-lg hover:bg-card/50 transition-colors">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
                         index === 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
@@ -1257,8 +1302,11 @@ export default function PredictionMarket({
                           </div>
                         )}
                       </div>
-                      <div className="gold-text font-bold tabular-nums text-sm">
-                        {bettor.total_credits.toLocaleString()}
+                      <div className={`font-bold tabular-nums text-sm ${leaderboardSortBy === 'wins' ? 'text-emerald-400' : 'gold-text'}`}>
+                        {leaderboardSortBy === 'wins' 
+                          ? `${bettor.total_bets_won ?? 0} 🏆`
+                          : bettor.total_credits.toLocaleString()
+                        }
                       </div>
                     </div>
                   ))}
@@ -1268,6 +1316,22 @@ export default function PredictionMarket({
                     </p>
                   )}
                 </div>
+                {topBettors.length > 8 && (
+                  <button
+                    onClick={() => setLeaderboardExpanded(!leaderboardExpanded)}
+                    className="w-full mt-3 py-2 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
+                  >
+                    {leaderboardExpanded ? 'Weniger anzeigen' : `Alle ${topBettors.length} anzeigen`}
+                    <svg 
+                      className={`w-3 h-3 transition-transform duration-300 ${leaderboardExpanded ? 'rotate-180' : ''}`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                )}
               </div>
 
               {/* How it Works */}

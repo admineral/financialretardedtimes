@@ -90,9 +90,20 @@ export default function RateChartPage() {
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true)
   const [isYesterdayExpanded, setIsYesterdayExpanded] = useState(false)
   const [isAllTimeExpanded, setIsAllTimeExpanded] = useState(false)
-  const [allTimeLimit, setAllTimeLimit] = useState(10)
+  const [allTimeLimit, setAllTimeLimit] = useState(100)
   const [isLoadingMoreAllTime, setIsLoadingMoreAllTime] = useState(false)
+  const [allTimeSortBy, setAllTimeSortBy] = useState<'points' | 'siege'>('points')
   const [yesterdayShowCount, setYesterdayShowCount] = useState(10)
+  const [yesterdayParticipants, setYesterdayParticipants] = useState<{
+    username: string
+    avatar: string | null
+    prediction: number
+    prediction_difference: number
+    prediction_timestamp: string
+    rank: number
+    points_earned: number
+    time_bonus: number
+  }[]>([])
   
   // TEST MODE - Simulate different time periods (only visible if server env allows)
   const [testModeEnabled, setTestModeEnabled] = useState(false)
@@ -161,11 +172,8 @@ export default function RateChartPage() {
     // Track page view
     track('ratechart_page_view', { source: 'direct' })
     
-    // Load saved view mode from localStorage
-    const savedViewMode = localStorage.getItem('ratechart_view_mode')
-    if (savedViewMode === 'market') {
-      setViewMode('market')
-    }
+    // Always start with 'arena' view - don't persist view mode to avoid confusion
+    // when navigating back to this page
     
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date())
@@ -196,7 +204,7 @@ export default function RateChartPage() {
   }, [isTestRevealed])
 
   // Fetch leaderboard function (can be called on refresh)
-  const fetchLeaderboard = async (limit: number = 10) => {
+  const fetchLeaderboard = async (limit: number = 100) => {
     try {
       console.log(`[RATE-CHART] 🏆 Fetching leaderboard (limit: ${limit})...`)
       const response = await fetch(`/Rate-Chart/api/leaderboard?limit=${limit}&_t=${Date.now()}`)
@@ -204,7 +212,9 @@ export default function RateChartPage() {
         const data = await response.json()
         setAllTimeLeaderboard(data.leaderboard || [])
         setYesterdayResults(data.yesterdayResults || null)
+        setYesterdayParticipants(data.yesterdayParticipants || [])
         console.log('[RATE-CHART] ✅ Leaderboard updated:', data.leaderboard?.length || 0, 'players')
+        console.log('[RATE-CHART] 📊 Yesterday participants:', data.yesterdayParticipants?.length || 0)
       }
     } catch (error) {
       console.error('[RATE-CHART] Failed to fetch leaderboard:', error)
@@ -1172,6 +1182,16 @@ export default function RateChartPage() {
       console.log(`[RATE-CHART] 🏆 Saving winners for ${gameDate} to leaderboard...`)
       
       try {
+        // Build all participants array for storage
+        const allParticipants = leaderboard.map((entry, index) => ({
+          username: entry.username,
+          avatar: entry.avatar,
+          prediction: entry.latestGuess,
+          prediction_difference: Math.abs(entry.latestGuess - midnightPrice),
+          prediction_timestamp: entry.earliestTimestamp,
+          rank: index + 1
+        }))
+        
         const result = {
           game_date: gameDate,
           midnight_price: midnightPrice,
@@ -1191,7 +1211,8 @@ export default function RateChartPage() {
           third_difference: leaderboard[2] ? Math.abs(leaderboard[2].latestGuess - midnightPrice) : undefined,
           third_timestamp: leaderboard[2]?.earliestTimestamp,
           total_participants: leaderboard.length,
-          total_predictions: priceGuesses.length
+          total_predictions: priceGuesses.length,
+          all_participants: allParticipants
         }
         
         const response = await fetch('/Rate-Chart/api/leaderboard', {
@@ -1257,11 +1278,10 @@ export default function RateChartPage() {
     return `$${price.toLocaleString()}`
   }
 
-  // Toggle view mode with localStorage persistence
+  // Toggle view mode (session only, no persistence)
   const toggleViewMode = () => {
     const newMode = viewMode === 'arena' ? 'market' : 'arena'
     setViewMode(newMode)
-    localStorage.setItem('ratechart_view_mode', newMode)
     track('ratechart_view_toggle', { mode: newMode })
   }
   
@@ -1895,42 +1915,6 @@ export default function RateChartPage() {
                               </div>
                             </div>
 
-                            {/* Prediction Market Odds - Polymarket Style */}
-                            {!isPastMidnight && (
-                              <div className="hidden sm:flex items-center gap-2 mr-2">
-                                {/* Hot indicator for top 3 */}
-                                {index < 3 && (
-                                  <span className="text-orange-500 animate-pulse text-sm">🔥</span>
-                                )}
-                                {/* Probability bar */}
-                                <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                                    style={{ width: `${probability}%` }}
-                                  />
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setViewMode('market')
-                                    track('ratechart_quick_bet', { username: entry.username, type: 'yes', odds })
-                                  }}
-                                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/30 hover:border-emerald-500/60 hover:scale-105 transition-all"
-                                >
-                                  Yes
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setViewMode('market')
-                                    track('ratechart_quick_bet', { username: entry.username, type: 'no', odds })
-                                  }}
-                                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30 hover:border-red-500/60 hover:scale-105 transition-all"
-                                >
-                                  No
-                                </button>
-                              </div>
-                            )}
 
                             {/* Price or Odds indicator */}
                             <div className="text-right">
@@ -1944,10 +1928,6 @@ export default function RateChartPage() {
                               ) : (
                                 <div className="flex flex-col items-end gap-0.5">
                                   <div className="flex items-center gap-2">
-                                    <div className="text-right">
-                                      <div className="text-lg font-black text-amber-400 tabular-nums">{probability}%</div>
-                                      <div className="text-[10px] text-zinc-500">{odds.toFixed(1)}x odds</div>
-                                    </div>
                                     <div className="text-xl font-bold text-zinc-600">🔒</div>
                                   </div>
                                 </div>
@@ -2012,25 +1992,10 @@ export default function RateChartPage() {
             <div className="lg:w-72 flex-shrink-0 space-y-4">
               {/* All-Time Leaderboard Widget */}
               <div className="p-4 bg-gradient-to-br from-amber-500/5 to-orange-500/5 border border-amber-500/20 rounded-2xl">
-                <button 
-                  onClick={() => {
-                    const newState = !isAllTimeExpanded
-                    setIsAllTimeExpanded(newState)
-                    track('ratechart_alltime_toggle', { expanded: newState, playerCount: allTimeLeaderboard.length })
-                  }}
-                  className="w-full flex items-center justify-between mb-3 hover:opacity-80 transition-opacity"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🏆</span>
-                    <div className="text-xs uppercase tracking-widest text-amber-400 font-bold">All-Time Leaders</div>
-                    {allTimeLeaderboard.length > 0 && (
-                      <div className="text-[10px] text-zinc-500">
-                        ({allTimeLeaderboard.length} players)
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-zinc-500 text-sm">{isAllTimeExpanded ? '▼' : '▶'}</span>
-                </button>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-lg">🏆</span>
+                  <div className="text-xs uppercase tracking-widest text-amber-400 font-bold">All-Time Leaders</div>
+                </div>
                 
                 {isLeaderboardLoading ? (
                   <div className="flex items-center justify-center py-4">
@@ -2038,81 +2003,139 @@ export default function RateChartPage() {
                   </div>
                 ) : allTimeLeaderboard.length > 0 ? (
                   <div className="space-y-2">
-                    {allTimeLeaderboard.slice(0, allTimeLimit).map((entry, index) => {
-                      const currentLeaderboardEntry = leaderboard.find(l => l.username === entry.username)
-                      const avatarUrl = entry.avatar || currentLeaderboardEntry?.avatar
+                    {/* Sort Toggle Switch */}
+                    <div className="flex items-center justify-center gap-1 p-1 bg-zinc-800/50 rounded-lg mb-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setAllTimeSortBy('siege')
+                          track('ratechart_alltime_sort', { sortBy: 'siege' })
+                        }}
+                        className={`flex-1 py-1.5 px-3 text-[11px] font-semibold rounded-md transition-all ${
+                          allTimeSortBy === 'siege'
+                            ? 'bg-amber-500/20 text-amber-400 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        🥇 Siege
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setAllTimeSortBy('points')
+                          track('ratechart_alltime_sort', { sortBy: 'points' })
+                        }}
+                        className={`flex-1 py-1.5 px-3 text-[11px] font-semibold rounded-md transition-all ${
+                          allTimeSortBy === 'points'
+                            ? 'bg-amber-500/20 text-amber-400 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        ⭐ Points
+                      </button>
+                    </div>
+                    
+                    {/* Leaderboard entries */}
+                    {(() => {
+                      const sortedLeaderboard = [...allTimeLeaderboard].sort((a, b) => {
+                        if (allTimeSortBy === 'siege') {
+                          // Sort by first place wins, then second place, then third place, then points
+                          if (b.first_place_count !== a.first_place_count) return b.first_place_count - a.first_place_count
+                          if (b.second_place_count !== a.second_place_count) return b.second_place_count - a.second_place_count
+                          if (b.third_place_count !== a.third_place_count) return b.third_place_count - a.third_place_count
+                          return b.total_points - a.total_points
+                        } else {
+                          // Sort by total points
+                          return b.total_points - a.total_points
+                        }
+                      })
+                      const displayLimit = isAllTimeExpanded ? sortedLeaderboard.length : Math.min(5, sortedLeaderboard.length)
                       
                       return (
-                        <div 
-                          key={entry.username}
-                          className={`flex items-center gap-2 p-2 rounded-lg ${
-                            index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
-                            index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
-                            index === 2 ? 'bg-orange-900/10 border border-orange-900/30' :
-                            'bg-zinc-800/50 border border-zinc-700/50'
-                          }`}
-                        >
-                          <span className="text-base w-6 text-center">
-                            {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
-                          </span>
-                          <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
-                            index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
-                            index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
-                            index === 2 ? 'border-orange-700/50 ring-orange-700/30' :
-                            'border-zinc-600/50 ring-zinc-600/30'
-                          }`}>
-                            <AvatarImage 
-                              src={avatarUrl || undefined} 
-                              alt={entry.username}
-                              className="rounded-full object-cover"
-                            />
-                            <AvatarFallback className={`text-[10px] rounded-full ${
-                              index === 0 ? 'bg-amber-900/50 text-amber-200' :
-                              index === 1 ? 'bg-zinc-600 text-zinc-200' :
-                              index === 2 ? 'bg-orange-900/50 text-orange-200' :
-                              'bg-zinc-700 text-zinc-300'
-                            }`}>
-                              {entry.username.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{entry.username}</div>
-                            <div className="text-[10px] text-zinc-500">
-                              {entry.first_place_count}🥇 {entry.second_place_count}🥈 {entry.third_place_count}🥉
-                            </div>
-                          </div>
-                          <div className={`flex items-center justify-center min-w-8 h-8 px-2 rounded-full text-xs font-bold ${
-                            index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
-                            index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
-                            index === 2 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
-                            'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/50'
-                          }`}>
-                            {entry.total_points % 1 === 0 ? entry.total_points : entry.total_points.toFixed(1)}
-                          </div>
-                        </div>
+                        <>
+                          {sortedLeaderboard.slice(0, displayLimit).map((entry, index) => {
+                            const currentLeaderboardEntry = leaderboard.find(l => l.username === entry.username)
+                            const avatarUrl = entry.avatar || currentLeaderboardEntry?.avatar
+                            
+                            return (
+                              <div 
+                                key={entry.username}
+                                className={`flex items-center gap-2 p-2 rounded-lg ${
+                                  index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
+                                  index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
+                                  index === 2 ? 'bg-orange-900/10 border border-orange-900/30' :
+                                  'bg-zinc-800/50 border border-zinc-700/50'
+                                }`}
+                              >
+                                <span className="text-base w-6 text-center">
+                                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                                </span>
+                                <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
+                                  index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
+                                  index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
+                                  index === 2 ? 'border-orange-700/50 ring-orange-700/30' :
+                                  'border-zinc-600/50 ring-zinc-600/30'
+                                }`}>
+                                  <AvatarImage 
+                                    src={avatarUrl || undefined} 
+                                    alt={entry.username}
+                                    className="rounded-full object-cover"
+                                  />
+                                  <AvatarFallback className={`text-[10px] rounded-full ${
+                                    index === 0 ? 'bg-amber-900/50 text-amber-200' :
+                                    index === 1 ? 'bg-zinc-600 text-zinc-200' :
+                                    index === 2 ? 'bg-orange-900/50 text-orange-200' :
+                                    'bg-zinc-700 text-zinc-300'
+                                  }`}>
+                                    {entry.username.slice(0, 2).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-medium truncate">{entry.username}</div>
+                                  <div className="text-[10px] text-zinc-500">
+                                    {entry.first_place_count}🥇 {entry.second_place_count}🥈 {entry.third_place_count}🥉
+                                  </div>
+                                </div>
+                                <div className={`flex items-center justify-center min-w-8 h-8 px-2 rounded-full text-xs font-bold ${
+                                  index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
+                                  index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
+                                  index === 2 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
+                                  'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/50'
+                                }`}>
+                                  {entry.total_points % 1 === 0 ? entry.total_points : entry.total_points.toFixed(1)}
+                                </div>
+                              </div>
+                            )
+                          })}
+                          
+                          {/* Show All / Collapse Button */}
+                          {sortedLeaderboard.length > 5 && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const newState = !isAllTimeExpanded
+                                setIsAllTimeExpanded(newState)
+                                // Load more data when expanding if we only have limited data
+                                if (newState && allTimeLimit <= 10) {
+                                  await loadMoreAllTime()
+                                }
+                                track('ratechart_alltime_expand', { expanded: newState, totalPlayers: sortedLeaderboard.length })
+                              }}
+                              disabled={isLoadingMoreAllTime}
+                              className="w-full py-2 text-center text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              {isLoadingMoreAllTime ? (
+                                <span>Loading...</span>
+                              ) : isAllTimeExpanded ? (
+                                <span>Show less</span>
+                              ) : (
+                                <span>Show all {allTimeLimit <= 10 ? '' : `(${sortedLeaderboard.length})`}</span>
+                              )}
+                            </button>
+                          )}
+                        </>
                       )
-                    })}
-                    
-                    {/* Load All Button */}
-                    {allTimeLeaderboard.length >= allTimeLimit && (
-                      <button
-                        onClick={() => {
-                          track('ratechart_load_more_alltime', { currentCount: allTimeLeaderboard.length })
-                          loadMoreAllTime()
-                        }}
-                        disabled={isLoadingMoreAllTime}
-                        className="w-full py-2 text-center text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {isLoadingMoreAllTime ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <div className="w-3 h-3 border border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
-                            Loading...
-                          </span>
-                        ) : (
-                          <span>📊 Show all players...</span>
-                        )}
-                      </button>
-                    )}
+                    })()}
                   </div>
                 ) : (
                   <div className="text-center py-2">
@@ -2138,6 +2161,16 @@ export default function RateChartPage() {
                           const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
                           const gameDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
                           
+                          // Build all participants array for storage
+                          const allParticipants = leaderboard.map((entry, index) => ({
+                            username: entry.username,
+                            avatar: entry.avatar,
+                            prediction: entry.latestGuess,
+                            prediction_difference: Math.abs(entry.latestGuess - midnightPrice),
+                            prediction_timestamp: entry.earliestTimestamp,
+                            rank: index + 1
+                          }))
+                          
                           const result = {
                             game_date: gameDate,
                             midnight_price: midnightPrice,
@@ -2157,7 +2190,8 @@ export default function RateChartPage() {
                             third_difference: leaderboard[2] ? Math.abs(leaderboard[2].latestGuess - midnightPrice) : undefined,
                             third_timestamp: leaderboard[2]?.earliestTimestamp,
                             total_participants: leaderboard.length,
-                            total_predictions: priceGuesses.length
+                            total_predictions: priceGuesses.length,
+                            all_participants: allParticipants
                           }
                           
                           try {
@@ -2199,17 +2233,9 @@ export default function RateChartPage() {
 
               {/* Yesterday's Winners Widget */}
               <div className="p-4 bg-gradient-to-br from-purple-500/5 to-pink-500/5 border border-purple-500/20 rounded-2xl">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">📅</span>
-                    <div className="text-xs uppercase tracking-widest text-purple-400 font-bold">Yesterday</div>
-                    {/* During Active Game (08:00+): show saved results count, During Winners Period: show leaderboard count */}
-                    {(isPastMidnight ? leaderboard.length > 0 : yesterdayResults?.total_participants) && (
-                      <div className="text-[10px] text-zinc-500">
-                        ({isPastMidnight ? leaderboard.length : yesterdayResults?.total_participants} players)
-                      </div>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-lg">📅</span>
+                  <div className="text-xs uppercase tracking-widest text-purple-400 font-bold">Yesterday</div>
                 </div>
                 
                 {isLeaderboardLoading ? (
@@ -2220,7 +2246,7 @@ export default function RateChartPage() {
                   /* WINNERS PERIOD (00:00-08:00): Show live leaderboard (yesterday's game being calculated) */
                   leaderboard.length > 0 ? (
                     <div className="space-y-2">
-                      {leaderboard.slice(0, yesterdayShowCount).map((entry, index) => {
+                      {leaderboard.slice(0, isYesterdayExpanded ? leaderboard.length : 3).map((entry, index) => {
                         const timeBonus = entry.guesses[0]?.timeBonus || 0
                         let basePoints = 0
                         if (index === 0) basePoints = 3
@@ -2283,22 +2309,22 @@ export default function RateChartPage() {
                         )
                       })}
                       
-                      {leaderboard.length > 10 && (
+                      {leaderboard.length > 3 && (
                         <button
                           onClick={() => {
-                            const isExpanding = yesterdayShowCount <= 10
-                            setYesterdayShowCount(isExpanding ? leaderboard.length : 10)
+                            const newState = !isYesterdayExpanded
+                            setIsYesterdayExpanded(newState)
                             track('ratechart_yesterday_toggle', { 
-                              action: isExpanding ? 'show_all' : 'show_top_10',
+                              expanded: newState,
                               totalParticipants: leaderboard.length
                             })
                           }}
                           className="w-full py-2 text-center text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
                         >
-                          {yesterdayShowCount <= 10 ? (
-                            <span>📊 Show all {leaderboard.length} participants...</span>
+                          {isYesterdayExpanded ? (
+                            <span>Show less</span>
                           ) : (
-                            <span>▲ Show top 10</span>
+                            <span>Load more...</span>
                           )}
                         </button>
                       )}
@@ -2311,56 +2337,95 @@ export default function RateChartPage() {
                 ) : yesterdayResults ? (
                   /* ACTIVE GAME (08:00-23:59): Show saved database results from yesterday */
                   <div className="space-y-2">
-                    {/* Build array from yesterdayResults for top 3 */}
-                    {[
-                      { username: yesterdayResults.winner_username, avatar: yesterdayResults.winner_avatar, prediction: yesterdayResults.winner_prediction, timestamp: yesterdayResults.winner_timestamp, pts: yesterdayResults.winner_total_points || 3 },
-                      yesterdayResults.second_username ? { username: yesterdayResults.second_username, avatar: yesterdayResults.second_avatar, prediction: yesterdayResults.second_prediction, timestamp: yesterdayResults.second_timestamp, pts: yesterdayResults.second_total_points || 2 } : null,
-                      yesterdayResults.third_username ? { username: yesterdayResults.third_username, avatar: yesterdayResults.third_avatar, prediction: yesterdayResults.third_prediction, timestamp: yesterdayResults.third_timestamp, pts: yesterdayResults.third_total_points || 1 } : null,
-                    ].filter(Boolean).map((entry, index) => (
-                      <div 
-                        key={entry!.username}
-                        className={`flex items-center gap-2 p-2 rounded-lg ${
-                          index === 0 ? 'bg-amber-500/10 border border-amber-500/30' :
-                          index === 1 ? 'bg-zinc-500/10 border border-zinc-500/30' :
-                          'bg-orange-900/10 border border-orange-900/30'
-                        }`}
-                      >
-                        <span className="text-base w-6 text-center">
-                          {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                        </span>
-                        <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
-                          index === 0 ? 'border-amber-500/50 ring-amber-500/30' :
-                          index === 1 ? 'border-zinc-400/50 ring-zinc-400/30' :
-                          'border-orange-700/50 ring-orange-700/30'
-                        }`}>
-                          <AvatarImage 
-                            src={entry!.avatar || undefined} 
-                            alt={entry!.username}
-                            className="rounded-full object-cover"
-                          />
-                          <AvatarFallback className={`text-[10px] rounded-full ${
-                            index === 0 ? 'bg-amber-900/50 text-amber-200' :
-                            index === 1 ? 'bg-zinc-600 text-zinc-200' :
-                            'bg-orange-900/50 text-orange-200'
-                          }`}>
-                            {entry!.username.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium truncate">{entry!.username}</div>
-                          <div className="text-[10px] text-zinc-500">
-                            ${entry!.prediction?.toLocaleString()}{entry!.timestamp ? ` • ${format(new Date(entry!.timestamp), 'HH:mm:ss')}` : ''}
-                          </div>
-                        </div>
-                        <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
-                          index === 0 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
-                          index === 1 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
-                          'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50'
-                        }`}>
-                          +{entry!.pts % 1 === 0 ? entry!.pts : entry!.pts.toFixed(1)}
-                        </div>
-                      </div>
-                    ))}
+                    {(() => {
+                      // Use stored participants if available and expanded, otherwise use top 3 from results
+                      const hasParticipants = yesterdayParticipants.length > 0
+                      const showAll = isYesterdayExpanded && hasParticipants
+                      
+                      // Build entries list
+                      const entries = showAll 
+                        ? yesterdayParticipants.map(p => ({
+                            username: p.username,
+                            avatar: p.avatar,
+                            prediction: p.prediction,
+                            timestamp: p.prediction_timestamp,
+                            pts: p.points_earned,
+                            rank: p.rank
+                          }))
+                        : [
+                            { username: yesterdayResults.winner_username, avatar: yesterdayResults.winner_avatar, prediction: yesterdayResults.winner_prediction, timestamp: yesterdayResults.winner_timestamp, pts: yesterdayResults.winner_total_points || 3, rank: 1 },
+                            yesterdayResults.second_username ? { username: yesterdayResults.second_username, avatar: yesterdayResults.second_avatar, prediction: yesterdayResults.second_prediction, timestamp: yesterdayResults.second_timestamp, pts: yesterdayResults.second_total_points || 2, rank: 2 } : null,
+                            yesterdayResults.third_username ? { username: yesterdayResults.third_username, avatar: yesterdayResults.third_avatar, prediction: yesterdayResults.third_prediction, timestamp: yesterdayResults.third_timestamp, pts: yesterdayResults.third_total_points || 1, rank: 3 } : null,
+                          ].filter(Boolean) as { username: string; avatar: string | null | undefined; prediction: number | undefined; timestamp: string | undefined; pts: number; rank: number }[]
+                      
+                      return (
+                        <>
+                          {entries.map((entry, index) => (
+                            <div 
+                              key={entry.username}
+                              className={`flex items-center gap-2 p-2 rounded-lg ${
+                                entry.rank === 1 ? 'bg-amber-500/10 border border-amber-500/30' :
+                                entry.rank === 2 ? 'bg-zinc-500/10 border border-zinc-500/30' :
+                                entry.rank === 3 ? 'bg-orange-900/10 border border-orange-900/30' :
+                                'bg-zinc-800/50 border border-zinc-700/50'
+                              }`}
+                            >
+                              <span className="text-base w-6 text-center">
+                                {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `#${entry.rank}`}
+                              </span>
+                              <Avatar className={`h-6 w-6 border-2 shadow-sm ring-1 ${
+                                entry.rank === 1 ? 'border-amber-500/50 ring-amber-500/30' :
+                                entry.rank === 2 ? 'border-zinc-400/50 ring-zinc-400/30' :
+                                entry.rank === 3 ? 'border-orange-700/50 ring-orange-700/30' :
+                                'border-zinc-600/50 ring-zinc-600/30'
+                              }`}>
+                                <AvatarImage 
+                                  src={entry.avatar || undefined} 
+                                  alt={entry.username}
+                                  className="rounded-full object-cover"
+                                />
+                                <AvatarFallback className={`text-[10px] rounded-full ${
+                                  entry.rank === 1 ? 'bg-amber-900/50 text-amber-200' :
+                                  entry.rank === 2 ? 'bg-zinc-600 text-zinc-200' :
+                                  entry.rank === 3 ? 'bg-orange-900/50 text-orange-200' :
+                                  'bg-zinc-700 text-zinc-300'
+                                }`}>
+                                  {entry.username.slice(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium truncate">{entry.username}</div>
+                                <div className="text-[10px] text-zinc-500">
+                                  ${entry.prediction?.toLocaleString()}{entry.timestamp ? ` • ${format(new Date(entry.timestamp), 'HH:mm:ss')}` : ''}
+                                </div>
+                              </div>
+                              <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+                                entry.rank === 1 ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 
+                                entry.rank === 2 ? 'bg-zinc-500/20 text-zinc-300 ring-1 ring-zinc-500/50' : 
+                                entry.rank === 3 ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/50' :
+                                'bg-zinc-800/50 text-zinc-500 ring-1 ring-zinc-700/50'
+                              }`}>
+                                {entry.pts > 0 ? `+${entry.pts % 1 === 0 ? entry.pts : entry.pts.toFixed(1)}` : '0'}
+                              </div>
+                            </div>
+                          ))}
+                          
+                          {/* Show Load more / Show less button if there are more than 3 participants */}
+                          {((yesterdayResults.total_participants && yesterdayResults.total_participants > 3) || yesterdayParticipants.length > 3) && (
+                            <button
+                              onClick={() => {
+                                const newState = !isYesterdayExpanded
+                                setIsYesterdayExpanded(newState)
+                                track('ratechart_yesterday_toggle', { expanded: newState, totalParticipants: yesterdayParticipants.length })
+                              }}
+                              className="w-full py-2 text-center text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                            >
+                              {isYesterdayExpanded ? 'Show less' : 'Load more...'}
+                            </button>
+                          )}
+                        </>
+                      )
+                    })()}
                   </div>
                 ) : (
                   <div className="text-center py-4">
@@ -2370,7 +2435,7 @@ export default function RateChartPage() {
                 )}
                 
                 <div className="mt-3 pt-3 border-t border-purple-500/10 text-center">
-                  <div className="text-[10px] text-zinc-600">
+                  <div className="text-xs text-white font-semibold tracking-wide">
                     {yesterdayResults ? `$${yesterdayResults.midnight_price?.toLocaleString()} close` : 'Midnight close price'}
                   </div>
                   
@@ -2415,6 +2480,16 @@ export default function RateChartPage() {
                           const getYesterdayPart = (type: string) => yesterdayParts.find(p => p.type === type)?.value || ''
                           const gameDate = `${getYesterdayPart('year')}-${getYesterdayPart('month')}-${getYesterdayPart('day')}`
                           
+                          // Build all participants array for storage
+                          const allParticipants = leaderboard.map((entry, index) => ({
+                            username: entry.username,
+                            avatar: entry.avatar,
+                            prediction: entry.latestGuess,
+                            prediction_difference: Math.abs(entry.latestGuess - midnightPrice),
+                            prediction_timestamp: entry.earliestTimestamp,
+                            rank: index + 1
+                          }))
+                          
                           const result = {
                             game_date: gameDate,
                             midnight_price: midnightPrice,
@@ -2434,7 +2509,8 @@ export default function RateChartPage() {
                             third_difference: leaderboard[2] ? Math.abs(leaderboard[2].latestGuess - midnightPrice) : undefined,
                             third_timestamp: leaderboard[2]?.earliestTimestamp,
                             total_participants: leaderboard.length,
-                            total_predictions: priceGuesses.length
+                            total_predictions: priceGuesses.length,
+                            all_participants: allParticipants
                           }
                           
                           const saveResponse = await fetch('/Rate-Chart/api/leaderboard', {
