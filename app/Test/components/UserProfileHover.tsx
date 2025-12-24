@@ -36,8 +36,8 @@ interface UserProfileHoverProps {
   className?: string
 }
 
-// Day range options
-const DAY_RANGES = [30, 60, 90, 180, 360] as const
+// Day range options - 0 means "MAX" (all available data)
+const DAY_RANGES = [30, 60, 90, 180, 0] as const
 type DayRange = typeof DAY_RANGES[number]
 
 /**
@@ -46,7 +46,7 @@ type DayRange = typeof DAY_RANGES[number]
  */
 function ProfileSkeleton({ username }: { username: string }) {
   return (
-    <Card className="w-96 shadow-lg border-2 animate-in fade-in duration-200">
+    <Card className="w-96 max-w-[520px] shadow-lg border-2 animate-in fade-in duration-200">
       <CardHeader className="pb-0">
         <div className="flex items-center gap-3">
           {/* Avatar skeleton with pulse */}
@@ -155,31 +155,43 @@ function ProfileSkeleton({ username }: { username: string }) {
 /**
  * Day Range Tabs Component
  * Shows available day ranges and allows switching
+ * 0 = MAX (all available data)
  */
 function DayRangeTabs({ 
   currentDays, 
   availableRanges, 
   onSwitch, 
   isLoading,
-  totalCachedDays
+  totalCachedDays,
+  isMaxSelected
 }: { 
   currentDays: number
   availableRanges: number[]
   onSwitch: (days: number) => void
   isLoading: boolean
   totalCachedDays?: number
+  isMaxSelected?: boolean
 }) {
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {DAY_RANGES.map(range => {
-        const isAvailable = availableRanges.includes(range) || range === 30
-        const isActive = currentDays === range
-        const hasData = totalCachedDays ? totalCachedDays >= range : false
+        const isMax = range === 0
+        const effectiveRange = isMax ? (totalCachedDays || 30) : range
+        const isAvailable = isMax 
+          ? (totalCachedDays && totalCachedDays > 180) 
+          : (availableRanges.includes(range) || range === 30)
+        const isActive = isMax ? isMaxSelected : (currentDays === range && !isMaxSelected)
+        const hasData = totalCachedDays ? totalCachedDays >= effectiveRange : false
+        
+        // Don't show MAX if we don't have more than 180 days
+        if (isMax && (!totalCachedDays || totalCachedDays <= 180)) {
+          return null
+        }
         
         return (
           <button
             key={range}
-            onClick={() => isAvailable && onSwitch(range)}
+            onClick={() => isAvailable && onSwitch(isMax ? (totalCachedDays || 360) : range)}
             disabled={!isAvailable || isLoading}
             className={cn(
               "px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
@@ -191,12 +203,14 @@ function DayRangeTabs({
               hasData && !isActive && "ring-1 ring-green-500/30"
             )}
             title={
-              isAvailable 
-                ? `Show ${range} days${hasData ? ' (data available)' : ''}` 
-                : `No data for ${range} days`
+              isMax
+                ? `Show all ${totalCachedDays} cached days`
+                : isAvailable 
+                  ? `Show ${range} days${hasData ? ' (data available)' : ''}` 
+                  : `No data for ${range} days`
             }
           >
-            {range}d
+            {isMax ? `MAX` : `${range}d`}
           </button>
         )
       })}
@@ -354,7 +368,7 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
   // If no userMessages but we have activity or profile data, we can still show something useful
   if ((!userStats || userMessages.length === 0) && !hasActivityData && !hasProfileData) {
     return (
-      <Card className={`w-96 shadow-lg border-2 ${className}`}>
+      <Card className={`w-96 max-w-[520px] shadow-lg border-2 ${className}`}>
         <CardHeader className="pb-0">
           <div className="flex items-center gap-3">
             <Avatar className="h-12 w-12 border-2 border-muted">
@@ -407,9 +421,23 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
 
   // Available ranges from database
   const availableRanges = availableData?.availableRanges || [30]
+  
+  // Check if MAX is currently selected (currentDays matches totalCachedDays and is > 180)
+  const isMaxSelected = availableData?.totalDays 
+    ? currentDays === availableData.totalDays && currentDays > 180
+    : false
+
+  // Dynamic card width based on selected range
+  const cardWidth = currentDays <= 30 
+    ? 'w-96' 
+    : currentDays <= 60 
+      ? 'w-[420px]' 
+      : currentDays <= 90 
+        ? 'w-[480px]' 
+        : 'w-[520px]'
 
   return (
-    <Card className={`w-96 shadow-lg border-2 animate-in fade-in slide-in-from-bottom-2 duration-200 ${className}`}>
+    <Card className={`${cardWidth} shadow-lg border-2 animate-in fade-in slide-in-from-bottom-2 duration-200 transition-all ${className}`}>
       <CardHeader className="pb-0">
         <div className="flex items-center gap-3">
           <Avatar className="h-12 w-12 border-3 border-primary/40 shadow-md ring-2 ring-primary/25 hover:border-primary/60 hover:ring-3 hover:ring-primary/35 transition-all duration-200">
@@ -519,6 +547,7 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
               onSwitch={handleDaySwitch}
               isLoading={activityLoading}
               totalCachedDays={availableData?.totalDays}
+              isMaxSelected={isMaxSelected}
             />
           </div>
         )}
@@ -536,15 +565,35 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                 </div>
               )}
               {currentDays <= 30 ? (
-                // Single 30-day view
+                // Single 30-day view - full width
                 <WeeklyActivityGrid
                   data={activities}
                   exactDays={30}
                   minimal={true}
                   compactMode={false}
                 />
+              ) : currentDays <= 60 ? (
+                // 60 days: Show 2 month grids side by side
+                <div className="grid grid-cols-2 gap-3">
+                  {[0, 1].map(monthOffset => {
+                    const monthDate = new Date()
+                    monthDate.setMonth(monthDate.getMonth() - monthOffset)
+                    return (
+                      <WeeklyActivityGrid
+                        key={monthOffset}
+                        data={activities}
+                        showMonth={{ 
+                          year: monthDate.getFullYear(), 
+                          month: monthDate.getMonth() + 1 
+                        }}
+                        compactMode={false}
+                        minimal={true}
+                      />
+                    )
+                  })}
+                </div>
               ) : currentDays <= 90 ? (
-                // 60-90 days: Show 3 month grids side by side
+                // 90 days: Show 3 month grids
                 <div className="grid grid-cols-3 gap-2">
                   {[0, 1, 2].map(monthOffset => {
                     const monthDate = new Date()
@@ -564,24 +613,31 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                   })}
                 </div>
               ) : (
-                // 180-360 days: Show scrollable month grid
-                <div className="grid grid-cols-4 gap-1.5 max-h-[200px] overflow-y-auto pr-1">
-                  {Array.from({ length: Math.ceil(currentDays / 30) }).map((_, monthOffset) => {
-                    const monthDate = new Date()
-                    monthDate.setMonth(monthDate.getMonth() - monthOffset)
-                    return (
-                      <WeeklyActivityGrid
-                        key={monthOffset}
-                        data={activities}
-                        showMonth={{ 
-                          year: monthDate.getFullYear(), 
-                          month: monthDate.getMonth() + 1 
-                        }}
-                        compactMode={true}
-                        minimal={true}
-                      />
-                    )
-                  })}
+                // 180-360 days: Horizontal scrollable view
+                <div className="overflow-x-auto pb-2 -mx-2 px-2">
+                  <div className="flex gap-3" style={{ width: 'max-content' }}>
+                    {Array.from({ length: Math.ceil(currentDays / 30) }).map((_, monthOffset) => {
+                      const monthDate = new Date()
+                      monthDate.setMonth(monthDate.getMonth() - monthOffset)
+                      return (
+                        <div key={monthOffset} className="flex-shrink-0 w-[120px]">
+                          <WeeklyActivityGrid
+                            data={activities}
+                            showMonth={{ 
+                              year: monthDate.getFullYear(), 
+                              month: monthDate.getMonth() + 1 
+                            }}
+                            compactMode={true}
+                            minimal={true}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {/* Scroll hint */}
+                  <div className="flex justify-center mt-2">
+                    <span className="text-[9px] text-muted-foreground/60">← scroll →</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -621,6 +677,15 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                   </div>
                 </div>
               )}
+              {/* Range indicator for bar chart */}
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-muted-foreground font-medium">
+                  Activity by Hour
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {isMaxSelected ? 'MAX' : `${currentDays}d`} • {activityPatterns.totalMessages.toLocaleString()} msgs
+                </span>
+              </div>
               <ActivityBarChart
                 hourCounts={activityPatterns.hourCounts}
                 totalMessages={activityPatterns.totalMessages}
@@ -657,7 +722,7 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
         {availableData && availableData.totalDays > 0 && (
           <div className="flex items-center justify-center">
             <span className="text-[10px] text-muted-foreground">
-              {availableData.totalDays} days cached • {currentDays}d view
+              {availableData.totalDays} days cached • {isMaxSelected ? 'MAX' : `${currentDays}d`} view
             </span>
           </div>
         )}

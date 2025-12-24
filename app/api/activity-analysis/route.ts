@@ -56,15 +56,15 @@ export async function POST(request: NextRequest) {
       const daysWithMessages = data.filter(d => d.message_count > 0).length
       
       // Determine which ranges we can show based on data
+      // Note: 0 represents "MAX" (all available data) - handled on frontend
       const ranges: number[] = [30] // Always show 30 days
       
       if (totalDays >= 60) ranges.push(60)
       if (totalDays >= 90) ranges.push(90)
-      if (totalDays >= 120) ranges.push(120)
       if (totalDays >= 180) ranges.push(180)
-      if (totalDays >= 360) ranges.push(360)
+      // MAX is handled dynamically on frontend based on totalDays
 
-      console.log(`[activity-analysis] ${username}: ${totalDays} days cached, ranges: ${ranges.join(', ')}`)
+      console.log(`[activity-analysis] ${username}: ${totalDays} days cached, ranges: ${ranges.join(', ')}${totalDays > 180 ? ', MAX' : ''}`)
 
       return NextResponse.json({
         totalDays,
