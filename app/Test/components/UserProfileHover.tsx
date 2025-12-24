@@ -7,12 +7,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CrownIcon, UserIcon, RefreshCwIcon } from 'lucide-react'
+import { CrownIcon, UserIcon, RefreshCwIcon, CalendarDaysIcon } from 'lucide-react'
 import { ChatMessage } from '../types'
 import { useUserProfile } from '../hooks/use-user-profile'
 import { useUserActivity } from '../hooks/use-user-activity'
 import { ActivityBarChart } from '@/app/chat-archive/components/ActivityBarChart'
 import { WeeklyActivityGrid } from '@/app/chat-archive/components/weekly-activity-grid'
+import { cn } from '@/lib/utils'
 
 interface UserStats {
   totalMessages: number
@@ -34,6 +35,10 @@ interface UserProfileHoverProps {
   userMessages: ChatMessage[]
   className?: string
 }
+
+// Day range options
+const DAY_RANGES = [30, 60, 90, 180, 360] as const
+type DayRange = typeof DAY_RANGES[number]
 
 /**
  * Skeleton loading state that matches the full card layout
@@ -147,6 +152,61 @@ function ProfileSkeleton({ username }: { username: string }) {
   )
 }
 
+/**
+ * Day Range Tabs Component
+ * Shows available day ranges and allows switching
+ */
+function DayRangeTabs({ 
+  currentDays, 
+  availableRanges, 
+  onSwitch, 
+  isLoading,
+  totalCachedDays
+}: { 
+  currentDays: number
+  availableRanges: number[]
+  onSwitch: (days: number) => void
+  isLoading: boolean
+  totalCachedDays?: number
+}) {
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {DAY_RANGES.map(range => {
+        const isAvailable = availableRanges.includes(range) || range === 30
+        const isActive = currentDays === range
+        const hasData = totalCachedDays ? totalCachedDays >= range : false
+        
+        return (
+          <button
+            key={range}
+            onClick={() => isAvailable && onSwitch(range)}
+            disabled={!isAvailable || isLoading}
+            className={cn(
+              "px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
+              isActive 
+                ? "bg-primary text-primary-foreground shadow-sm" 
+                : isAvailable
+                  ? "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  : "bg-muted/20 text-muted-foreground/40 cursor-not-allowed",
+              hasData && !isActive && "ring-1 ring-green-500/30"
+            )}
+            title={
+              isAvailable 
+                ? `Show ${range} days${hasData ? ' (data available)' : ''}` 
+                : `No data for ${range} days`
+            }
+          >
+            {range}d
+          </button>
+        )
+      })}
+      {isLoading && (
+        <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse ml-1" />
+      )}
+    </div>
+  )
+}
+
 export function UserProfileHover({ username, userMessages, className = '' }: UserProfileHoverProps) {
   // Get user_id from the latest message for this user
   const userId = userMessages.length > 0 ? userMessages[0].user_id || null : null
@@ -160,8 +220,16 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
     username
   })
   
-  // Fetch user activity data (last 30 days) - this is the fallback when userMessages is empty
-  const { activities, patterns: activityPatterns, isLoading: activityLoading, refetch: refetchActivity } = useUserActivity(username, 'bitcoin_de_DE', 30)
+  // Fetch user activity data with dynamic day range support
+  const { 
+    activities, 
+    patterns: activityPatterns, 
+    isLoading: activityLoading, 
+    refetch: refetchActivity,
+    days: currentDays,
+    switchDays,
+    availableData
+  } = useUserActivity(username, 'bitcoin_de_DE', 30)
   
   // Determine if we're loading any data
   const isLoadingAnyData = profileLoading || activityLoading
@@ -172,6 +240,11 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
     refetchProfile?.()
     refetchActivity?.()
   }, [refetchProfile, refetchActivity])
+
+  // Handle day range switch
+  const handleDaySwitch = useCallback((newDays: number) => {
+    switchDays(newDays)
+  }, [switchDays])
 
   const userStats = useMemo(() => {
     if (userMessages.length === 0) return null
@@ -332,6 +405,9 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
   // Convert null to undefined for AvatarImage type compatibility
   const avatarUrl = latestMessage?.user_pic ?? profile?.avatar ?? undefined
 
+  // Available ranges from database
+  const availableRanges = availableData?.availableRanges || [30]
+
   return (
     <Card className={`w-96 shadow-lg border-2 animate-in fade-in slide-in-from-bottom-2 duration-200 ${className}`}>
       <CardHeader className="pb-0">
@@ -430,7 +506,24 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
         {/* Separator after profile stats */}
         <Separator />
         
-        {/* 30-Day Activity Calendar (if data available) */}
+        {/* Day Range Tabs - Show if more than 30 days available */}
+        {(availableRanges.length > 1 || availableData?.totalDays) && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CalendarDaysIcon className="h-3.5 w-3.5" />
+              <span>Activity Range</span>
+            </div>
+            <DayRangeTabs
+              currentDays={currentDays}
+              availableRanges={availableRanges}
+              onSwitch={handleDaySwitch}
+              isLoading={activityLoading}
+              totalCachedDays={availableData?.totalDays}
+            />
+          </div>
+        )}
+        
+        {/* Activity Calendar (dynamic days based on selection) */}
         {activities && activities.length > 0 && (
           <div className="animate-in fade-in slide-in-from-bottom-1 duration-300">
             <div className="space-y-2 relative">
@@ -438,16 +531,59 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
                 <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex items-center justify-center z-10 rounded">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                    <span>Syncing...</span>
+                    <span>Loading {currentDays} days...</span>
                   </div>
                 </div>
               )}
-              <WeeklyActivityGrid
-                data={activities}
-                exactDays={30}
-                minimal={true}
-                compactMode={false}
-              />
+              {currentDays <= 30 ? (
+                // Single 30-day view
+                <WeeklyActivityGrid
+                  data={activities}
+                  exactDays={30}
+                  minimal={true}
+                  compactMode={false}
+                />
+              ) : currentDays <= 90 ? (
+                // 60-90 days: Show 3 month grids side by side
+                <div className="grid grid-cols-3 gap-2">
+                  {[0, 1, 2].map(monthOffset => {
+                    const monthDate = new Date()
+                    monthDate.setMonth(monthDate.getMonth() - monthOffset)
+                    return (
+                      <WeeklyActivityGrid
+                        key={monthOffset}
+                        data={activities}
+                        showMonth={{ 
+                          year: monthDate.getFullYear(), 
+                          month: monthDate.getMonth() + 1 
+                        }}
+                        compactMode={true}
+                        minimal={true}
+                      />
+                    )
+                  })}
+                </div>
+              ) : (
+                // 180-360 days: Show scrollable month grid
+                <div className="grid grid-cols-4 gap-1.5 max-h-[200px] overflow-y-auto pr-1">
+                  {Array.from({ length: Math.ceil(currentDays / 30) }).map((_, monthOffset) => {
+                    const monthDate = new Date()
+                    monthDate.setMonth(monthDate.getMonth() - monthOffset)
+                    return (
+                      <WeeklyActivityGrid
+                        key={monthOffset}
+                        data={activities}
+                        showMonth={{ 
+                          year: monthDate.getFullYear(), 
+                          month: monthDate.getMonth() + 1 
+                        }}
+                        compactMode={true}
+                        minimal={true}
+                      />
+                    )
+                  })}
+                </div>
+              )}
             </div>
             <Separator className="mt-4" />
           </div>
@@ -514,6 +650,15 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
               <span>23h</span>
             </div>
             <Separator className="mt-4" />
+          </div>
+        )}
+
+        {/* Data info footer */}
+        {availableData && availableData.totalDays > 0 && (
+          <div className="flex items-center justify-center">
+            <span className="text-[10px] text-muted-foreground">
+              {availableData.totalDays} days cached • {currentDays}d view
+            </span>
           </div>
         )}
 

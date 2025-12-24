@@ -44,6 +44,7 @@ interface ActivityContextType {
   setSelectedDays: (days: 30 | 90 | 180 | 360) => void
   fetchActivities: (forceRefresh?: boolean) => Promise<void>
   refreshActivities: () => Promise<void>
+  clearActivities: () => void
 }
 
 const ActivityContext = createContext<ActivityContextType | undefined>(undefined)
@@ -303,6 +304,14 @@ export function ActivityProvider({
     await fetchActivities(true)
   }, [fetchActivities])
 
+  // Clear all activities from state (useful before re-fetching after cache clear)
+  const clearActivities = useCallback(() => {
+    setActivities([])
+    setActivityPatterns(null)
+    setLastSyncTime(null)
+    setProgress({ current: 0, total: 0 })
+  }, [])
+
   // Auto-fetch when dependencies change
   useEffect(() => {
     if (room && username) {
@@ -325,7 +334,8 @@ export function ActivityProvider({
     setSelectedDate,
     setSelectedDays,
     fetchActivities,
-    refreshActivities
+    refreshActivities,
+    clearActivities
   }), [
     room,
     username,
@@ -337,7 +347,8 @@ export function ActivityProvider({
     progress,
     lastSyncTime,
     fetchActivities,
-    refreshActivities
+    refreshActivities,
+    clearActivities
   ])
 
   return (

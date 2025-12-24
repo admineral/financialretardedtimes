@@ -1,7 +1,7 @@
 /**
  * route.ts (Fear & Greed Analysis API)
  * 
- * AI-powered sentiment analysis endpoint using OpenAI GPT-5.1.
+ * AI-powered sentiment analysis endpoint using OpenAI GPT-5.2.
  * 
  * LOCAL: Handles POST requests to analyze chat sentiment and generate
  * Fear & Greed indices for three time periods (today, 3 days, 7 days).
@@ -514,9 +514,9 @@ export async function POST(request: NextRequest) {
       todayMessageCount: todayMessages.length
     }
     
-    // Stream AI response using GPT-5.1
+    // Stream AI response using GPT-5.2
     const result = streamObject({
-      model: openai('gpt-5.1'),
+      model: openai('gpt-5.2'),
       schema: FearGreedSchema,
       system: FEAR_GREED_PROMPT,
       prompt: `Analysiere den folgenden Chat und erstelle Fear & Greed Indices für alle drei Zeiträume.

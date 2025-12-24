@@ -1,7 +1,7 @@
 /**
  * route.ts (summarize API)
  * 
- * AI-powered chat summarization endpoint using OpenAI GPT-5.
+ * AI-powered chat summarization endpoint using OpenAI GPT-5.2.
  * 
  * LOCAL: Handles POST requests to generate newspaper-style content from chat messages.
  * Fetches messages from Supabase, adds BTC market context, and streams AI responses.
@@ -400,9 +400,9 @@ ${chartUrls.map(c => `• ${c.url} (von @${c.author} um ${c.time})`).join('\n')}
       .sort((a, b) => b.messageCount - a.messageCount)
       .slice(0, 10)
     
-    // Stream AI response using GPT-5.1
+    // Stream AI response using GPT-5.2
     const result = streamObject({
-      model: openai('gpt-5.1'),
+      model: openai('gpt-5.2'),
       schema: UnifiedNewspaperSchema,
       system: UNIFIED_PROMPT,
       maxOutputTokens: 8192,

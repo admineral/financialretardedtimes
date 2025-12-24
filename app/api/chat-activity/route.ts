@@ -98,7 +98,7 @@ function hasMessagesOnPage(html: string, username: string): boolean {
 }
 
 // Helper function to discover all pages by checking sequentially (simplified for activity tracker)
-async function discoverPagesForActivity(room: string, date: string, username: string, maxPages: number = 5): Promise<number> {
+async function discoverPagesForActivity(room: string, date: string, username: string, maxPages: number = 30): Promise<number> {
   const fetchHeaders = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -179,8 +179,8 @@ async function fetchAllMessagesForDay(room: string, date: string, username: stri
     allMessages.push(...firstPageMessages)
 
     // Discover total pages by checking sequentially
-    const totalPages = await discoverPagesForActivity(room, date, username, 5)
-    const maxPages = Math.min(totalPages, 5)
+    const totalPages = await discoverPagesForActivity(room, date, username, 30)
+    const maxPages = Math.min(totalPages, 30)
     
     if (maxPages > 1) {
       for (let pageIndex = 2; pageIndex <= maxPages; pageIndex++) {
@@ -423,15 +423,15 @@ export async function POST(request: NextRequest) {
                 await cacheActivityData(room, username, [{
                   date: dateStr,
                   count: allMessages.length,
-                  messages: allMessages.slice(0, 5)
+                  messages: allMessages // Store ALL messages
                 }])
               } catch (e) { /* ignore cache errors */ }
             }
             break
           }
           
-          // Add avatar to messages
-          const messagesWithAvatar = allMessages.slice(0, 5).map(msg => ({
+          // Add avatar to messages (store ALL messages)
+          const messagesWithAvatar = allMessages.map(msg => ({
             ...msg,
             avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
           }))
@@ -448,7 +448,7 @@ export async function POST(request: NextRequest) {
             await cacheActivityData(room, username, [{
               date: dateStr,
               count: allMessages.length,
-              messages: allMessages.slice(0, 5)
+              messages: allMessages // Store ALL messages
             }])
           } catch (cacheErr) {
             console.warn(`⚠️ Failed to cache ${dateStr}:`, cacheErr)

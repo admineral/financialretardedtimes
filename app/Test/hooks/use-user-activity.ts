@@ -16,6 +16,13 @@ interface ActivityPatterns {
   totalMessages: number
 }
 
+interface AvailableDataInfo {
+  totalDays: number
+  oldestDate: string | null
+  newestDate: string | null
+  availableRanges: number[] // e.g., [30, 60, 90] - ranges with data
+}
+
 // Cache configuration
 const ACTIVITY_CACHE_PREFIX = 'user_activity_'
 const ACTIVITY_CACHE_DURATION = 24 * 60 * 60 * 1000 // 1 day in milliseconds
@@ -150,27 +157,71 @@ function calculatePatterns(activities: ActivityData[]): ActivityPatterns {
 }
 
 /**
- * Hook to fetch user activity data
+ * Hook to fetch user activity data with dynamic day range support
  * 
  * OPTIMIZED:
  * - Request deduplication (only one request per user)
  * - Memory + localStorage caching
  * - Skip fetch if no username
+ * - Supports switching between day ranges
  */
-export function useUserActivity(username: string, roomId: string = 'bitcoin_de_DE', days: number = 30) {
+export function useUserActivity(
+  username: string, 
+  roomId: string = 'bitcoin_de_DE', 
+  initialDays: number = 30
+) {
+  const [days, setDays] = useState(initialDays)
   const [activities, setActivities] = useState<ActivityData[]>([])
   const [patterns, setPatterns] = useState<ActivityPatterns | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [availableData, setAvailableData] = useState<AvailableDataInfo | null>(null)
   const hasFetchedRef = useRef(false)
+  const currentDaysRef = useRef(days)
 
-  const fetchActivity = useCallback(async () => {
+  // Update ref when days change
+  useEffect(() => {
+    currentDaysRef.current = days
+  }, [days])
+
+  // Check what data is available in the database cache
+  const checkAvailableData = useCallback(async () => {
     if (!username || !roomId) return
 
-    const cacheKey = getActivityCacheKey(username, roomId, days)
+    try {
+      // Query database for available cached data range
+      const response = await fetch('/api/activity-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room: roomId,
+          username,
+          action: 'check-available'
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableData({
+          totalDays: data.totalDays || 0,
+          oldestDate: data.oldestDate || null,
+          newestDate: data.newestDate || null,
+          availableRanges: data.availableRanges || [30]
+        })
+      }
+    } catch (err) {
+      console.warn('[useUserActivity] Failed to check available data:', err)
+    }
+  }, [username, roomId])
+
+  const fetchActivity = useCallback(async (daysToFetch?: number) => {
+    const targetDays = daysToFetch ?? days
+    if (!username || !roomId) return
+
+    const cacheKey = getActivityCacheKey(username, roomId, targetDays)
 
     // 1. Check cache first
-    const cached = getActivityFromCache(username, roomId, days)
+    const cached = getActivityFromCache(username, roomId, targetDays)
     if (cached) {
       setActivities(cached.activities)
       setPatterns(cached.patterns)
@@ -205,7 +256,7 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
         // Generate dates for the requested period
         const today = new Date()
         const dates: string[] = []
-        for (let i = 0; i < days; i++) {
+        for (let i = 0; i < targetDays; i++) {
           dates.push(format(subDays(today, i), 'yyyy-MM-dd'))
         }
         
@@ -218,7 +269,8 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
           body: JSON.stringify({
             room: roomId,
             username,
-            dates
+            dates,
+            cacheOnly: targetDays > 30 // For larger ranges, only use cached data (don't fetch from TradingView)
           }),
         })
 
@@ -233,7 +285,7 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
           const activityPatterns = calculatePatterns(activityData)
           
           // Save to cache
-          saveActivityToCache(username, roomId, days, activityData, activityPatterns)
+          saveActivityToCache(username, roomId, targetDays, activityData, activityPatterns)
           
           return { activities: activityData, patterns: activityPatterns }
         }
@@ -262,8 +314,16 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
     }
   }, [username, roomId, days])
 
+  // Function to switch day range
+  const switchDays = useCallback((newDays: number) => {
+    if (newDays === days) return
+    setDays(newDays)
+    hasFetchedRef.current = false // Allow refetch for new range
+  }, [days])
+
+  // Initial fetch
   useEffect(() => {
-    // Skip if already fetched for this user
+    // Skip if already fetched for this user and day range
     if (hasFetchedRef.current) return
     
     // Only fetch if we have a username
@@ -271,11 +331,22 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
 
     hasFetchedRef.current = true
     fetchActivity()
-  }, [fetchActivity, username])
+    checkAvailableData()
+  }, [fetchActivity, checkAvailableData, username])
+
+  // Refetch when days change
+  useEffect(() => {
+    if (!username) return
+    if (hasFetchedRef.current) {
+      // Days changed, need to refetch
+      fetchActivity(days)
+    }
+  }, [days, fetchActivity, username])
 
   // Reset when user changes
   useEffect(() => {
     hasFetchedRef.current = false
+    setAvailableData(null)
   }, [username])
 
   return {
@@ -283,6 +354,10 @@ export function useUserActivity(username: string, roomId: string = 'bitcoin_de_D
     patterns,
     isLoading,
     error,
-    refetch: fetchActivity
+    days,
+    switchDays,
+    availableData,
+    refetch: fetchActivity,
+    checkAvailableData
   }
 }

@@ -3,9 +3,6 @@
 import React, { useMemo } from 'react'
 import { WeeklyActivityGrid } from './weekly-activity-grid'
 import { useActivity } from '@/lib/activity-context'
-import { RefreshCwIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 
 interface ActivityTrackerProps {
   onDateClick?: (date: Date) => void
@@ -20,8 +17,7 @@ export function ActivityTracker({ onDateClick }: ActivityTrackerProps) {
     isLoading,
     progress,
     lastSyncTime,
-    setSelectedDate,
-    refreshActivities
+    setSelectedDate
   } = useActivity()
 
   // Handle date click
@@ -66,7 +62,6 @@ export function ActivityTracker({ onDateClick }: ActivityTrackerProps) {
             className="w-full"
             isLoading={isLoading}
             progress={progress.total > 0 ? progress : undefined}
-            onRefresh={refreshActivities}
             isRefreshing={isLoading}
             statusDot={{
               status: isLoading ? 'loading' : activities.length > 0 ? 'loaded' : 'error',
@@ -89,31 +84,7 @@ export function ActivityTracker({ onDateClick }: ActivityTrackerProps) {
                 </div>
               )}
               
-              {/* Refresh Button - top right */}
-              <HoverCard openDelay={200} closeDelay={100}>
-                <HoverCardTrigger asChild>
-                  <button
-                    onClick={refreshActivities}
-                    disabled={isLoading}
-                    className="absolute top-3 right-3 z-20 cursor-pointer hover:opacity-70 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <RefreshCwIcon className={cn("h-3.5 w-3.5 text-muted-foreground", isLoading && "animate-spin")} />
-                  </button>
-                </HoverCardTrigger>
-                <HoverCardContent className="w-auto p-2 text-xs" side="bottom" align="end">
-                  <div className="space-y-1">
-                    <div className="font-medium">
-                      {isLoading ? "Refreshing..." : "Refresh activity data"}
-                    </div>
-                    {lastSyncTime && !isLoading && (
-                      <div className="text-muted-foreground">
-                        Last updated: {lastSyncTime.toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-                </HoverCardContent>
-              </HoverCard>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-8">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-2">
                 {[...monthlyCalendars].reverse().map((calendar) => (
                   <WeeklyActivityGrid
                     key={`${calendar.year}-${calendar.month}`}

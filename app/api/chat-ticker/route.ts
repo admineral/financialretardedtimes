@@ -378,7 +378,7 @@ export async function POST() {
     
     // Stream AI response
     const result = streamObject({
-      model: openai('gpt-5.1'),
+      model: openai('gpt-5.2'),
       schema: AITickerResponseSchema,
       system: TICKER_PROMPT,
       prompt: `Extrahiere die unterhaltsamsten Ticker-Events aus diesem Chat (letzte 24h):
@@ -393,7 +393,7 @@ ${chatContext}
 5. Verwende das exakte Datum (YYYY-MM-DD) aus den Nachrichten!
 
 Erstelle 15-25 Events. Priorisiere: Lustige Headlines, Drama, krasse Calls, Fails.`,
-      // Note: temperature not supported for reasoning models like gpt-5.1
+      // Note: temperature not supported for reasoning models like gpt-5.2
     })
     
     // CRITICAL: Register after() BEFORE returning the response

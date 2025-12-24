@@ -431,7 +431,7 @@ ${chatContext}`
     
     // Use streamObject for real-time event streaming
     const result = streamObject({
-      model: openai('gpt-5.1'),
+      model: openai('gpt-5.2'),
       schema: TimelineResponseSchema,
       system: TIMELINE_PROMPT,
       prompt: aiPrompt,

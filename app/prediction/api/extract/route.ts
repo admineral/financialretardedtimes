@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
     
     // Extract predictions with AI
     const result = await generateObject({
-      model: openai('gpt-5.1'),
+      model: openai('gpt-5.2'),
       schema: ExtractResponseSchema,
       system: EXTRACTION_PROMPT,
       prompt: `Aktueller BTC Preis: $${currentPrice.toLocaleString()}

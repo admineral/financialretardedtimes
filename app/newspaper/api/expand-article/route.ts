@@ -1,7 +1,7 @@
 /**
  * route.ts (expand-article API)
  * 
- * AI-powered article expansion endpoint using OpenAI GPT-5.
+ * AI-powered article expansion endpoint using OpenAI GPT-5.2.
  * 
  * LOCAL: Handles POST requests to generate full-length articles from short summaries.
  * Takes the article context (headline, summary, category, etc.) and the original chat
@@ -425,7 +425,7 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
     
     // Stream AI response
     const result = streamObject({
-      model: openai('gpt-5.1'),
+      model: openai('gpt-5.2'),
       schema: ExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
       maxOutputTokens: 2048, // Reduced for shorter articles

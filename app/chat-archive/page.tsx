@@ -5,7 +5,7 @@ import { ChatViewer, ActivityTracker, UserProfileHeader } from './components'
 import { ActivityProvider, useActivity } from '@/lib/activity-context'
 import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
-import { RefreshCwIcon, LightbulbIcon, ExternalLinkIcon, ClockIcon, MessageCircleIcon, ZapIcon, CrownIcon } from 'lucide-react'
+import { RefreshCwIcon, LightbulbIcon, ExternalLinkIcon, ClockIcon, MessageCircleIcon, ZapIcon, CrownIcon, Trash2Icon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   Tooltip,
@@ -24,9 +24,11 @@ function ChatArchiveContent() {
     setRoom, 
     setUsername, 
     setSelectedDate,
-    refreshActivities
+    refreshActivities,
+    clearActivities
   } = useActivity()
   const [isClearing, setIsClearing] = useState(false)
+  const [isClearingAllCache, setIsClearingAllCache] = useState(false)
   const [activeTab, setActiveTab] = useState<'activity' | 'ideas'>('activity')
   
   // Ideas state
@@ -266,6 +268,52 @@ function ChatArchiveContent() {
     }
   }
 
+  // Handle clearing ALL cache (DELETE ONLY - no auto-fetch)
+  const handleClearAllCache = async () => {
+    if (!parsedParams.room || !parsedParams.username) return
+
+    const confirmed = window.confirm(
+      `⚠️ DELETE ALL cached data for ${parsedParams.username}?\n\n` +
+      `This will delete:\n` +
+      `• Activity daily counts\n` +
+      `• Activity messages\n` +
+      `• User profile\n` +
+      `• Chat messages\n\n` +
+      `You will need to reload the page to fetch fresh data.`
+    )
+
+    if (!confirmed) return
+
+    setIsClearingAllCache(true)
+
+    try {
+      // 1. Clear UI state immediately
+      clearActivities()
+
+      // 2. Delete all cached data from database
+      console.log(`🗑️ Clearing all cache for ${parsedParams.username}...`)
+      const deleteResponse = await fetch(
+        `/api/cache-management?room=${encodeURIComponent(parsedParams.room)}&username=${encodeURIComponent(parsedParams.username)}`,
+        { method: 'DELETE' }
+      )
+
+      if (deleteResponse.ok) {
+        const result = await deleteResponse.json()
+        console.log(`✅ Cleared ${result.totalDeleted} cached records`, result)
+        alert(`✅ Deleted ${result.totalDeleted} records.\n\nReload the page to fetch fresh data.`)
+      } else {
+        const errorText = await deleteResponse.text()
+        console.error('Failed to clear cache:', errorText)
+        alert(`❌ Failed to clear cache: ${errorText}`)
+      }
+    } catch (error) {
+      console.error('Error clearing cache:', error)
+      alert(`❌ Error: ${error}`)
+    } finally {
+      setIsClearingAllCache(false)
+    }
+  }
+
   // Get current page ideas
   const currentPageIdeas = ideasCache.get(currentPage) || []
 
@@ -306,29 +354,54 @@ function ChatArchiveContent() {
               </button>
             </div>
             
-            {/* Refresh Button - changes based on active tab */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={activeTab === 'activity' ? handleForceRefresh : clearIdeasCache}
-                    disabled={
-                      activeTab === 'activity' 
-                        ? (isClearing || !parsedParams.room || !parsedParams.username)
-                        : (isClearingIdeasCache || !parsedParams.username)
-                    }
-                    className="hover:bg-muted"
-                  >
-                    <RefreshCwIcon className={cn("h-5 w-5", (isClearing || isClearingIdeasCache) && "animate-spin")} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{activeTab === 'activity' ? 'Force refresh activity data' : 'Clear ideas cache'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1">
+              {/* Clear All Cache Button - Only show on Activity tab */}
+              {activeTab === 'activity' && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleClearAllCache}
+                        disabled={isClearingAllCache || isClearing || !parsedParams.room || !parsedParams.username}
+                        className="hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2Icon className={cn("h-5 w-5", isClearingAllCache && "animate-pulse")} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Clear ALL cache & re-fetch (migrate from legacy)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {/* Refresh Button - changes based on active tab */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={activeTab === 'activity' ? handleForceRefresh : clearIdeasCache}
+                      disabled={
+                        activeTab === 'activity' 
+                          ? (isClearing || isClearingAllCache || !parsedParams.room || !parsedParams.username)
+                          : (isClearingIdeasCache || !parsedParams.username)
+                      }
+                      className="hover:bg-muted"
+                    >
+                      <RefreshCwIcon className={cn("h-5 w-5", (isClearing || isClearingIdeasCache) && "animate-spin")} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{activeTab === 'activity' ? 'Force refresh activity data' : 'Clear ideas cache'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
         </div>
 
