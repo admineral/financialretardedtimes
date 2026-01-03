@@ -1,5 +1,58 @@
+/**
+ * ============================================================================
+ * TradingView Chat Sync Cron Job
+ * ============================================================================
+ * 
+ * This endpoint syncs chat messages from TradingView to our Supabase database.
+ * It runs every 5 minutes via Vercel Cron (configured in vercel.json).
+ * 
+ * ## How It Works
+ * 
+ * 1. **Initial Fetch** (first run): Fetches ALL available messages from 
+ *    TradingView (up to ~1000 messages / 7 days of history).
+ * 
+ * 2. **Smart Sync** (subsequent runs): Only fetches NEW messages until it
+ *    finds overlap with existing messages in the database. Stops when:
+ *    - A page has 0 new messages (fully caught up)
+ *    - A page has ≥80% existing messages (mostly caught up)
+ *    - Empty or partial page (end of TradingView history)
+ * 
+ * ## TradingView API Details
+ * 
+ * - Endpoint: GET /conversation-status/?room_id=XXX&offset=N
+ * - Returns: 30 messages per request (newest first)
+ * - Pagination: offset=0 (newest), offset=30 (older), offset=60 (even older)
+ * - History limit: ~1000 messages / ~7 days (older messages are purged)
+ * 
+ * ## Data Preservation
+ * 
+ * - Messages are NEVER deleted from our database
+ * - We use upsert (insert or update), so even if TradingView deletes a
+ *   message, we keep it in our archive
+ * - This creates a permanent historical record of the chat
+ * 
+ * ## Extracted Data
+ * 
+ * - Messages: username, text, time, badges, user_pic, etc.
+ * - Links: URLs extracted from messages (tradingview, twitter, youtube, etc.)
+ * - Quotes: [quote="user"]text[/quote] patterns extracted
+ * 
+ * ## Endpoints
+ * 
+ * - GET /api/cron/sync-chat - Run sync (requires CRON_SECRET auth)
+ * - GET /api/cron/sync-chat?hard=true - Force fetch 500+ messages
+ * - GET /api/cron/sync-chat?rooms=bitcoin_de_DE,ethereum_de_DE - Custom rooms
+ * 
+ * @see vercel.json - Cron schedule configuration
+ * @see supabase/migrations - Database schema for tv_chat_* tables
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+
+// Allow up to 60 seconds for sync (Vercel Hobby limit)
+// Increase to 300 for Pro plan if needed
+export const maxDuration = 60
 
 const TRADINGVIEW_ORIGIN = 'https://de.tradingview.com'
 
@@ -144,8 +197,8 @@ async function fetchAllMessages(roomId: string): Promise<ChatMessage[]> {
   const allMessages: ChatMessage[] = []
   const seenIds = new Set<string>()
   let offset = 0
-  const batchSize = 100
-  const maxIterations = 50
+  const batchSize = 30 // TradingView API returns 30 messages per request
+  const maxIterations = 100 // Increased to compensate for smaller batch size
   let iterations = 0
   let emptyBatchCount = 0
   
@@ -206,10 +259,9 @@ async function smartFetchUntilExisting(
   const allMessages: ChatMessage[] = []
   const seenIds = new Set<string>()
   let offset = 0
-  const batchSize = 100
-  const maxIterations = 20 // Safety limit
+  const batchSize = 30 // TradingView API returns 30 messages per request
+  const maxIterations = 50 // Safety limit
   let iterations = 0
-  let consecutiveExistingBatches = 0
   
   while (iterations < maxIterations) {
     iterations++
@@ -242,22 +294,27 @@ async function smartFetchUntilExisting(
     
     console.log(`[CRON] 🧠 Batch ${iterations}: offset=${offset}, fetched=${messages.length}, new=${newInBatch}, existing=${existingInBatch}`)
     
-    // If most messages in this batch already exist, we've caught up
-    if (existingInBatch > 0 && newInBatch === 0) {
-      consecutiveExistingBatches++
-      if (consecutiveExistingBatches >= 2) {
-        console.log(`[CRON] 🧠 Found ${consecutiveExistingBatches} consecutive batches with all existing messages - stopping`)
-        return { messages: allMessages, stoppedEarly: true }
-      }
-    } else {
-      consecutiveExistingBatches = 0
+    // Stop conditions:
+    // 1. If page has NO new messages → we're caught up
+    // 2. If page has >80% existing → we're mostly caught up, stop
+    // 3. Otherwise keep going (we're still finding new messages)
+    
+    if (newInBatch === 0) {
+      console.log(`[CRON] 🧠 No new messages in batch - caught up, stopping`)
+      return { messages: allMessages, stoppedEarly: true }
     }
     
-    // If we found some existing messages in this batch, we're close to caught up
-    // Continue one more batch to be safe, but if >50% existing, we're done
-    if (existingInBatch > messages.length * 0.5) {
-      console.log(`[CRON] 🧠 >50% existing in batch - caught up with history`)
-      return { messages: allMessages, stoppedEarly: true }
+    if (existingInBatch > 0) {
+      const existingPercent = Math.round((existingInBatch / messages.length) * 100)
+      console.log(`[CRON] 🧠 Overlap: ${existingPercent}% existing, ${newInBatch} new collected`)
+      
+      // If >80% existing, we've mostly caught up - stop
+      // (allows for small edge cases but doesn't over-fetch)
+      if (existingPercent >= 80) {
+        console.log(`[CRON] 🧠 ${existingPercent}% existing - caught up, stopping`)
+        return { messages: allMessages, stoppedEarly: true }
+      }
+      // Otherwise: keep going, we're still finding significant new messages
     }
     
     // If batch is not full, we've reached the end of chat history
@@ -278,7 +335,7 @@ async function smartFetchUntilExisting(
 
 /**
  * Cron endpoint for syncing chat messages
- * Called every 10 minutes by Vercel cron
+ * Called every 5 minutes by Vercel cron
  * 
  * Logic:
  * - First time: Do initial full fetch (all messages)
@@ -376,7 +433,7 @@ export async function GET(request: NextRequest) {
           console.log('[CRON] 💪 HARD REFRESH - fetching up to 500 messages...')
           messages = []
           const seenIds = new Set<string>()
-          for (let offset = 0; offset < 500; offset += 100) {
+          for (let offset = 0; offset < 510; offset += 30) { // 17 pages * 30 = 510 messages max
             const batch = await fetchMessages(roomId, offset)
             if (batch.length === 0) break
             for (const msg of batch) {
@@ -386,7 +443,7 @@ export async function GET(request: NextRequest) {
                 messages.push(msg)
               }
             }
-            if (batch.length < 100) break
+            if (batch.length < 30) break // TradingView returns 30 per page
             await new Promise(resolve => setTimeout(resolve, 50))
           }
         } else {
