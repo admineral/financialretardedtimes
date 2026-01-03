@@ -1,3 +1,49 @@
+/**
+ * ============================================================================
+ * SQL Query API
+ * ============================================================================
+ * 
+ * Executes read-only SQL queries against the cache database.
+ * Includes safety validations to prevent destructive operations.
+ * 
+ * ## Endpoint
+ * POST /Test/admin/api/query
+ * 
+ * ## Request Body
+ * ```json
+ * { "query": "SELECT * FROM tv_chat_messages LIMIT 10" }
+ * ```
+ * 
+ * ## Response
+ * ```typescript
+ * {
+ *   data: Record<string, unknown>[] | null  // Query results
+ *   error: string | null                    // Error message if failed
+ *   rowCount: number                        // Number of rows returned
+ *   executionTime: number                   // Query time in ms
+ * }
+ * ```
+ * 
+ * ## Security
+ * - Only SELECT queries allowed
+ * - Blocked keywords: DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, etc.
+ * - Only whitelisted tables accessible
+ * - Results limited to 500 rows max
+ * 
+ * ## Allowed Tables
+ * - tv_chat_messages
+ * - tv_chat_sync_status
+ * - tv_user_profiles
+ * - tv_user_activity_daily
+ * 
+ * ## Limitations
+ * - Complex SQL is parsed and simplified to Supabase queries
+ * - GROUP BY only supports username aggregation currently
+ * - Use preset queries for best results
+ * 
+ * @see /Test/admin/cache - SQL Query tab UI
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 

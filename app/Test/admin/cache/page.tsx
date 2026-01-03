@@ -1,3 +1,48 @@
+/**
+ * ============================================================================
+ * Cache Admin Dashboard - Detailed Management
+ * ============================================================================
+ * 
+ * Comprehensive interface for managing TradingView chat cache data.
+ * 
+ * ## Tabs
+ * 1. **Sync History** - View all cron runs with success/failure indicators
+ * 2. **All Users** - Searchable list of users with message counts & profiles
+ * 3. **Messages** - Browse cached messages with search, load all, export CSV
+ * 4. **Cached Profiles** - TradingView user profiles (24h cache)
+ * 5. **Activity Data** - Daily activity aggregations with hour distribution
+ * 6. **SQL Query** - Run read-only queries with preset templates
+ * 
+ * ## Features
+ * - Real-time stats (auto-refresh every 30 seconds)
+ * - Manual sync trigger
+ * - Export messages to CSV
+ * - Load all messages option
+ * - User search
+ * - Message search
+ * 
+ * ## Dependencies
+ * - @/components/ui/* - UI components (Card, Button, Badge, Tabs, etc.)
+ * - @/lib/supabase/server - Database client (via API)
+ * - date-fns - Date formatting
+ * - lucide-react - Icons
+ * 
+ * ## API Endpoints Used
+ * - GET /Test/admin/api/cache-stats - Fetch all cache statistics
+ * - POST /Test/admin/api/query - Execute SQL queries
+ * - POST /api/cron/sync-chat - Trigger manual sync
+ * 
+ * ## Database Tables Displayed
+ * - tv_chat_messages - Chat messages
+ * - tv_chat_sync_status - Sync status per room
+ * - tv_sync_history - Cron run history
+ * - tv_user_profiles - Cached profiles
+ * - tv_user_activity_daily - Daily activity
+ * 
+ * @see /Test/admin - Dashboard hub
+ * @see /Test/admin/README.md - Full documentation
+ */
+
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'

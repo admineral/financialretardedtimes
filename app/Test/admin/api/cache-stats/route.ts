@@ -1,3 +1,43 @@
+/**
+ * ============================================================================
+ * Cache Stats API
+ * ============================================================================
+ * 
+ * Aggregates statistics from all cache-related database tables for the
+ * admin dashboard.
+ * 
+ * ## Endpoint
+ * GET /Test/admin/api/cache-stats
+ * 
+ * ## Query Parameters
+ * - messagesLimit (number, default: 300) - Max messages to return. Use 0 for all.
+ * 
+ * ## Response
+ * ```typescript
+ * {
+ *   totalMessages: number      // Count from tv_chat_messages
+ *   totalProfiles: number      // Count from tv_user_profiles
+ *   totalActivityRecords: number // Count from tv_user_activity_daily
+ *   syncStatuses: SyncStatus[] // All room sync statuses
+ *   recentMessages: ChatMessage[] // Recent messages (limited)
+ *   profiles: UserProfile[]    // All cached profiles
+ *   recentActivity: UserActivity[] // Last 100 activity records
+ *   users: UserSummary[]       // Aggregated user stats
+ *   syncHistory: SyncHistoryRecord[] // Last 50 sync runs
+ * }
+ * ```
+ * 
+ * ## Database Tables Queried
+ * - tv_chat_messages
+ * - tv_user_profiles
+ * - tv_user_activity_daily
+ * - tv_chat_sync_status
+ * - tv_sync_history
+ * 
+ * @see /Test/admin - Dashboard that consumes this API
+ * @see /Test/admin/cache - Cache page that consumes this API
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'

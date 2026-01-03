@@ -1,3 +1,36 @@
+/**
+ * ============================================================================
+ * Admin Dashboard - Main Hub
+ * ============================================================================
+ * 
+ * Central admin interface for TradingView chat sync management.
+ * 
+ * ## Features
+ * - Quick stats: Total messages, users, profiles, last sync time
+ * - Navigation to detailed admin sections (Cache, Chat Archive, Newspaper)
+ * - Top chatters leaderboard (top 5 by message count)
+ * - Sync status overview per room
+ * - Recent sync history (last 5 runs)
+ * - Quick sync trigger button
+ * - System health indicator
+ * 
+ * ## Dependencies
+ * - @/components/ui/* - UI components (Card, Button, Badge, Separator)
+ * - @/lib/supabase/server - Database client (via API)
+ * - date-fns - Date formatting
+ * - lucide-react - Icons
+ * 
+ * ## API Endpoints Used
+ * - GET /Test/admin/api/cache-stats - Fetch dashboard statistics
+ * - POST /api/cron/sync-chat - Trigger manual sync
+ * 
+ * ## Auto-refresh
+ * - Stats refresh every 60 seconds
+ * 
+ * @see /Test/admin/cache - Detailed cache management page
+ * @see /Test/admin/README.md - Full documentation
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
