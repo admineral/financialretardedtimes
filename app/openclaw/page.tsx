@@ -94,9 +94,10 @@ export default function OpenClawTodayPage() {
     setInitError(null)
     
     try {
+      // Fetch ALL daily stats from database (no limit)
       const [settingsData, statsData] = await Promise.all([
         getSettings(),
-        getDailyStats(30),
+        getDailyStats(), // No limit - get all available data
       ])
       
       setSettings(settingsData)
@@ -133,7 +134,7 @@ export default function OpenClawTodayPage() {
         if (!initResult.success) {
           setInitError(initResult.error || 'Failed to initialize cache')
         } else {
-          const newStats = await getDailyStats(30)
+          const newStats = await getDailyStats() // No limit - get all
           setDailyStats(newStats)
           if (newStats.length > 0) {
             setSelectedDate(newStats[0].date)

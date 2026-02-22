@@ -65,7 +65,7 @@ export default function OpenClawSettingsPage() {
       const [settingsData, statsData, dailyStatsData, logsData, syncStatsData] = await Promise.all([
         getSettings(),
         getCacheStats(),
-        getDailyStats(30),
+        getDailyStats(), // No limit - fetch all daily stats
         getSyncLogs(10),
         getSyncStats(),
       ])

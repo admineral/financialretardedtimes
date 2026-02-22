@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { GitCommit, GitMerge } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { GitCommit, GitMerge, Calendar } from 'lucide-react'
 import type { DailyStats, CachedCommit } from '../actions/cache'
 
 interface CommitChartProps {
@@ -10,14 +10,42 @@ interface CommitChartProps {
   isLoading?: boolean
 }
 
+type ChartRange = 7 | 14 | 30 | 'all'
+
 export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps) {
-  // Build chart data with all days in the last 30 days (fill empty days with 0)
+  const [chartRange, setChartRange] = useState<ChartRange>(30)
+  
+  // Calculate the actual date range we have data for
+  const dataDateRange = useMemo(() => {
+    if (dailyStats.length === 0) return { oldest: null, newest: null, totalDays: 0 }
+    const sorted = [...dailyStats].sort((a, b) => a.date.localeCompare(b.date))
+    return {
+      oldest: sorted[0].date,
+      newest: sorted[sorted.length - 1].date,
+      totalDays: sorted.length,
+    }
+  }, [dailyStats])
+  
+  // Build chart data based on selected range
   const chartData = useMemo(() => {
     const days: { date: string; commitCount: number; uniqueContributors: number; mergeCount: number }[] = []
     const statsMap = new Map(dailyStats.map(d => [d.date, d]))
     
-    // Generate last 30 days
-    for (let i = 29; i >= 0; i--) {
+    // Determine number of days to show
+    let numDays: number
+    if (chartRange === 'all') {
+      // Show all days we have data for (plus fill gaps)
+      if (!dataDateRange.oldest) return days
+      const oldest = new Date(dataDateRange.oldest + 'T00:00:00')
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      numDays = Math.ceil((today.getTime() - oldest.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    } else {
+      numDays = chartRange
+    }
+    
+    // Generate days from oldest to today
+    for (let i = numDays - 1; i >= 0; i--) {
       const date = new Date()
       date.setDate(date.getDate() - i)
       const dateStr = date.toISOString().split('T')[0]
@@ -32,7 +60,7 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
     }
     
     return days
-  }, [dailyStats])
+  }, [dailyStats, chartRange, dataDateRange])
 
   const maxCommits = useMemo(() => {
     return Math.max(...chartData.map(d => d.commitCount), 1)
@@ -70,73 +98,157 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
     <div className="w-full space-y-6">
       {/* Bar Chart */}
       <div className="glass-card p-6 rounded-sm">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <h3 className="font-headline text-sm font-bold uppercase tracking-wider flex items-center gap-2">
             <GitCommit className="w-4 h-4 text-primary" />
-            Commit Activity (Last 30 Days)
+            Commit Activity
           </h3>
-          <span className="text-xs text-muted-foreground">
-            {totalCommitsInRange} total commits
-          </span>
+          
+          <div className="flex items-center gap-3">
+            {/* Range Selector */}
+            <div className="flex items-center gap-1 text-xs">
+              {([7, 14, 30, 'all'] as ChartRange[]).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setChartRange(range)}
+                  className={`px-2 py-1 rounded transition-all ${
+                    chartRange === range
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  }`}
+                >
+                  {range === 'all' ? `All (${dataDateRange.totalDays}d)` : `${range}D`}
+                </button>
+              ))}
+            </div>
+            
+            <span className="text-xs text-muted-foreground border-l border-primary/20 pl-3">
+              {totalCommitsInRange.toLocaleString()} commits
+            </span>
+          </div>
         </div>
         
         {totalCommitsInRange === 0 ? (
-          <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
-            No commits in the last 30 days. Click "Sync" to fetch data.
+          <div className="h-64 flex items-center justify-center text-muted-foreground text-sm">
+            No commits found. Click "Sync" to fetch data.
           </div>
         ) : (
-          <div className="relative h-48 flex items-end gap-[2px]">
-            {chartDataWithHeight.map((day, idx) => {
-              const isToday = idx === chartDataWithHeight.length - 1
-              const date = new Date(day.date + 'T00:00:00')
-              const dayLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })
-              const hasCommits = day.commitCount > 0
+          <>
+            {/* Y-axis labels */}
+            <div className="flex mb-2">
+              <div className="w-12 flex flex-col justify-between text-[10px] text-muted-foreground/60 text-right pr-2 h-48">
+                <span>{maxCommits.toLocaleString()}</span>
+                <span>{Math.round(maxCommits * 0.75).toLocaleString()}</span>
+                <span>{Math.round(maxCommits * 0.5).toLocaleString()}</span>
+                <span>{Math.round(maxCommits * 0.25).toLocaleString()}</span>
+                <span>0</span>
+              </div>
               
-              return (
-                <div
-                  key={day.date}
-                  className="flex-1 flex flex-col items-center group relative min-w-[8px]"
-                >
-                  {/* Bar */}
-                  <div
-                    className={`w-full rounded-t transition-all duration-300 ${
-                      !hasCommits
-                        ? 'bg-muted/20'
-                        : isToday
-                        ? 'bg-primary shadow-lg shadow-primary/20'
-                        : 'bg-primary/60 hover:bg-primary/80'
-                    }`}
-                    style={{ 
-                      height: hasCommits ? `${day.heightPercent}%` : '2px',
-                      minHeight: hasCommits ? '8px' : '2px',
-                    }}
-                  />
-                  
-                  {/* Tooltip */}
-                  <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-                    <div className="glass-card-gold px-3 py-2 rounded text-xs whitespace-nowrap shadow-lg">
-                      <div className="font-bold text-primary mb-1">{dayLabel}</div>
-                      <div className="text-foreground">
-                        {day.commitCount} commit{day.commitCount !== 1 ? 's' : ''}
-                      </div>
-                      {day.uniqueContributors > 0 && (
-                        <div className="text-muted-foreground">
-                          {day.uniqueContributors} contributor{day.uniqueContributors !== 1 ? 's' : ''}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Date Label - show every 7th day for better readability */}
-                  {idx % 7 === 0 && (
-                    <div className="text-[9px] text-muted-foreground/60 mt-2 whitespace-nowrap">
-                      {date.getDate()}/{date.getMonth() + 1}
-                    </div>
-                  )}
+              {/* Chart area */}
+              <div className="flex-1 relative h-48 border-l border-b border-primary/10">
+                {/* Grid lines */}
+                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                  {[0, 1, 2, 3].map(i => (
+                    <div key={i} className="border-t border-primary/5 w-full" />
+                  ))}
                 </div>
-              )
-            })}
-          </div>
+                
+                {/* Bars */}
+                <div className="absolute inset-0 flex items-end gap-[1px] px-1">
+                  {chartDataWithHeight.map((day, idx) => {
+                    const isToday = idx === chartDataWithHeight.length - 1
+                    const date = new Date(day.date + 'T00:00:00')
+                    const dayLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })
+                    const hasCommits = day.commitCount > 0
+                    
+                    // Calculate actual pixel height based on container height (192px = h-48)
+                    const barHeight = hasCommits 
+                      ? Math.max((day.commitCount / maxCommits) * 100, 2) 
+                      : 0
+                    
+                    return (
+                      <div
+                        key={day.date}
+                        className="flex-1 flex flex-col justify-end group relative"
+                        style={{ minWidth: '4px', maxWidth: '20px' }}
+                      >
+                        {/* Bar */}
+                        <div
+                          className={`w-full rounded-t-sm transition-all duration-200 ${
+                            !hasCommits
+                              ? 'bg-muted/10'
+                              : isToday
+                              ? 'bg-primary shadow-lg shadow-primary/30'
+                              : 'bg-primary/70 hover:bg-primary'
+                          }`}
+                          style={{ 
+                            height: `${barHeight}%`,
+                            minHeight: hasCommits ? '4px' : '1px',
+                          }}
+                        />
+                        
+                        {/* Tooltip */}
+                        {hasCommits && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20">
+                            <div className="glass-card-gold px-3 py-2 rounded text-xs whitespace-nowrap shadow-xl border border-primary/20">
+                              <div className="font-bold text-primary mb-1">{dayLabel}</div>
+                              <div className="text-foreground font-semibold">
+                                {day.commitCount.toLocaleString()} commit{day.commitCount !== 1 ? 's' : ''}
+                              </div>
+                              {day.uniqueContributors > 0 && (
+                                <div className="text-muted-foreground">
+                                  {day.uniqueContributors} contributor{day.uniqueContributors !== 1 ? 's' : ''}
+                                </div>
+                              )}
+                              {day.mergeCount > 0 && (
+                                <div className="text-purple-400">
+                                  {day.mergeCount} merge{day.mergeCount !== 1 ? 's' : ''}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            {/* X-axis labels */}
+            <div className="flex ml-12">
+              <div className="flex-1 flex justify-between text-[10px] text-muted-foreground/60 px-1">
+                {chartDataWithHeight.filter((_, idx) => {
+                  // Show fewer labels when there are many days
+                  const totalDays = chartDataWithHeight.length
+                  if (totalDays <= 14) return idx % 2 === 0
+                  if (totalDays <= 30) return idx % 5 === 0
+                  return idx % 7 === 0
+                }).map((day) => {
+                  const date = new Date(day.date + 'T00:00:00')
+                  return (
+                    <span key={day.date} className="text-center">
+                      {date.getDate()}/{date.getMonth() + 1}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+            
+            {/* Stats summary */}
+            <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-primary/10 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-sm bg-primary" />
+                <span className="text-muted-foreground">Peak: <span className="text-foreground font-semibold">{maxCommits.toLocaleString()}</span> commits</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Avg: <span className="text-foreground font-semibold">{Math.round(totalCommitsInRange / chartDataWithHeight.filter(d => d.commitCount > 0).length || 1).toLocaleString()}</span>/day</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Days with activity: <span className="text-foreground font-semibold">{chartDataWithHeight.filter(d => d.commitCount > 0).length}</span></span>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
