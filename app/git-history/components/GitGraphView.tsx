@@ -41,7 +41,7 @@ export function GitGraphView({ graphData, isLoading, error }: GitGraphViewProps)
   
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
+      <div className="flex-1 flex items-center justify-center min-h-[400px] bg-background">
         <div className="text-center">
           <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin mb-4" />
           <p className="text-muted-foreground">Loading commit graph...</p>
@@ -52,7 +52,7 @@ export function GitGraphView({ graphData, isLoading, error }: GitGraphViewProps)
   
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
+      <div className="flex-1 flex items-center justify-center min-h-[400px] bg-background">
         <div className="text-center max-w-md">
           <AlertCircle className="w-12 h-12 mx-auto text-destructive mb-4" />
           <p className="text-destructive mb-2">Failed to load commit graph</p>
@@ -62,9 +62,9 @@ export function GitGraphView({ graphData, isLoading, error }: GitGraphViewProps)
     )
   }
   
-  if (!graphData || graphData.commits.length === 0) {
+  if (!graphData || !graphData.commits || graphData.commits.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
+      <div className="flex-1 flex items-center justify-center min-h-[400px] bg-background">
         <div className="text-center">
           <p className="text-muted-foreground">No commits to display</p>
           <p className="text-sm text-muted-foreground mt-2">
@@ -99,16 +99,30 @@ export function GitGraphView({ graphData, isLoading, error }: GitGraphViewProps)
             laneWidth={LANE_WIDTH}
             rowHeight={ROW_HEIGHT}
             height={totalHeight}
+            maxLanes={graphData.maxLanes}
           />
           
           {/* Commit nodes */}
           <div className="relative z-10">
             {graphData.commits.map((commit) => {
               // Find the branch color for this commit
-              const branch = graphData.branches.find(b => 
-                commit.branches.includes(b.name) || b.sha === commit.sha
-              )
-              const color = branch?.color || '#64748b'
+              // Priority: branch heads > branch membership > default color
+              let color = '#64748b' // Default slate color
+              
+              if (commit.isHead && commit.branches.length > 0) {
+                // Use the color of the first branch for HEAD commits
+                const branch = graphData.branches.find(b => b.name === commit.branches[0])
+                if (branch) color = branch.color
+              } else if (commit.branches.length > 0) {
+                // Use color from any branch this commit belongs to
+                const branch = graphData.branches.find(b => commit.branches.includes(b.name))
+                if (branch) color = branch.color
+              } else {
+                // Fallback: use lane-based color
+                const laneIndex = commit.lane % graphData.branches.length
+                const branch = graphData.branches[laneIndex]
+                if (branch) color = branch.color
+              }
               
               return (
                 <CommitNode
@@ -117,6 +131,7 @@ export function GitGraphView({ graphData, isLoading, error }: GitGraphViewProps)
                   color={color}
                   laneWidth={LANE_WIDTH}
                   rowHeight={ROW_HEIGHT}
+                  maxLanes={graphData.maxLanes}
                 />
               )
             })}

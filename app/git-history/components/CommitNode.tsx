@@ -16,11 +16,13 @@ interface CommitNodeProps {
   color: string
   laneWidth: number
   rowHeight: number
+  maxLanes?: number
 }
 
-export function CommitNode({ commit, color, laneWidth, rowHeight }: CommitNodeProps) {
+export function CommitNode({ commit, color, laneWidth, rowHeight, maxLanes = 8 }: CommitNodeProps) {
   const nodeX = commit.lane * laneWidth + laneWidth / 2
   const nodeSize = 20
+  const graphWidth = maxLanes * laneWidth
   
   const getCommitTitle = (message: string) => {
     return message.split('\n')[0]
@@ -57,7 +59,7 @@ export function CommitNode({ commit, color, laneWidth, rowHeight }: CommitNodePr
   return (
     <div className="flex items-center gap-3 group" style={{ minHeight: `${rowHeight}px` }}>
       {/* Graph node */}
-      <div className="relative flex-shrink-0" style={{ width: `${laneWidth * 8}px` }}>
+      <div className="relative flex-shrink-0" style={{ width: `${graphWidth}px` }}>
         <div
           className="absolute"
           style={{

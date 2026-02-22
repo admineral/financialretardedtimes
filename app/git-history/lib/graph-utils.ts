@@ -12,7 +12,8 @@ import type { GraphCommit, Branch, Commit } from './types'
 export function buildCommitGraph(
   commits: Commit[],
   branches: Branch[],
-  commitParents: Map<string, string[]>
+  commitParents: Map<string, string[]>,
+  commitBranches?: Map<string, Set<string>>
 ): GraphCommit[] {
   // Create a map of commits for quick lookup
   const commitMap = new Map<string, GraphCommit>()
@@ -20,10 +21,14 @@ export function buildCommitGraph(
   // Initialize GraphCommits
   commits.forEach(commit => {
     const parents = commitParents.get(commit.sha) || []
+    const branchNames = commitBranches?.get(commit.sha) 
+      ? Array.from(commitBranches.get(commit.sha)!)
+      : []
+    
     commitMap.set(commit.sha, {
       ...commit,
       parents,
-      branches: [],
+      branches: branchNames,
       lane: 0,
       isHead: false,
       children: [],
@@ -45,7 +50,9 @@ export function buildCommitGraph(
     const headCommit = commitMap.get(branch.sha)
     if (headCommit) {
       headCommit.isHead = true
-      headCommit.branches.push(branch.name)
+      if (!headCommit.branches.includes(branch.name)) {
+        headCommit.branches.push(branch.name)
+      }
     }
   })
   

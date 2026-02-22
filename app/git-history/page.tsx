@@ -166,7 +166,10 @@ export default function GitHistoryPage() {
   
   // Fetch commit graph
   const fetchGraph = useCallback(async (branchNames: string[]) => {
-    if (!repoUrl.trim() || branchNames.length === 0) return
+    if (!repoUrl.trim() || branchNames.length === 0) {
+      setGraphData(null)
+      return
+    }
     
     setGraphLoading(true)
     setGraphError(null)
@@ -181,8 +184,10 @@ export default function GitHistoryPage() {
         throw new Error(result.error || 'Failed to fetch commit graph')
       }
       
+      console.log('Graph data received:', result) // Debug log
       setGraphData(result)
     } catch (err) {
+      console.error('Graph fetch error:', err) // Debug log
       setGraphError(err instanceof Error ? err.message : 'Failed to fetch commit graph')
       setGraphData(null)
     } finally {
@@ -209,10 +214,16 @@ export default function GitHistoryPage() {
   // Handle view mode change
   const handleViewModeChange = useCallback((mode: 'list' | 'graph') => {
     setViewMode(mode)
-    if (mode === 'graph' && branches.length === 0) {
-      fetchBranches()
+    if (mode === 'graph') {
+      if (branches.length === 0) {
+        // First time entering graph view - fetch branches
+        fetchBranches()
+      } else if (selectedBranches.length > 0 && !graphData) {
+        // Branches exist but no graph data - fetch graph
+        fetchGraph(selectedBranches)
+      }
     }
-  }, [branches.length, fetchBranches])
+  }, [branches.length, selectedBranches, graphData, fetchBranches, fetchGraph])
 
   return (
     <main className="min-h-screen bg-background">
@@ -284,7 +295,7 @@ export default function GitHistoryPage() {
             </div>
             
             {/* View Mode Tabs */}
-            {(data || graphData) && (
+            {repoUrl && (
               <div className="mt-4 pt-4 border-t border-primary/10">
                 <Tabs value={viewMode} onValueChange={(v) => handleViewModeChange(v as 'list' | 'graph')}>
                   <TabsList className="grid w-full max-w-md grid-cols-2">
@@ -319,27 +330,39 @@ export default function GitHistoryPage() {
 
         {/* Graph View */}
         {viewMode === 'graph' && (
-          <div className="flex gap-0 border border-primary/20 rounded-lg overflow-hidden bg-card" style={{ height: 'calc(100vh - 400px)' }}>
-            <BranchSelector
-              branches={branches}
-              selectedBranches={selectedBranches}
-              onBranchToggle={handleBranchToggle}
-              onSelectAll={() => {
-                const allBranches = branches.map(b => b.name)
-                setSelectedBranches(allBranches)
-                fetchGraph(allBranches)
-              }}
-              onSelectNone={() => {
-                setSelectedBranches([])
-                setGraphData(null)
-              }}
-            />
-            <GitGraphView
-              graphData={graphData}
-              isLoading={graphLoading}
-              error={graphError}
-            />
-          </div>
+          <>
+            {!repoUrl.trim() ? (
+              <div className="text-center py-16 border border-primary/20 rounded-lg">
+                <Network className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium mb-2">Graph View</h3>
+                <p className="text-muted-foreground">
+                  Gib oben eine GitHub Repository URL ein um den Commit Graph zu laden.
+                </p>
+              </div>
+            ) : (
+              <div className="flex gap-0 border border-primary/20 rounded-lg overflow-hidden bg-card" style={{ height: 'calc(100vh - 400px)' }}>
+                <BranchSelector
+                  branches={branches}
+                  selectedBranches={selectedBranches}
+                  onBranchToggle={handleBranchToggle}
+                  onSelectAll={() => {
+                    const allBranches = branches.map(b => b.name)
+                    setSelectedBranches(allBranches)
+                    fetchGraph(allBranches)
+                  }}
+                  onSelectNone={() => {
+                    setSelectedBranches([])
+                    setGraphData(null)
+                  }}
+                />
+                <GitGraphView
+                  graphData={graphData}
+                  isLoading={graphLoading}
+                  error={graphError}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Repository Info & Commits (List View) */}

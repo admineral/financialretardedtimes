@@ -92,9 +92,10 @@ export async function GET(request: NextRequest) {
     // Fetch commits from each branch
     const commitMap = new Map<string, Commit>()
     const commitParents = new Map<string, string[]>()
+    const commitBranches = new Map<string, Set<string>>() // Track which branches contain each commit
 
     // Fetch commits in parallel for all branches (limited to prevent rate limiting)
-    const branchesToFetch = selectedBranches.slice(0, 5) // Limit to 5 branches to avoid rate limits
+    const branchesToFetch = selectedBranches.slice(0, 10) // Increase limit slightly
     
     await Promise.all(
       branchesToFetch.map(async (branch) => {
@@ -118,6 +119,12 @@ export async function GET(request: NextRequest) {
           const commits: GitHubCommitResponse[] = await commitsResponse.json()
 
           commits.forEach(commit => {
+            // Track branch membership
+            if (!commitBranches.has(commit.sha)) {
+              commitBranches.set(commit.sha, new Set())
+            }
+            commitBranches.get(commit.sha)!.add(branch.name)
+
             // Deduplicate commits by SHA
             if (!commitMap.has(commit.sha)) {
               commitMap.set(commit.sha, {
@@ -151,7 +158,9 @@ export async function GET(request: NextRequest) {
 
     // Build the commit graph with lane assignments
     const commits = Array.from(commitMap.values())
-    const graphCommits = buildCommitGraph(commits, selectedBranches, commitParents)
+    
+    // Pass branch membership to graph builder
+    const graphCommits = buildCommitGraph(commits, selectedBranches, commitParents, commitBranches)
 
     // Calculate max lanes
     const maxLanes = Math.max(...graphCommits.map(c => c.lane), 0) + 1

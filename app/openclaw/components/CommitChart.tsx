@@ -11,20 +11,47 @@ interface CommitChartProps {
 }
 
 export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps) {
-  const maxCommits = useMemo(() => {
-    return Math.max(...dailyStats.map(d => d.commitCount), 1)
+  // Build chart data with all days in the last 30 days (fill empty days with 0)
+  const chartData = useMemo(() => {
+    const days: { date: string; commitCount: number; uniqueContributors: number; mergeCount: number }[] = []
+    const statsMap = new Map(dailyStats.map(d => [d.date, d]))
+    
+    // Generate last 30 days
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date()
+      date.setDate(date.getDate() - i)
+      const dateStr = date.toISOString().split('T')[0]
+      
+      const stats = statsMap.get(dateStr)
+      days.push({
+        date: dateStr,
+        commitCount: stats?.commitCount || 0,
+        uniqueContributors: stats?.uniqueContributors || 0,
+        mergeCount: stats?.mergeCount || 0,
+      })
+    }
+    
+    return days
   }, [dailyStats])
 
-  const chartData = useMemo(() => {
-    return dailyStats.slice(0, 30).reverse().map(day => ({
+  const maxCommits = useMemo(() => {
+    return Math.max(...chartData.map(d => d.commitCount), 1)
+  }, [chartData])
+
+  const chartDataWithHeight = useMemo(() => {
+    return chartData.map(day => ({
       ...day,
-      heightPercent: (day.commitCount / maxCommits) * 100,
+      heightPercent: day.commitCount > 0 ? Math.max((day.commitCount / maxCommits) * 100, 5) : 0,
     }))
-  }, [dailyStats, maxCommits])
+  }, [chartData, maxCommits])
 
   const recentCommits = useMemo(() => {
     return commits.slice(0, 10)
   }, [commits])
+  
+  const totalCommitsInRange = useMemo(() => {
+    return chartData.reduce((sum, d) => sum + d.commitCount, 0)
+  }, [chartData])
 
   if (isLoading) {
     return (
@@ -43,55 +70,74 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
     <div className="w-full space-y-6">
       {/* Bar Chart */}
       <div className="glass-card p-6 rounded-sm">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
-          <GitCommit className="w-4 h-4 text-primary" />
-          Commit Activity (Last 30 Days)
-        </h3>
-        
-        <div className="relative h-48 flex items-end gap-1">
-          {chartData.map((day, idx) => {
-            const isToday = idx === chartData.length - 1
-            const date = new Date(day.date)
-            const dayLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })
-            
-            return (
-              <div
-                key={day.date}
-                className="flex-1 flex flex-col items-center group relative"
-              >
-                {/* Bar */}
-                <div
-                  className={`w-full rounded-t transition-all duration-300 ${
-                    isToday
-                      ? 'bg-primary shadow-lg shadow-primary/20'
-                      : 'bg-primary/40 hover:bg-primary/60'
-                  }`}
-                  style={{ height: `${day.heightPercent}%` }}
-                />
-                
-                {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-                  <div className="glass-card-gold px-3 py-2 rounded text-xs whitespace-nowrap">
-                    <div className="font-bold text-primary mb-1">{dayLabel}</div>
-                    <div className="text-muted-foreground">
-                      {day.commitCount} commit{day.commitCount !== 1 ? 's' : ''}
-                    </div>
-                    <div className="text-muted-foreground/70">
-                      {day.uniqueContributors} contributor{day.uniqueContributors !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Date Label - show every 5th */}
-                {idx % 5 === 0 && (
-                  <div className="text-[9px] text-muted-foreground/60 mt-2 transform -rotate-45 origin-top-left">
-                    {date.getDate()}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-headline text-sm font-bold uppercase tracking-wider flex items-center gap-2">
+            <GitCommit className="w-4 h-4 text-primary" />
+            Commit Activity (Last 30 Days)
+          </h3>
+          <span className="text-xs text-muted-foreground">
+            {totalCommitsInRange} total commits
+          </span>
         </div>
+        
+        {totalCommitsInRange === 0 ? (
+          <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
+            No commits in the last 30 days. Click "Sync" to fetch data.
+          </div>
+        ) : (
+          <div className="relative h-48 flex items-end gap-[2px]">
+            {chartDataWithHeight.map((day, idx) => {
+              const isToday = idx === chartDataWithHeight.length - 1
+              const date = new Date(day.date + 'T00:00:00')
+              const dayLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })
+              const hasCommits = day.commitCount > 0
+              
+              return (
+                <div
+                  key={day.date}
+                  className="flex-1 flex flex-col items-center group relative min-w-[8px]"
+                >
+                  {/* Bar */}
+                  <div
+                    className={`w-full rounded-t transition-all duration-300 ${
+                      !hasCommits
+                        ? 'bg-muted/20'
+                        : isToday
+                        ? 'bg-primary shadow-lg shadow-primary/20'
+                        : 'bg-primary/60 hover:bg-primary/80'
+                    }`}
+                    style={{ 
+                      height: hasCommits ? `${day.heightPercent}%` : '2px',
+                      minHeight: hasCommits ? '8px' : '2px',
+                    }}
+                  />
+                  
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
+                    <div className="glass-card-gold px-3 py-2 rounded text-xs whitespace-nowrap shadow-lg">
+                      <div className="font-bold text-primary mb-1">{dayLabel}</div>
+                      <div className="text-foreground">
+                        {day.commitCount} commit{day.commitCount !== 1 ? 's' : ''}
+                      </div>
+                      {day.uniqueContributors > 0 && (
+                        <div className="text-muted-foreground">
+                          {day.uniqueContributors} contributor{day.uniqueContributors !== 1 ? 's' : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Date Label - show every 7th day for better readability */}
+                  {idx % 7 === 0 && (
+                    <div className="text-[9px] text-muted-foreground/60 mt-2 whitespace-nowrap">
+                      {date.getDate()}/{date.getMonth() + 1}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Recent Commits List */}

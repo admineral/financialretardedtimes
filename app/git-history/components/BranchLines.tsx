@@ -14,16 +14,18 @@ interface BranchLinesProps {
   laneWidth: number
   rowHeight: number
   height: number
+  maxLanes?: number
 }
 
-export function BranchLines({ commits, laneWidth, rowHeight, height }: BranchLinesProps) {
+export function BranchLines({ commits, laneWidth, rowHeight, height, maxLanes }: BranchLinesProps) {
   const connections = calculateConnections(commits)
+  const width = (maxLanes || 8) * laneWidth
   
   return (
     <svg
       className="absolute top-0 left-0 pointer-events-none"
       style={{
-        width: `${laneWidth * 8}px`,
+        width: `${width}px`,
         height: `${height}px`,
       }}
     >
@@ -71,7 +73,7 @@ export function BranchLines({ commits, laneWidth, rowHeight, height }: BranchLin
       })}
       
       {/* Vertical lane guides (optional, subtle) */}
-      {Array.from({ length: 8 }).map((_, laneIndex) => {
+      {Array.from({ length: maxLanes || 8 }).map((_, laneIndex) => {
         const x = laneIndex * laneWidth + laneWidth / 2
         return (
           <line
