@@ -11,47 +11,47 @@ import { z } from 'zod'
  * Schema for expanded full article (generated on-the-fly)
  */
 export const OpenClawExpandedArticleSchema = z.object({
-  title: z.string().describe('Engaging article title based on the theme'),
-  subtitle: z.string().describe('One sentence subtitle adding context'),
+  title: z.string().describe('Descriptive title based on the theme'),
+  subtitle: z.string().describe('One sentence of context'),
   
-  introduction: z.string().describe('2-3 sentences setting up the story - what happened and why it matters'),
+  introduction: z.string().describe('2-3 sentences summarizing what this work addresses'),
   
   sections: z.array(z.object({
     heading: z.string().describe('Section heading'),
-    content: z.string().describe('2-4 paragraphs diving deep into this aspect'),
+    content: z.string().describe('2-4 paragraphs documenting this aspect with commit references'),
     relatedCommits: z.array(z.object({
       sha: z.string(),
       message: z.string(),
       author: z.string(),
     })).optional().describe('Specific commits related to this section'),
-  })).min(2).max(4).describe('2-4 detailed sections exploring different aspects'),
+  })).min(2).max(4).describe('2-4 sections covering different aspects'),
   
   trendAnalysis: z.object({
-    pattern: z.string().describe('The overall pattern/trend identified'),
-    significance: z.string().describe('Why this trend matters for OpenClaw'),
-    relatedAreas: z.array(z.string()).describe('Related parts of the codebase affected'),
-  }).describe('Analysis of the development trend'),
+    pattern: z.string().describe('The pattern observed in these commits'),
+    significance: z.string().describe('What this pattern indicates for OpenClaw'),
+    relatedAreas: z.array(z.string()).describe('Parts of the codebase affected'),
+  }).describe('Analysis of the development pattern'),
   
   contributorInsights: z.array(z.object({
     username: z.string(),
-    role: z.string().describe('Their role in this work: Lead, Contributor, Reviewer'),
-    contribution: z.string().describe('What they specifically contributed'),
+    role: z.string().describe('Their role: Lead, Contributor, Reviewer'),
+    contribution: z.string().describe('Factual description of what they contributed'),
     commitCount: z.number(),
-  })).min(1).max(5).describe('Key contributors to this work'),
+  })).min(1).max(5).describe('Contributors to this work'),
   
   technicalDeepDive: z.object({
-    whatChanged: z.string().describe('Technical explanation of what changed'),
-    whyItMatters: z.string().describe('Impact on users and the project'),
+    whatChanged: z.string().describe('Technical explanation of the changes'),
+    whyItMatters: z.string().describe('What this affects (users, APIs, stability)'),
     architectureNotes: z.string().optional().describe('How it connects to OpenClaw architecture (Gateway, Pi agent, Skills, Canvas)'),
-  }).optional().describe('Technical deep dive for developer audience'),
+  }).optional().describe('Technical details for developers'),
   
-  keyTakeaways: z.array(z.string()).min(2).max(4).describe('2-4 bullet point takeaways'),
+  keyTakeaways: z.array(z.string()).min(2).max(4).describe('2-4 factual bullet points'),
   
-  outlook: z.string().describe('What this might lead to next, based on the commit patterns'),
+  outlook: z.string().describe('Based on commit patterns, what might follow'),
   
-  sentiment: z.enum(['momentum', 'stability', 'exploration', 'maintenance']).describe('Overall sentiment of this work'),
+  sentiment: z.enum(['momentum', 'stability', 'exploration', 'maintenance']).describe('Category of this work'),
   
-  relatedTopics: z.array(z.string()).min(2).max(4).describe('Related topics/areas for further reading'),
+  relatedTopics: z.array(z.string()).min(2).max(4).describe('Related areas of the codebase'),
 })
 
 export type OpenClawExpandedArticleData = z.infer<typeof OpenClawExpandedArticleSchema>
