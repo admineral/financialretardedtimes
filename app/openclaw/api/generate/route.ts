@@ -67,9 +67,26 @@ export async function POST(request: NextRequest) {
     
     const prompts = getPrompts(language)
     
-    // Fetch commits (prefer cached commits)
-    let commits = await getCachedCommits({ days: dayRange * 2, limit: commitCount })
+    // Calculate exact date range for commits
+    // For "today", we want commits from today's date only
+    // For multi-day ranges, we go back from today
+    const endDate = todayDate // Today
+    let startDate = todayDate // Default to today only
+    
+    if (dayRange > 1) {
+      const start = new Date()
+      start.setDate(start.getDate() - (dayRange - 1))
+      startDate = start.toISOString().split('T')[0]
+    }
+    
+    // Fetch commits for the exact date range
+    let commits = await getCachedCommits({ 
+      startDate, 
+      endDate,
+    })
     let uniqueContributors = 0
+    
+    console.log(`[OPENCLAW] Found ${commits.length} cached commits from ${startDate} to ${endDate} (${dayRange} day(s))`)
     
     if (commits.length === 0) {
       const githubCommits = await fetchCommits(commitCount)
@@ -114,12 +131,23 @@ export async function POST(request: NextRequest) {
     const stats = await calculateStatsFromCache(commits)
     uniqueContributors = stats.uniqueContributors
     
-    const formattedCommits = formatCachedCommitsForPrompt(commits, stats)
+    // For very large commit counts, we send stats from ALL commits
+    // but only the most recent commits in detail (to fit context window)
+    const maxCommitsInPrompt = 200 // Enough for AI to understand patterns
+    const commitsForPrompt = commits.length > maxCommitsInPrompt 
+      ? commits.slice(0, maxCommitsInPrompt)
+      : commits
+    
+    const formattedCommits = formatCachedCommitsForPrompt(
+      commitsForPrompt, 
+      stats, // Stats always include ALL commits
+      commits.length // Total count for reference
+    )
     const today = new Date().toLocaleDateString(language === 'de' ? 'de-DE' : 'en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     })
     
-    console.log(`[OPENCLAW] Processing ${commits.length} cached commits for ${today}`)
+    console.log(`[OPENCLAW] Processing ${commits.length} cached commits (${commitsForPrompt.length} in prompt) for ${today}`)
     
     const result = streamObject({
       model: openai(CONFIG.ai.model),
@@ -168,15 +196,19 @@ function formatCachedCommitsForPrompt(
     uniqueContributors: number
     mostActiveDay: string | null
     categories: Record<string, number>
-  }
+  },
+  totalCommitCount?: number
 ): string {
   const dominantCategory = Object.entries(stats.categories)
     .sort((a, b) => b[1] - a[1])[0]?.[0] || 'Mixed'
   
+  const actualTotal = totalCommitCount || stats.total
+  const showingSubset = commits.length < actualTotal
+  
   let output = `═══════════════════════════════════════════════════
-📊 COMMIT STATISTICS
+📊 COMMIT STATISTICS (from ${actualTotal} total commits)
 ═══════════════════════════════════════════════════
-• Total: ${stats.total} commits
+• Total: ${actualTotal} commits
 • Merge commits: ${stats.merges}
 • Unique contributors: ${stats.uniqueContributors}
 • Most active day: ${stats.mostActiveDay || 'N/A'}
@@ -189,7 +221,7 @@ ${Object.entries(stats.categories)
   .join('\n')}
 ═══════════════════════════════════════════════════
 
-📝 COMMIT LOG:
+📝 COMMIT LOG${showingSubset ? ` (showing ${commits.length} most recent of ${actualTotal})` : ''}:
 `
   
   for (const commit of commits) {
@@ -198,9 +230,29 @@ ${Object.entries(stats.categories)
     })
     const author = commit.author.username || commit.author.name
     const mergeTag = commit.isMerge ? ' [MERGE]' : ''
-    const messageFirstLine = commit.message.split('\n')[0]
     
-    output += `[${date}] ${author}${mergeTag}: ${messageFirstLine} (${commit.shortSha})\n`
+    // Include full commit message (header + body) for better context
+    // Trim and normalize whitespace
+    const fullMessage = commit.message.trim()
+    const messageLines = fullMessage.split('\n')
+    const firstLine = messageLines[0]
+    const hasBody = messageLines.length > 1 && messageLines.slice(1).some(l => l.trim())
+    
+    output += `[${date}] ${author}${mergeTag}: ${firstLine} (${commit.shortSha})`
+    
+    // If commit has additional body text, include it indented
+    if (hasBody) {
+      const bodyLines = messageLines.slice(1)
+        .map(l => l.trim())
+        .filter(l => l)
+        .slice(0, 5) // Max 5 body lines to keep prompt reasonable
+        .map(l => `    ${l}`)
+        .join('\n')
+      if (bodyLines) {
+        output += `\n${bodyLines}`
+      }
+    }
+    output += '\n'
   }
   
   return output

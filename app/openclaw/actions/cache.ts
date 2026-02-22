@@ -82,6 +82,30 @@ interface GitHubCommitResponse {
   parents: Array<{ sha: string }>
 }
 
+interface PaginationInfo {
+  hasNextPage: boolean
+  nextUrl: string | null
+}
+
+function parseLinkHeader(linkHeader: string | null): PaginationInfo {
+  if (!linkHeader) {
+    return { hasNextPage: false, nextUrl: null }
+  }
+  
+  const links = linkHeader.split(',').map(part => {
+    const [urlPart, relPart] = part.split(';').map(s => s.trim())
+    const url = urlPart.match(/<(.+)>/)?.[1]
+    const rel = relPart.match(/rel="(.+)"/)?.[1]
+    return { url, rel }
+  })
+  
+  const nextLink = links.find(l => l.rel === 'next')
+  return {
+    hasNextPage: !!nextLink,
+    nextUrl: nextLink?.url || null,
+  }
+}
+
 /**
  * Fetch settings from database
  */
@@ -159,17 +183,10 @@ async function getMostRecentCachedCommitSha(): Promise<string | null> {
 }
 
 /**
- * Fetch commits from GitHub API
+ * Fetch commits from GitHub API (single page)
  */
-async function fetchGitHubCommits(count: number = 100, since?: string): Promise<GitHubCommitResponse[]> {
-  const { owner, name } = CONFIG.repo
-  let apiUrl = `https://api.github.com/repos/${owner}/${name}/commits?per_page=${count}`
-  
-  if (since) {
-    apiUrl += `&since=${since}`
-  }
-  
-  const response = await fetch(apiUrl, {
+async function fetchGitHubCommitsPage(url: string): Promise<{ commits: GitHubCommitResponse[], pagination: PaginationInfo }> {
+  const response = await fetch(url, {
     headers: {
       'Accept': 'application/vnd.github.v3+json',
       'User-Agent': 'OpenClawToday-Newspaper',
@@ -181,7 +198,62 @@ async function fetchGitHubCommits(count: number = 100, since?: string): Promise<
     throw new Error(`GitHub API error: ${response.status}`)
   }
 
-  return response.json()
+  const commits: GitHubCommitResponse[] = await response.json()
+  const pagination = parseLinkHeader(response.headers.get('Link'))
+  
+  return { commits, pagination }
+}
+
+/**
+ * Fetch commits from GitHub API with pagination support
+ * @param options.perPage - Number of commits per page (max 100)
+ * @param options.since - ISO date string to fetch commits since
+ * @param options.maxPages - Maximum number of pages to fetch (default: unlimited)
+ * @param options.maxCommits - Stop after fetching this many commits
+ */
+async function fetchGitHubCommits(options: {
+  perPage?: number
+  since?: string
+  maxPages?: number
+  maxCommits?: number
+} = {}): Promise<GitHubCommitResponse[]> {
+  const { owner, name } = CONFIG.repo
+  const perPage = Math.min(options.perPage || 100, 100)
+  
+  let url = `https://api.github.com/repos/${owner}/${name}/commits?per_page=${perPage}`
+  if (options.since) {
+    url += `&since=${options.since}`
+  }
+  
+  const allCommits: GitHubCommitResponse[] = []
+  let page = 1
+  
+  while (true) {
+    const { commits, pagination } = await fetchGitHubCommitsPage(url)
+    allCommits.push(...commits)
+    
+    // Check stop conditions
+    if (options.maxCommits && allCommits.length >= options.maxCommits) {
+      return allCommits.slice(0, options.maxCommits)
+    }
+    
+    if (options.maxPages && page >= options.maxPages) {
+      break
+    }
+    
+    if (!pagination.hasNextPage || !pagination.nextUrl) {
+      break
+    }
+    
+    // Move to next page
+    url = pagination.nextUrl
+    page++
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  
+  return allCommits
 }
 
 /**
@@ -295,11 +367,15 @@ async function updateSyncLog(
 /**
  * Sync commits from GitHub - incremental or full
  * Returns the number of new commits added
+ * 
+ * With pagination support, this can fetch all commits since the last sync.
+ * For full sync, fetches all commits for the default days period.
  */
 export async function syncCommits(forceFullSync: boolean = false, triggeredBy: 'manual' | 'auto' | 'cron' = 'manual'): Promise<{ 
   success: boolean
   newCommits: number
   totalCached: number
+  pagesFetched?: number
   error?: string 
 }> {
   const startTime = Date.now()
@@ -313,8 +389,16 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
     let commits: GitHubCommitResponse[]
     
     if (forceFullSync) {
-      commits = await fetchGitHubCommits(settings.maxCommitsPerSync)
+      // Full sync: fetch all commits from the last N days
+      const sinceDate = new Date()
+      sinceDate.setDate(sinceDate.getDate() - settings.defaultDays)
+      
+      commits = await fetchGitHubCommits({
+        since: sinceDate.toISOString(),
+        maxCommits: settings.maxCommitsPerSync > 0 ? settings.maxCommitsPerSync : undefined,
+      })
     } else {
+      // Incremental sync: only fetch commits since last cached commit
       const mostRecentSha = await getMostRecentCachedCommitSha()
       
       if (mostRecentSha) {
@@ -325,13 +409,20 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
           .single()
         
         if (mostRecent) {
-          commits = await fetchGitHubCommits(settings.maxCommitsPerSync, mostRecent.committed_at)
+          commits = await fetchGitHubCommits({
+            since: mostRecent.committed_at,
+          })
+          // Filter out the commit we already have
           commits = commits.filter(c => c.sha !== mostRecentSha)
         } else {
-          commits = await fetchGitHubCommits(settings.maxCommitsPerSync)
+          // Fallback to fetching recent commits
+          commits = await fetchGitHubCommits({ maxPages: 1 })
         }
       } else {
-        commits = await fetchGitHubCommits(settings.maxCommitsPerSync)
+        // No cached commits - initialize with default days
+        const sinceDate = new Date()
+        sinceDate.setDate(sinceDate.getDate() - settings.defaultDays)
+        commits = await fetchGitHubCommits({ since: sinceDate.toISOString() })
       }
     }
     
@@ -371,6 +462,9 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
 /**
  * Initialize cache with commits from the last N days
  * Called on first load if cache is empty
+ * 
+ * With pagination support, this will fetch ALL commits for the period,
+ * not just the first 100.
  */
 export async function initializeCache(days: number = 7): Promise<{
   success: boolean
@@ -391,7 +485,11 @@ export async function initializeCache(days: number = 7): Promise<{
     const sinceDate = new Date()
     sinceDate.setDate(sinceDate.getDate() - days)
     
-    const commits = await fetchGitHubCommits(100, sinceDate.toISOString())
+    // Fetch ALL commits for the period with pagination
+    const commits = await fetchGitHubCommits({
+      since: sinceDate.toISOString(),
+    })
+    
     const stored = await storeCommits(commits)
     await updateSyncInfo(stored)
     

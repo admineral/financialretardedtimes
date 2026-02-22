@@ -509,10 +509,10 @@ export default function OpenClawSettingsPage() {
                   Max Commits Per Sync
                 </label>
                 <p className="text-xs text-muted-foreground mb-2">
-                  Maximum number of commits to fetch from GitHub per sync operation
+                  Maximum commits to fetch per sync. Use 0 for unlimited (fetches all commits with pagination).
                 </p>
-                <div className="flex items-center gap-2">
-                  {[30, 50, 100, 200].map(count => (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {[100, 500, 1000, 0].map(count => (
                     <button
                       key={count}
                       onClick={() => setEditedSettings(prev => ({ ...prev, maxCommitsPerSync: count }))}
@@ -524,10 +524,13 @@ export default function OpenClawSettingsPage() {
                         }
                       `}
                     >
-                      {count}
+                      {count === 0 ? '∞ All' : count}
                     </button>
                   ))}
                 </div>
+                <p className="text-xs text-amber-500/80 mt-2">
+                  Note: OpenClaw has ~500 commits/day. Use "∞ All" to fetch everything with pagination.
+                </p>
               </div>
 
               {/* Default Language */}
@@ -687,11 +690,16 @@ export default function OpenClawSettingsPage() {
             <div className="space-y-3 text-sm text-muted-foreground">
               <p>
                 <strong className="text-foreground">Incremental Sync:</strong> When you click "Sync New Commits", 
-                only commits newer than your most recent cached commit are fetched from GitHub.
+                only commits newer than your most recent cached commit are fetched from GitHub. Uses pagination to fetch all new commits.
               </p>
               <p>
-                <strong className="text-foreground">Full Resync:</strong> Re-fetches the last {settings?.maxCommitsPerSync || 100} commits 
-                from GitHub, useful if you suspect missing data.
+                <strong className="text-foreground">Full Resync:</strong> Re-fetches all commits for the last {settings?.defaultDays || 7} days 
+                from GitHub using pagination. Use this if you suspect missing data.
+              </p>
+              <p>
+                <strong className="text-foreground">Pagination:</strong> GitHub API returns max 100 commits per request. 
+                We automatically follow pagination links to fetch all commits. For active repos like OpenClaw (~500 commits/day), 
+                this means ~5 requests per day of history.
               </p>
               <p>
                 <strong className="text-foreground">Cache Duration:</strong> Uses Next.js <code className="px-1 py-0.5 bg-muted rounded">use cache</code> directive 

@@ -196,14 +196,15 @@ export default function OpenClawTodayPage() {
   // Auto-generate newspaper if needed
   useEffect(() => {
     if (!isLoadingCommits && commits.length > 0 && hasGenerated && !cachedNewspaper && !isGenerating && !newspaperData) {
-      console.log(`[OPENCLAW] Auto-generating newspaper... (forceRegenerate: ${forceRegenerate})`)
-      submit({ language, commitCount: commits.length, forceRegenerate })
+      const dayRange = selectedDates.length || 1
+      console.log(`[OPENCLAW] Auto-generating newspaper... (forceRegenerate: ${forceRegenerate}, dayRange: ${dayRange}, commits: ${commits.length})`)
+      submit({ language, commitCount: commits.length, dayRange, forceRegenerate })
       // Reset force flag after triggering
       if (forceRegenerate) {
         setForceRegenerate(false)
       }
     }
-  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, submit, language, forceRegenerate])
+  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, submit, language, forceRegenerate, selectedDates.length])
 
   const handleDateSelect = useCallback((date: string) => {
     setSelectedDate(date)
@@ -489,11 +490,27 @@ export default function OpenClawTodayPage() {
             {cachedNewspaper && !isGenerating && (
               <div className="lg:col-span-12 mb-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground/70 bg-muted/30 px-4 py-2 rounded-sm border border-primary/5">
-                  <span>
-                    <span className="text-emerald-500/80 mr-1">●</span>
-                    Cached: {new Date(cachedNewspaper.updatedAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US', {
-                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                    })} ({cachedNewspaper.language.toUpperCase()}) • {cachedNewspaper.commitCount} commits
+                  <span className="flex items-center gap-3">
+                    <span className="flex items-center gap-1">
+                      <span className="text-emerald-500/80">●</span>
+                      Cached: {new Date(cachedNewspaper.updatedAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US', {
+                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                      })} ({cachedNewspaper.language.toUpperCase()})
+                    </span>
+                    <span className="text-muted-foreground/40">•</span>
+                    <span className="flex items-center gap-1">
+                      <GitCommit className="w-3 h-3" />
+                      <strong className="text-foreground">{cachedNewspaper.commitCount}</strong> commits analyzed
+                    </span>
+                    {cachedNewspaper.uniqueContributors > 0 && (
+                      <>
+                        <span className="text-muted-foreground/40">•</span>
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          {cachedNewspaper.uniqueContributors} contributors
+                        </span>
+                      </>
+                    )}
                   </span>
                   <button 
                     onClick={() => {
@@ -506,6 +523,18 @@ export default function OpenClawTodayPage() {
                   >
                     {strings.regenerate || 'Regenerate'}
                   </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Generating Banner */}
+            {isGenerating && (
+              <div className="lg:col-span-12 mb-2">
+                <div className="flex items-center justify-between text-xs text-muted-foreground/70 bg-primary/5 px-4 py-2 rounded-sm border border-primary/20">
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                    <span>Generating newspaper from <strong className="text-foreground">{commits.length}</strong> commits...</span>
+                  </span>
                 </div>
               </div>
             )}
