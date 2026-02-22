@@ -23,7 +23,7 @@ import {
 import { CONFIG, getUIStrings, type Language } from './lib/config'
 import { OpenClawNewspaperSchema, type OpenClawNewspaperData } from './lib/schemas'
 import type { CommitStats } from './lib/types'
-import { Skeleton, CategoryBadge, getCategoryStyle, CommitTimeline, CommitTicker, type DayRange } from './components'
+import { Skeleton, CategoryBadge, getCategoryStyle, CommitTimeline, CommitTicker, CommitChart, type DayRange } from './components'
 import {
   getSettings,
   updateSettings,
@@ -57,6 +57,7 @@ export default function OpenClawTodayPage() {
   const [isLoadingDates, setIsLoadingDates] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
   const [hasGenerated, setHasGenerated] = useState(false)
+  const [forceRegenerate, setForceRegenerate] = useState(false)
   const [today, setToday] = useState<string>('')
   const [language, setLanguage] = useState<Language>('en')
   const [initError, setInitError] = useState<string | null>(null)
@@ -147,6 +148,7 @@ export default function OpenClawTodayPage() {
       // Auto-generate if needed and we have commits
       if (shouldAutoGenerate) {
         setHasGenerated(true)
+        setForceRegenerate(true)
       }
     } catch (err) {
       setInitError(err instanceof Error ? err.message : 'Failed to load data')
@@ -194,10 +196,14 @@ export default function OpenClawTodayPage() {
   // Auto-generate newspaper if needed
   useEffect(() => {
     if (!isLoadingCommits && commits.length > 0 && hasGenerated && !cachedNewspaper && !isGenerating && !newspaperData) {
-      console.log('[OPENCLAW] Auto-generating newspaper...')
-      submit({ language, commitCount: commits.length })
+      console.log(`[OPENCLAW] Auto-generating newspaper... (forceRegenerate: ${forceRegenerate})`)
+      submit({ language, commitCount: commits.length, forceRegenerate })
+      // Reset force flag after triggering
+      if (forceRegenerate) {
+        setForceRegenerate(false)
+      }
     }
-  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, submit, language])
+  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, submit, language, forceRegenerate])
 
   const handleDateSelect = useCallback((date: string) => {
     setSelectedDate(date)
@@ -260,6 +266,22 @@ export default function OpenClawTodayPage() {
               <span className="text-muted-foreground">{today || '...'}</span>
             </div>
             <div className="flex items-center gap-3">
+              {/* Refresh Button */}
+              <button
+                onClick={() => {
+                  console.log('[OPENCLAW] Full refresh triggered by user')
+                  setCachedNewspaper(null)
+                  setHasGenerated(true)
+                  setForceRegenerate(true)
+                }}
+                disabled={isGenerating}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Force refresh newspaper"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+              <span className="text-muted-foreground/40">|</span>
               {/* Language Toggle */}
               <div className="flex items-center gap-1 text-xs">
                 <button
@@ -280,11 +302,13 @@ export default function OpenClawTodayPage() {
                         console.log(`[OPENCLAW] EN cache too old (${cacheAgeHours.toFixed(1)}h), will auto-generate`)
                         setCachedNewspaper(null)
                         setHasGenerated(true)
+                        setForceRegenerate(true)
                       }
                     } else {
                       console.log(`[OPENCLAW] No EN cached newspaper, will auto-generate`)
                       setCachedNewspaper(null)
                       setHasGenerated(true)
+                      setForceRegenerate(true)
                     }
                   }}
                   className={`px-2 py-1 rounded ${language === 'en' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
@@ -309,11 +333,13 @@ export default function OpenClawTodayPage() {
                         console.log(`[OPENCLAW] DE cache too old (${cacheAgeHours.toFixed(1)}h), will auto-generate`)
                         setCachedNewspaper(null)
                         setHasGenerated(true)
+                        setForceRegenerate(true)
                       }
                     } else {
                       console.log(`[OPENCLAW] No DE cached newspaper, will auto-generate`)
                       setCachedNewspaper(null)
                       setHasGenerated(true)
+                      setForceRegenerate(true)
                     }
                   }}
                   className={`px-2 py-1 rounded ${language === 'de' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
@@ -447,6 +473,7 @@ export default function OpenClawTodayPage() {
               onClick={() => {
                 setCachedNewspaper(null)
                 setHasGenerated(true)
+                setForceRegenerate(true)
               }} 
               className="ml-3 underline hover:no-underline"
             >
@@ -473,6 +500,7 @@ export default function OpenClawTodayPage() {
                       console.log('[OPENCLAW] User requested regeneration')
                       setCachedNewspaper(null)
                       setHasGenerated(true)
+                      setForceRegenerate(true)
                     }}
                     className="text-xs hover:text-primary transition-colors underline"
                   >
@@ -734,6 +762,19 @@ export default function OpenClawTodayPage() {
           </div>
         )}
       </div>
+
+      {/* Commit Chart Section */}
+      {!isLoadingCommits && commits.length > 0 && (
+        <section className="border-t border-primary/10 mt-8 bg-card/20 relative z-10">
+          <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <CommitChart 
+              dailyStats={dailyStats}
+              commits={commits}
+              isLoading={isLoadingCommits}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-primary/20 bg-card/50 mt-auto relative z-10">
