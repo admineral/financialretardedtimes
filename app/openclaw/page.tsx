@@ -400,6 +400,14 @@ export default function OpenClawTodayPage() {
                 {CONFIG.repo.fullName}
                 <ExternalLink className="w-3 h-3" />
               </a>
+              <span className="text-muted-foreground/40">|</span>
+              <Link
+                href="/openclaw/issues"
+                className="flex items-center gap-2 hover:text-primary transition-colors"
+              >
+                <AlertCircle className="w-4 h-4" />
+                Issues & PRs
+              </Link>
             </div>
           </div>
         </div>

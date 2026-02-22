@@ -108,3 +108,115 @@ export const OpenClawNewspaperSchema = z.object({
 })
 
 export type OpenClawNewspaperData = z.infer<typeof OpenClawNewspaperSchema>
+
+// ============================================
+// Issues & Pull Requests Newspaper Schema
+// ============================================
+
+/**
+ * Schema for clustered issues/PRs - groups related items together
+ */
+export const IssueClusterSchema = z.object({
+  id: z.string().describe('Unique cluster identifier (e.g., "audio-ios", "gateway-errors")'),
+  name: z.string().describe('Human-readable cluster name (e.g., "iOS Audio Subsystem")'),
+  theme: z.string().describe('What connects these issues/PRs together'),
+  
+  priority: z.enum(['critical', 'high', 'medium', 'low']).describe('Priority based on impact and urgency'),
+  
+  issues: z.array(z.object({
+    number: z.number(),
+    title: z.string(),
+    relevance: z.string().describe('Why this issue belongs to this cluster'),
+  })).describe('Related issues'),
+  
+  pullRequests: z.array(z.object({
+    number: z.number(),
+    title: z.string(),
+    relevance: z.string().describe('Why this PR belongs to this cluster'),
+    status: z.enum(['open', 'merged', 'draft']),
+  })).optional().describe('Related pull requests'),
+  
+  affectedAreas: z.array(z.string()).describe('Parts of the codebase affected (e.g., "/ios/Audio/*", "Gateway")'),
+  
+  actionPrompt: z.string().describe('A concrete, actionable prompt for addressing this cluster. Be specific about what to implement, fix, or refactor.'),
+  
+  estimatedScope: z.enum(['small', 'medium', 'large', 'epic']).describe('Rough scope of work'),
+  
+  dependencies: z.array(z.string()).optional().describe('Other clusters or external dependencies'),
+  
+  suggestedApproach: z.array(z.string()).min(2).max(5).describe('2-5 concrete steps to address this cluster'),
+})
+
+export type IssueCluster = z.infer<typeof IssueClusterSchema>
+
+/**
+ * Schema for the Issues/PRs newspaper
+ */
+export const OpenClawIssuesNewspaperSchema = z.object({
+  headline: z.string().describe('Factual headline summarizing the repo state (5-10 words). Example: "Gateway Stability Dominates Open Issues"'),
+  subheadline: z.string().describe('Brief context. Example: "143 open issues across 12 themes, 28 PRs awaiting review"'),
+  
+  summary: z.object({
+    overview: z.string().describe('2-3 paragraphs summarizing the overall state of issues and PRs. What are the main themes? Where is effort focused?'),
+    healthScore: z.enum(['healthy', 'attention-needed', 'concerning', 'critical']).describe('Overall project health based on issue/PR state'),
+    healthReason: z.string().describe('Brief explanation of the health score'),
+  }),
+  
+  clusters: z.array(IssueClusterSchema).min(3).max(10).describe('3-10 thematic clusters of related issues/PRs'),
+  
+  hotspots: z.array(z.object({
+    area: z.string().describe('Area of the codebase or feature'),
+    issueCount: z.number(),
+    prCount: z.number(),
+    trend: z.enum(['increasing', 'stable', 'decreasing']).describe('Based on recent activity'),
+    insight: z.string().describe('What this hotspot indicates'),
+  })).min(3).max(6).describe('Areas with concentrated activity'),
+  
+  staleItems: z.object({
+    issues: z.array(z.object({
+      number: z.number(),
+      title: z.string(),
+      daysSinceUpdate: z.number(),
+      suggestion: z.string().describe('What to do with this stale issue'),
+    })).max(5).describe('Issues with no activity for 30+ days'),
+    pullRequests: z.array(z.object({
+      number: z.number(),
+      title: z.string(),
+      daysSinceUpdate: z.number(),
+      suggestion: z.string().describe('What to do with this stale PR'),
+    })).max(5).describe('PRs with no activity for 14+ days'),
+  }).optional().describe('Items that need attention due to inactivity'),
+  
+  quickWins: z.array(z.object({
+    number: z.number(),
+    type: z.enum(['issue', 'pr']),
+    title: z.string(),
+    reason: z.string().describe('Why this is a quick win'),
+    actionPrompt: z.string().describe('Specific prompt to address this item'),
+  })).min(2).max(5).describe('Low-effort, high-value items to tackle first'),
+  
+  contributorInsights: z.object({
+    mostActive: z.array(z.object({
+      username: z.string(),
+      issuesOpened: z.number(),
+      prsOpened: z.number(),
+      focus: z.string().describe('What areas they work on'),
+    })).max(5),
+    needsReviewers: z.array(z.string()).optional().describe('PRs that need reviewer attention'),
+  }).optional(),
+  
+  batchPrompt: z.string().describe('A comprehensive prompt that addresses multiple clusters at once. This should be a well-structured prompt that a developer could use to tackle several related issues in one session.'),
+  
+  outlook: z.string().describe('1-2 sentences on what patterns suggest for the project direction'),
+  
+  stats: z.object({
+    totalIssues: z.number(),
+    openIssues: z.number(),
+    totalPRs: z.number(),
+    openPRs: z.number(),
+    mergedPRsLast30Days: z.number().optional(),
+    avgIssueAge: z.number().optional().describe('Average age of open issues in days'),
+  }),
+})
+
+export type OpenClawIssuesNewspaperData = z.infer<typeof OpenClawIssuesNewspaperSchema>

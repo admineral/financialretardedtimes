@@ -38,4 +38,78 @@ export interface CommitStats {
   categories: Record<string, number>
 }
 
-export { type OpenClawNewspaperData } from './schemas'
+// ============================================
+// Issues & Pull Requests Types
+// ============================================
+
+export interface GitHubLabel {
+  name: string
+  color: string
+  description: string | null
+}
+
+export interface GitHubUser {
+  login: string
+  avatar_url: string
+  html_url: string
+}
+
+export interface GitHubIssue {
+  number: number
+  title: string
+  body: string | null
+  state: 'open' | 'closed'
+  labels: GitHubLabel[]
+  user: GitHubUser
+  assignees: GitHubUser[]
+  created_at: string
+  updated_at: string
+  closed_at: string | null
+  html_url: string
+  comments: number
+  reactions?: {
+    total_count: number
+    '+1': number
+    '-1': number
+    laugh: number
+    hooray: number
+    confused: number
+    heart: number
+    rocket: number
+    eyes: number
+  }
+}
+
+export interface GitHubPullRequest extends GitHubIssue {
+  merged_at: string | null
+  merge_commit_sha: string | null
+  draft: boolean
+  head: {
+    ref: string
+    sha: string
+  }
+  base: {
+    ref: string
+    sha: string
+  }
+  additions?: number
+  deletions?: number
+  changed_files?: number
+}
+
+export interface IssueStats {
+  totalIssues: number
+  openIssues: number
+  closedIssues: number
+  totalPRs: number
+  openPRs: number
+  mergedPRs: number
+  closedPRs: number
+  uniqueAuthors: number
+  uniqueAssignees: number
+  mostActiveLabels: Array<{ name: string; count: number }>
+  avgCommentsPerIssue: number
+  avgCommentsPerPR: number
+}
+
+export { type OpenClawNewspaperData, type OpenClawIssuesNewspaperData } from './schemas'

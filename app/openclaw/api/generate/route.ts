@@ -18,6 +18,7 @@ import {
   saveNewspaperToCache,
   getCachedCommits,
   calculateStatsFromCache,
+  syncCommits,
 } from '../../actions/cache'
 
 export async function POST(request: NextRequest) {
@@ -64,6 +65,12 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`[OPENCLAW] Generating new newspaper in ${language}`)
+    
+    // Sync new commits before generating (incremental - only fetches new ones)
+    if (forceRegenerate) {
+      console.log(`[OPENCLAW] Running incremental sync before regeneration`)
+      await syncCommits(false, 'auto')
+    }
     
     const prompts = getPrompts(language)
     
