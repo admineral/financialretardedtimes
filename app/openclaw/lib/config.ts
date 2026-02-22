@@ -97,6 +97,7 @@ export function getUIStrings(language: Language) {
       dominantCategory: 'Dominant Category',
       impact: 'Impact',
       involved: 'Contributors',
+      regenerate: 'Regenerate',
       footer: 'OpenClaw Today • A Financial Retarded Times Publication • Powered by AI',
     },
     de: {
@@ -124,6 +125,7 @@ export function getUIStrings(language: Language) {
       dominantCategory: 'Dominante Kategorie',
       impact: 'Impact',
       involved: 'Beteiligte',
+      regenerate: 'Neu generieren',
       footer: 'OpenClaw Today • Eine Publikation der Financial Retarded Times • Powered by AI',
     },
   }

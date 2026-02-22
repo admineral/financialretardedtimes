@@ -32,9 +32,11 @@ import {
   getCachedCommits,
   getDailyStats,
   calculateStatsFromCache,
+  getMostRecentNewspaper,
   type DailyStats,
   type CachedCommit,
   type OpenClawSettings,
+  type CachedNewspaper,
 } from './actions/cache'
 
 function StreamingCursor({ show }: { show: boolean }) {
@@ -49,6 +51,7 @@ export default function OpenClawTodayPage() {
   const [settings, setSettings] = useState<OpenClawSettings | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [selectedDates, setSelectedDates] = useState<string[]>([])
+  const [cachedNewspaper, setCachedNewspaper] = useState<CachedNewspaper | null>(null)
   
   const [isLoadingCommits, setIsLoadingCommits] = useState(true)
   const [isLoadingDates, setIsLoadingDates] = useState(true)
@@ -70,7 +73,9 @@ export default function OpenClawTodayPage() {
     schema: OpenClawNewspaperSchema,
   })
 
-  const data = newspaperData as Partial<OpenClawNewspaperData> | undefined
+  // Use streamed data if available, otherwise use cached newspaper
+  const data = (newspaperData as Partial<OpenClawNewspaperData> | undefined) || 
+    (cachedNewspaper?.data as Partial<OpenClawNewspaperData> | undefined)
 
   // Set today's date based on current language
   useEffect(() => {
@@ -97,8 +102,15 @@ export default function OpenClawTodayPage() {
       setDailyStats(statsData)
       
       // Set language from settings (English default)
-      if (settingsData.defaultLanguage) {
-        setLanguage(settingsData.defaultLanguage)
+      const lang = settingsData.defaultLanguage || 'en'
+      setLanguage(lang)
+      
+      // Try to load cached newspaper for current language
+      const cached = await getMostRecentNewspaper(lang)
+      if (cached) {
+        console.log(`[OPENCLAW] Found cached newspaper from ${cached.updatedAt}`)
+        setCachedNewspaper(cached)
+        setHasGenerated(true)
       }
       
       if (statsData.length === 0) {
@@ -229,18 +241,36 @@ export default function OpenClawTodayPage() {
               {/* Language Toggle */}
               <div className="flex items-center gap-1 text-xs">
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setLanguage('en')
                     updateSettings({ defaultLanguage: 'en' })
+                    // Load cached newspaper for English
+                    const cached = await getMostRecentNewspaper('en')
+                    if (cached) {
+                      setCachedNewspaper(cached)
+                      setHasGenerated(true)
+                    } else {
+                      setCachedNewspaper(null)
+                      setHasGenerated(false)
+                    }
                   }}
                   className={`px-2 py-1 rounded ${language === 'en' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   EN
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     setLanguage('de')
                     updateSettings({ defaultLanguage: 'de' })
+                    // Load cached newspaper for German
+                    const cached = await getMostRecentNewspaper('de')
+                    if (cached) {
+                      setCachedNewspaper(cached)
+                      setHasGenerated(true)
+                    } else {
+                      setCachedNewspaper(null)
+                      setHasGenerated(false)
+                    }
                   }}
                   className={`px-2 py-1 rounded ${language === 'de' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                 >
@@ -397,6 +427,29 @@ export default function OpenClawTodayPage() {
         {/* Newspaper Content */}
         {(data || isGenerating) && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Cache Info Banner */}
+            {cachedNewspaper && !isGenerating && (
+              <div className="lg:col-span-12 mb-2">
+                <div className="flex items-center justify-between text-xs text-muted-foreground/70 bg-muted/30 px-4 py-2 rounded-sm border border-primary/5">
+                  <span>
+                    <span className="text-emerald-500/80 mr-1">●</span>
+                    Cached: {new Date(cachedNewspaper.updatedAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US', {
+                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    })} ({cachedNewspaper.language.toUpperCase()}) • {cachedNewspaper.commitCount} commits
+                  </span>
+                  <button 
+                    onClick={() => {
+                      setCachedNewspaper(null)
+                      setHasGenerated(false)
+                    }}
+                    className="text-xs hover:text-primary transition-colors underline"
+                  >
+                    {strings.regenerate || 'Regenerate'}
+                  </button>
+                </div>
+              </div>
+            )}
+            
             {/* Main Column */}
             <div className="lg:col-span-8">
               {/* Headline */}

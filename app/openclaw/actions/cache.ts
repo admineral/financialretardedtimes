@@ -684,3 +684,156 @@ export async function getSyncStats(): Promise<SyncStats> {
     lastFailedSync: data.last_failed_sync,
   }
 }
+
+// ============================================================================
+// Newspaper Cache Functions
+// ============================================================================
+
+export interface CachedNewspaper {
+  id: string
+  cacheDate: string
+  dayRange: number
+  language: 'en' | 'de'
+  data: Record<string, unknown>
+  commitCount: number
+  uniqueContributors: number
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Get cached newspaper for a specific date, day range, and language
+ */
+export async function getCachedNewspaper(
+  date: string,
+  dayRange: number = 1,
+  language: 'en' | 'de' = 'en'
+): Promise<CachedNewspaper | null> {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('openclaw_newspaper_cache')
+    .select('*')
+    .eq('cache_date', date)
+    .eq('day_range', dayRange)
+    .eq('language', language)
+    .single()
+  
+  if (error || !data) {
+    return null
+  }
+  
+  return {
+    id: data.id,
+    cacheDate: data.cache_date,
+    dayRange: data.day_range,
+    language: data.language,
+    data: data.data,
+    commitCount: data.commit_count,
+    uniqueContributors: data.unique_contributors,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  }
+}
+
+/**
+ * Save generated newspaper to cache
+ */
+export async function saveNewspaperToCache(
+  date: string,
+  dayRange: number,
+  language: 'en' | 'de',
+  data: Record<string, unknown>,
+  commitCount: number,
+  uniqueContributors: number
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient()
+  
+  const { error } = await supabase
+    .from('openclaw_newspaper_cache')
+    .upsert({
+      cache_date: date,
+      day_range: dayRange,
+      language,
+      data,
+      commit_count: commitCount,
+      unique_contributors: uniqueContributors,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'cache_date,day_range,language',
+    })
+  
+  if (error) {
+    console.error('Failed to save newspaper to cache:', error)
+    return { success: false, error: error.message }
+  }
+  
+  return { success: true }
+}
+
+/**
+ * Get all cached newspapers (for listing)
+ */
+export async function getCachedNewspapersList(limit: number = 20): Promise<CachedNewspaper[]> {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('openclaw_newspaper_cache')
+    .select('*')
+    .order('cache_date', { ascending: false })
+    .order('language', { ascending: true })
+    .limit(limit)
+  
+  if (error) {
+    console.error('Failed to fetch cached newspapers:', error)
+    return []
+  }
+  
+  return (data || []).map(row => ({
+    id: row.id,
+    cacheDate: row.cache_date,
+    dayRange: row.day_range,
+    language: row.language,
+    data: row.data,
+    commitCount: row.commit_count,
+    uniqueContributors: row.unique_contributors,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }))
+}
+
+/**
+ * Get the most recent cached newspaper for any language
+ */
+export async function getMostRecentNewspaper(language?: 'en' | 'de'): Promise<CachedNewspaper | null> {
+  const supabase = await createClient()
+  
+  let query = supabase
+    .from('openclaw_newspaper_cache')
+    .select('*')
+    .order('cache_date', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .limit(1)
+  
+  if (language) {
+    query = query.eq('language', language)
+  }
+  
+  const { data, error } = await query.single()
+  
+  if (error || !data) {
+    return null
+  }
+  
+  return {
+    id: data.id,
+    cacheDate: data.cache_date,
+    dayRange: data.day_range,
+    language: data.language,
+    data: data.data,
+    commitCount: data.commit_count,
+    uniqueContributors: data.unique_contributors,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  }
+}
