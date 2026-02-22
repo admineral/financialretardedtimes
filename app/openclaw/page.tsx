@@ -654,6 +654,32 @@ export default function OpenClawTodayPage() {
                 </div>
               </div>
 
+              {/* Brief News (Kurzmeldungen) */}
+              {data?.briefNews && data.briefNews.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center gap-3 mb-4">
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    <h3 className="font-headline text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                      {strings.briefNews}
+                    </h3>
+                    <div className="flex-1 h-px bg-gradient-to-r from-muted-foreground/20 to-transparent" />
+                  </div>
+                  <ul className="space-y-2">
+                    {data.briefNews.map((item, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <span className="text-primary/60 mt-1">•</span>
+                        <span>{item.text}</span>
+                        {item.commitSha && (
+                          <code className="text-[10px] text-muted-foreground/60 font-mono">
+                            ({item.commitSha.substring(0, 7)})
+                          </code>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Week Ahead */}
               {data?.weekAhead && (
                 <div className="glass-card p-5 rounded-sm">

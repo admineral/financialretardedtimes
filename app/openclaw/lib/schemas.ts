@@ -40,6 +40,11 @@ export const OpenClawNewspaperSchema = z.object({
     commitSha: z.string().optional().describe('The short SHA of the related commit'),
   })).describe('4-6 notable changes across different categories, each telling a mini-story'),
   
+  briefNews: z.array(z.object({
+    text: z.string().describe('One-liner news item (max 15 words)'),
+    commitSha: z.string().optional().describe('Related commit SHA if applicable'),
+  })).optional().describe('Kurzmeldungen: 3-5 quick-hit updates for smaller changes that don\'t need full highlights (chores, minor fixes, dependency updates, typo fixes)'),
+  
   codeInsights: z.object({
     totalCommits: z.number(),
     mergeCommits: z.number(),
