@@ -1,0 +1,6 @@
+ignoredBuiltDependencies:
+  - puppeteer
+
+onlyBuiltDependencies:
+  - puppeteer
+  - supabase
