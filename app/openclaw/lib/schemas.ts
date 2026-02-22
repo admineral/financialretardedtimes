@@ -41,9 +41,10 @@ export const OpenClawNewspaperSchema = z.object({
   })).describe('4-6 notable changes across different categories, each telling a mini-story'),
   
   briefNews: z.array(z.object({
-    text: z.string().describe('One-liner news item (max 15 words)'),
-    commitSha: z.string().optional().describe('Related commit SHA if applicable'),
-  })).optional().describe('Kurzmeldungen: 3-5 quick-hit updates for smaller changes that don\'t need full highlights (chores, minor fixes, dependency updates, typo fixes)'),
+    title: z.string().describe('Short headline for this theme (3-6 words)'),
+    text: z.string().describe('1-2 sentences connecting multiple commits around this theme'),
+    relatedCommits: z.number().optional().describe('How many commits relate to this theme'),
+  })).optional().describe('Kurzmeldungen: 3-5 thematic summaries that connect multiple commits. Each item identifies a pattern/trend across commits (e.g., "iOS stability focus", "Documentation push", "Test coverage expansion") and explains the collective effort.'),
   
   codeInsights: z.object({
     totalCommits: z.number(),

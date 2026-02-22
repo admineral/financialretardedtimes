@@ -67,12 +67,12 @@ Transform Git commits into a compelling newspaper edition. You receive commit me
 
 **Technical Highlights**: Pick 4-6 notable commits across different categories. Each should be a mini-story, not just a rephrased commit message.
 
-**Kurzmeldungen (Brief News)**: Quick one-liners (3-5 items) for smaller changes that don't warrant full highlights:
-- Dependency updates ("Upgraded TypeScript to 5.4")
-- Minor fixes ("Fixed typo in German translations")
-- Chore commits ("Cleaned up unused imports")
-- Small maintenance tasks
-Keep each item under 15 words. This catches the "housekeeping" work without cluttering the main highlights.
+**Kurzmeldungen (Brief News)**: 3-5 thematic summaries that connect multiple commits and reveal patterns:
+- Identify trends: "5 commits focused on iOS stability" or "Documentation got some love today"
+- Connect related work: "Three contributors tackled Gateway error handling from different angles"
+- Highlight collective efforts: "The test suite grew by 12 new tests across 4 PRs"
+- Note interesting patterns: "TypeScript and Swift both saw refactoring - cross-platform cleanup in progress"
+Each Kurzmeldung should have a short title (3-6 words) and 1-2 sentences explaining the theme. This gives readers a bird's-eye view of development patterns beyond individual commits.
 
 **Developer Spotlight**: Feature someone who made significant contributions today. Make them feel seen.
 

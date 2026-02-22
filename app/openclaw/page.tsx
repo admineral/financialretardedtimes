@@ -654,7 +654,7 @@ export default function OpenClawTodayPage() {
                 </div>
               </div>
 
-              {/* Brief News (Kurzmeldungen) */}
+              {/* Brief News (Kurzmeldungen) - Thematic summaries */}
               {data?.briefNews && data.briefNews.length > 0 && (
                 <div className="mb-8">
                   <div className="flex items-center gap-3 mb-4">
@@ -664,19 +664,23 @@ export default function OpenClawTodayPage() {
                     </h3>
                     <div className="flex-1 h-px bg-gradient-to-r from-muted-foreground/20 to-transparent" />
                   </div>
-                  <ul className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {data.briefNews.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
-                        <span className="text-primary/60 mt-1">•</span>
-                        <span>{item.text}</span>
-                        {item.commitSha && (
-                          <code className="text-[10px] text-muted-foreground/60 font-mono">
-                            ({item.commitSha.substring(0, 7)})
-                          </code>
-                        )}
-                      </li>
+                      <div key={idx} className="p-3 bg-card/50 rounded-sm border border-primary/5">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="font-headline text-sm font-semibold text-foreground">
+                            {item.title}
+                          </h4>
+                          {item.relatedCommits && (
+                            <span className="text-[10px] text-muted-foreground/60 font-mono">
+                              {item.relatedCommits} commits
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{item.text}</p>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
 
