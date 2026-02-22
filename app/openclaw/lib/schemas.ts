@@ -7,6 +7,55 @@
 
 import { z } from 'zod'
 
+/**
+ * Schema for expanded full article (generated on-the-fly)
+ */
+export const OpenClawExpandedArticleSchema = z.object({
+  title: z.string().describe('Engaging article title based on the theme'),
+  subtitle: z.string().describe('One sentence subtitle adding context'),
+  
+  introduction: z.string().describe('2-3 sentences setting up the story - what happened and why it matters'),
+  
+  sections: z.array(z.object({
+    heading: z.string().describe('Section heading'),
+    content: z.string().describe('2-4 paragraphs diving deep into this aspect'),
+    relatedCommits: z.array(z.object({
+      sha: z.string(),
+      message: z.string(),
+      author: z.string(),
+    })).optional().describe('Specific commits related to this section'),
+  })).min(2).max(4).describe('2-4 detailed sections exploring different aspects'),
+  
+  trendAnalysis: z.object({
+    pattern: z.string().describe('The overall pattern/trend identified'),
+    significance: z.string().describe('Why this trend matters for OpenClaw'),
+    relatedAreas: z.array(z.string()).describe('Related parts of the codebase affected'),
+  }).describe('Analysis of the development trend'),
+  
+  contributorInsights: z.array(z.object({
+    username: z.string(),
+    role: z.string().describe('Their role in this work: Lead, Contributor, Reviewer'),
+    contribution: z.string().describe('What they specifically contributed'),
+    commitCount: z.number(),
+  })).min(1).max(5).describe('Key contributors to this work'),
+  
+  technicalDeepDive: z.object({
+    whatChanged: z.string().describe('Technical explanation of what changed'),
+    whyItMatters: z.string().describe('Impact on users and the project'),
+    architectureNotes: z.string().optional().describe('How it connects to OpenClaw architecture (Gateway, Pi agent, Skills, Canvas)'),
+  }).optional().describe('Technical deep dive for developer audience'),
+  
+  keyTakeaways: z.array(z.string()).min(2).max(4).describe('2-4 bullet point takeaways'),
+  
+  outlook: z.string().describe('What this might lead to next, based on the commit patterns'),
+  
+  sentiment: z.enum(['momentum', 'stability', 'exploration', 'maintenance']).describe('Overall sentiment of this work'),
+  
+  relatedTopics: z.array(z.string()).min(2).max(4).describe('Related topics/areas for further reading'),
+})
+
+export type OpenClawExpandedArticleData = z.infer<typeof OpenClawExpandedArticleSchema>
+
 export const OpenClawNewspaperSchema = z.object({
   headline: z.string().describe('Attention-grabbing headline (5-10 words) capturing the day\'s most impactful development. Example: "Gateway Overhaul Brings 50% Faster Response Times"'),
   subheadline: z.string().describe('Supporting context that complements the headline. Example: "Community rallies with 15 contributors pushing stability improvements"'),

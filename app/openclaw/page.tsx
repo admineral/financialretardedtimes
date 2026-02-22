@@ -611,6 +611,18 @@ export default function OpenClawTodayPage() {
                     ))}
                   </div>
                 )}
+
+                {data?.leadStory?.title && (
+                  <div className="mt-6 pt-4 border-t border-primary/20">
+                    <Link 
+                      href={`/openclaw/article/${encodeURIComponent((data.leadStory.title || '').toLowerCase().replace(/\s+/g, '-'))}?title=${encodeURIComponent(data.leadStory.title || '')}&type=leadStory&language=${language}&dayRange=${selectedDates.length || 1}&selectedDate=${selectedDate || ''}`}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-sm transition-colors text-sm font-headline"
+                    >
+                      {strings.readFullArticle}
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
+                )}
               </article>
 
               {/* Technical Highlights */}
@@ -625,23 +637,34 @@ export default function OpenClawTodayPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {data?.technicalHighlights ? (
-                    data.technicalHighlights.slice(0, 6).map((highlight, idx) => (
-                      <div 
-                        key={idx}
-                        className="glass-card p-4 rounded-sm border-l-2 border-primary/40"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <CategoryBadge category={highlight.category} />
-                          {highlight.commitSha && (
-                            <code className="text-[10px] text-muted-foreground font-mono">
-                              {highlight.commitSha.substring(0, 7)}
-                            </code>
-                          )}
+                    data.technicalHighlights.slice(0, 6).filter(h => h?.title).map((highlight, idx) => {
+                      const slug = (highlight.title || '').toLowerCase().replace(/\s+/g, '-')
+                      const articleUrl = `/openclaw/article/${encodeURIComponent(slug)}?title=${encodeURIComponent(highlight.title || '')}&type=technicalHighlight&category=${encodeURIComponent(highlight.category || '')}&language=${language}&dayRange=${selectedDates.length || 1}&selectedDate=${selectedDate || ''}`
+                      return (
+                        <div 
+                          key={idx}
+                          className="glass-card p-4 rounded-sm border-l-2 border-primary/40 group hover:border-primary/60 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <CategoryBadge category={highlight.category} />
+                            {highlight.commitSha && (
+                              <code className="text-[10px] text-muted-foreground font-mono">
+                                {highlight.commitSha.substring(0, 7)}
+                              </code>
+                            )}
+                          </div>
+                          <h4 className="font-headline text-sm font-semibold mb-1">{highlight.title}</h4>
+                          <p className="text-xs text-muted-foreground mb-3">{highlight.description}</p>
+                          <Link 
+                            href={articleUrl}
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            {strings.readFullArticle || 'Read Full Article'}
+                            <ChevronRight className="w-3 h-3" />
+                          </Link>
                         </div>
-                        <h4 className="font-headline text-sm font-semibold mb-1">{highlight.title}</h4>
-                        <p className="text-xs text-muted-foreground">{highlight.description}</p>
-                      </div>
-                    ))
+                      )
+                    })
                   ) : isGenerating ? (
                     Array(4).fill(0).map((_, idx) => (
                       <div key={idx} className="glass-card p-4 rounded-sm">
@@ -665,21 +688,32 @@ export default function OpenClawTodayPage() {
                     <div className="flex-1 h-px bg-gradient-to-r from-muted-foreground/20 to-transparent" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {data.briefNews.map((item, idx) => (
-                      <div key={idx} className="p-3 bg-card/50 rounded-sm border border-primary/5">
-                        <div className="flex items-center justify-between mb-1">
-                          <h4 className="font-headline text-sm font-semibold text-foreground">
-                            {item.title}
-                          </h4>
-                          {item.relatedCommits && (
-                            <span className="text-[10px] text-muted-foreground/60 font-mono">
-                              {item.relatedCommits} commits
-                            </span>
-                          )}
+                    {data.briefNews.filter(item => item?.title).map((item, idx) => {
+                      const slug = (item.title || '').toLowerCase().replace(/\s+/g, '-')
+                      const articleUrl = `/openclaw/article/${encodeURIComponent(slug)}?title=${encodeURIComponent(item.title || '')}&type=briefNews&language=${language}&dayRange=${selectedDates.length || 1}&selectedDate=${selectedDate || ''}`
+                      return (
+                        <div key={idx} className="p-3 bg-card/50 rounded-sm border border-primary/5 group hover:border-primary/20 transition-colors">
+                          <div className="flex items-center justify-between mb-1">
+                            <h4 className="font-headline text-sm font-semibold text-foreground">
+                              {item.title}
+                            </h4>
+                            {item.relatedCommits && (
+                              <span className="text-[10px] text-muted-foreground/60 font-mono">
+                                {item.relatedCommits} commits
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">{item.text}</p>
+                          <Link 
+                            href={articleUrl}
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            {strings.readFullArticle || 'Read Full Article'}
+                            <ChevronRight className="w-3 h-3" />
+                          </Link>
                         </div>
-                        <p className="text-xs text-muted-foreground">{item.text}</p>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}

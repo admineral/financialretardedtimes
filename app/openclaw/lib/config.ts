@@ -99,6 +99,7 @@ export function getUIStrings(language: Language) {
       impact: 'Impact',
       involved: 'Contributors',
       regenerate: 'Regenerate',
+      readFullArticle: 'Read Full Article',
       footer: 'OpenClaw Today • A Financial Retarded Times Publication • Powered by AI',
     },
     de: {
@@ -128,6 +129,7 @@ export function getUIStrings(language: Language) {
       impact: 'Impact',
       involved: 'Beteiligte',
       regenerate: 'Neu generieren',
+      readFullArticle: 'Vollständiger Artikel',
       footer: 'OpenClaw Today • Eine Publikation der Financial Retarded Times • Powered by AI',
     },
   }
