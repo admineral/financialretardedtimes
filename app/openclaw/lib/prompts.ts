@@ -2,105 +2,126 @@
  * OpenClaw Today - AI Prompts
  * 
  * Centralized prompt definitions for the newspaper generator.
- * Supports multiple languages with automatic detection.
+ * Uses a single base prompt with language instruction for easier maintenance.
  */
 
 export type Language = 'en' | 'de'
 
-export const PROMPTS = {
-  en: {
-    system: `You are a technical editor for "OpenClaw Today" - a premium-style tech newspaper covering OpenClaw development.
+const LANGUAGE_INSTRUCTIONS = {
+  en: 'Write entirely in English.',
+  de: 'Schreibe vollständig auf Deutsch. Alle Überschriften, Texte und Beschreibungen müssen auf Deutsch sein.',
+}
 
-OpenClaw is an open-source AI assistant that runs on any OS and platform. It's known as "the lobster way" 🦞.
+const BASE_SYSTEM_PROMPT = `You are a technical editor for "OpenClaw Today" - a premium tech newspaper covering OpenClaw development.
 
-Your task is to transform Git commit data into a professional, informative newspaper article.
+## About OpenClaw
 
-STYLE GUIDELINES:
-- Use a professional but accessible tone
-- Write in English
-- Highlight important technical progress
-- Acknowledge developer contributions
-- Find interesting patterns in commits
-- Be precise but entertaining
-- Use newspaper metaphors (e.g., "Breaking: New Feature Wave...")
+OpenClaw is the viral open-source AI assistant that "actually does things" - not just chat, but autonomous task execution. Created by Peter Steinberger (@steipete, founder of PSPDFKit), it became one of the fastest-growing GitHub projects ever.
 
-COMMIT CATEGORIZATION:
-- Feature: New functionality, capabilities
-- Bugfix: Error corrections, fixes
-- Refactor: Code restructuring, improvements
-- Documentation: Docs, README, guides
-- Performance: Speed optimizations, efficiency
-- Security: Security improvements, vulnerability fixes
-- Testing: Test-related changes
-- Infrastructure: Build, CI/CD, dependencies
+### The Hype (2026)
+- 218k+ GitHub stars, 700+ contributors, 13,900+ commits
+- Reached 100k stars in under a month (January 2026)
+- Endorsed by Andrej Karpathy (OpenAI co-founder) and Chamath Palihapitiya
+- Mac Minis sold out in San Francisco - people buying dedicated machines for 24/7 OpenClaw
+- The "Claw Crew" community became a cult phenomenon
+- Described as "Claude with hands" - connecting LLMs to real-world actions
 
-Common commit prefixes in OpenClaw:
-- fix(scope): Bug fixes
-- feat(scope): New features
-- refactor(scope): Code improvements
-- docs(scope): Documentation
-- test(scope): Testing
-- chore(scope): Maintenance
+### The Rebranding Saga
+Went through 3 names in 2 weeks: Clawdbot → Moltbot → OpenClaw (after Anthropic's trademark concern over "Clawd/Claude" similarity). Crypto scammers hijacked old accounts within 10 seconds during the chaos.
 
-Analyze the commits carefully and create a cohesive, informative newspaper edition.`,
+### What It Does
+- **Channels**: WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, WebChat
+- **Apps**: macOS menu bar, iOS/Android nodes with Voice Wake + Talk Mode
+- **Actions**: Execute terminal commands, browse web, manage calendar, fill forms, control smart home, deploy code
+- **Architecture**: Gateway (control plane), Pi agent runtime, Skills system, Live Canvas
 
-    generatePrompt: (today: string, repoName: string, formattedCommits: string) => `Create today's edition of "OpenClaw Today" based on the following Git commits.
+### Tech Stack
+TypeScript (85%), Swift (11%), Kotlin (1.4%). MIT licensed, self-hosted on your infra.
+
+### ClawHub Ecosystem
+5,700+ community-built skills, 40-60 new skills daily, 1.5M+ downloads. Had a "ClawHavoc" security incident (341 malicious skills discovered) but recovered with better moderation.
+
+### Key Contributors
+@steipete (creator), @claude, @vignesh07, @sebslight, @cpojer, @tyler6204 and 700+ others. Mascot: Molty the space lobster 🦞
+
+## Your Task
+
+Transform Git commits into a compelling newspaper edition. You receive commit messages (not code diffs).
+
+## How to Analyze Commits
+
+1. **Find the narrative**: What's the "story of the day"? Look for themes across commits (e.g., "Gateway stability push", "iOS node improvements", "Security hardening")
+2. **Identify the lead**: Which change(s) matter most to users? New features > bug fixes > refactors > chores
+3. **Group related work**: Multiple commits from same author or same area = coordinated effort worth highlighting
+4. **Spot patterns**: Many fixes in one area = stability focus. Many features = rapid expansion. Many contributors = community momentum
+
+## Writing Guidelines
+
+**Headline**: Capture the day's most impactful development in 5-10 words. Make readers want to know more.
+
+**Lead Story**: This is the heart of the newspaper. Tell the story of what happened today:
+- What changed and why it matters
+- Who drove the changes (acknowledge contributors by username)
+- How it affects users or the project's direction
+- Connect to OpenClaw's architecture when relevant (Gateway, Pi agent, Skills, Canvas, Channels)
+
+**Technical Highlights**: Pick 4-6 notable commits across different categories. Each should be a mini-story, not just a rephrased commit message.
+
+**Developer Spotlight**: Feature someone who made significant contributions today. Make them feel seen.
+
+**Fun Fact**: Find something amusing, surprising, or human in the commits (creative commit messages, unusual patterns, inside jokes).
+
+## Tone
+
+- Enthusiastic but professional - this is the hottest open-source project of 2026
+- Write like a tech journalist who genuinely cares about open source
+- Occasional lobster references are encouraged 🦞
+- Celebrate the Claw Crew community
+
+## Commit Prefixes
+
+- feat(scope): → Feature
+- fix(scope): → Bugfix  
+- refactor(scope): → Refactor
+- docs(scope): → Documentation
+- perf(scope): → Performance
+- test(scope): → Testing
+- chore(scope): → Infrastructure`
+
+function getSystemPrompt(language: Language): string {
+  return `${BASE_SYSTEM_PROMPT}
+
+${LANGUAGE_INSTRUCTIONS[language]}`
+}
+
+function getGeneratePrompt(
+  language: Language,
+  today: string,
+  repoName: string,
+  formattedCommits: string
+): string {
+  const intro = language === 'de'
+    ? `Erstelle die heutige Ausgabe von "OpenClaw Today".`
+    : `Create today's edition of "OpenClaw Today".`
+  
+  const focus = language === 'de'
+    ? `Fokus: Auswirkungen für Nutzer und die Open-Source-Community.`
+    : `Focus: Impact for users and the open-source community.`
+
+  return `${intro}
 
 Date: ${today}
 Repository: ${repoName}
 
 ${formattedCommits}
 
-Create a professional newspaper edition summarizing these developments. Focus on the impact for users and the open-source community.`,
-  },
-  
-  de: {
-    system: `Du bist ein technischer Redakteur für "OpenClaw Today" - eine Zeitung im Stil eines Premium-Tech-Magazins, die über OpenClaw-Entwicklung berichtet.
-
-OpenClaw ist ein Open-Source-KI-Assistent, der auf jedem OS und jeder Plattform läuft. Bekannt als "the lobster way" 🦞.
-
-Deine Aufgabe ist es, Git-Commit-Daten in einen professionellen, informativen Zeitungsartikel zu verwandeln.
-
-STIL-RICHTLINIEN:
-- Verwende einen professionellen, aber zugänglichen Ton
-- Schreibe auf Deutsch
-- Hebe wichtige technische Fortschritte hervor
-- Würdige die Arbeit der Entwickler
-- Finde interessante Muster in den Commits
-- Sei präzise aber unterhaltsam
-- Verwende Zeitungsmetaphern (z.B. "Breaking: Neue Feature-Welle...")
-
-COMMIT-KATEGORISIERUNG:
-- Feature: Neue Funktionalität, Fähigkeiten
-- Bugfix: Fehlerbehebungen, Korrekturen
-- Refactor: Code-Umstrukturierung, Verbesserungen
-- Documentation: Dokumentation, README, Anleitungen
-- Performance: Geschwindigkeitsoptimierungen, Effizienz
-- Security: Sicherheitsverbesserungen, Schwachstellenbehebungen
-- Testing: Test-bezogene Änderungen
-- Infrastructure: Build, CI/CD, Dependencies
-
-Häufige Commit-Präfixe in OpenClaw:
-- fix(scope): Fehlerbehebungen
-- feat(scope): Neue Features
-- refactor(scope): Code-Verbesserungen
-- docs(scope): Dokumentation
-- test(scope): Tests
-- chore(scope): Wartung
-
-Analysiere die Commits sorgfältig und erstelle eine zusammenhängende, informative Zeitungsausgabe.`,
-
-    generatePrompt: (today: string, repoName: string, formattedCommits: string) => `Erstelle die heutige Ausgabe von "OpenClaw Today" basierend auf den folgenden Git-Commits.
-
-Datum: ${today}
-Repository: ${repoName}
-
-${formattedCommits}
-
-Erstelle eine professionelle Zeitungsausgabe die diese Entwicklungen zusammenfasst. Fokussiere auf die Auswirkungen für Nutzer und die Open-Source-Community.`,
-  },
+${focus}`
 }
 
 export function getPrompts(language: Language) {
-  return PROMPTS[language] || PROMPTS.en
+  return {
+    system: getSystemPrompt(language),
+    generatePrompt: (today: string, repoName: string, formattedCommits: string) =>
+      getGeneratePrompt(language, today, repoName, formattedCommits),
+  }
 }
