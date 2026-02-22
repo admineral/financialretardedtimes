@@ -57,21 +57,21 @@ export const OpenClawExpandedArticleSchema = z.object({
 export type OpenClawExpandedArticleData = z.infer<typeof OpenClawExpandedArticleSchema>
 
 export const OpenClawNewspaperSchema = z.object({
-  headline: z.string().describe('Attention-grabbing headline (5-10 words) capturing the day\'s most impactful development. Example: "Gateway Overhaul Brings 50% Faster Response Times"'),
-  subheadline: z.string().describe('Supporting context that complements the headline. Example: "Community rallies with 15 contributors pushing stability improvements"'),
+  headline: z.string().describe('Factual headline (5-10 words) describing the main development focus. Example: "Gateway Error Handling Improvements"'),
+  subheadline: z.string().describe('Brief context for the headline. Example: "15 contributors addressed stability across Gateway and iOS"'),
   
   leadStory: z.object({
-    title: z.string().describe('Engaging title for the main article'),
-    summary: z.string().describe('2-3 paragraphs telling the story of today\'s development. Explain WHAT changed, WHY it matters, and WHO drove it. Reference specific commits and usernames. Connect to OpenClaw architecture (Gateway, Pi agent, Skills, Canvas) when relevant.'),
-    impact: z.string().describe('1-2 sentences on how these changes affect end users or the project direction'),
-    contributors: z.array(z.string()).describe('GitHub usernames of key contributors to highlight (use @ prefix)'),
+    title: z.string().describe('Descriptive title for the main summary'),
+    summary: z.string().describe('2-3 short paragraphs summarizing the day\'s commits. State WHAT changed and WHO contributed. Reference specific commits and usernames with @. Keep it factual and concise.'),
+    impact: z.string().describe('1-2 sentences on what these changes affect (users, APIs, stability)'),
+    contributors: z.array(z.string()).describe('GitHub usernames of contributors (use @ prefix)'),
   }),
   
   developerSpotlight: z.object({
-    username: z.string().describe('GitHub username (with @) of a standout contributor'),
-    contribution: z.string().describe('What they did and why it\'s noteworthy - make them feel appreciated'),
+    username: z.string().describe('GitHub username (with @) of the most active contributor'),
+    contribution: z.string().describe('Factual description of what they worked on'),
     commitCount: z.number().describe('Their commit count for this period'),
-  }).optional().describe('Feature a developer who made significant impact today'),
+  }).optional().describe('The contributor with most commits today'),
   
   technicalHighlights: z.array(z.object({
     category: z.enum([
@@ -84,16 +84,16 @@ export const OpenClawNewspaperSchema = z.object({
       'Testing', 
       'Infrastructure'
     ]),
-    title: z.string().describe('Catchy title for this highlight (not just the commit message)'),
-    description: z.string().describe('1-2 sentences explaining the change and its significance'),
+    title: z.string().describe('Clear title describing the change'),
+    description: z.string().describe('1 sentence explaining what changed'),
     commitSha: z.string().optional().describe('The short SHA of the related commit'),
-  })).describe('4-6 notable changes across different categories, each telling a mini-story'),
+  })).describe('4-6 notable commits, one sentence each'),
   
   briefNews: z.array(z.object({
-    title: z.string().describe('Short headline for this theme (3-6 words)'),
-    text: z.string().describe('1-2 sentences connecting multiple commits around this theme'),
-    relatedCommits: z.number().optional().describe('How many commits relate to this theme'),
-  })).optional().describe('Kurzmeldungen: 3-5 thematic summaries that connect multiple commits. Each item identifies a pattern/trend across commits (e.g., "iOS stability focus", "Documentation push", "Test coverage expansion") and explains the collective effort.'),
+    title: z.string().describe('Short label for this pattern (3-6 words)'),
+    text: z.string().describe('1-2 sentences noting the pattern across commits'),
+    relatedCommits: z.number().optional().describe('How many commits relate to this pattern'),
+  })).optional().describe('3-5 patterns observed across commits (e.g., "iOS: 5 stability fixes", "Test coverage expanded")'),
   
   codeInsights: z.object({
     totalCommits: z.number(),
@@ -103,8 +103,8 @@ export const OpenClawNewspaperSchema = z.object({
     dominantCategory: z.string().describe('The category with the most commits'),
   }),
   
-  weekAhead: z.string().describe('1-2 sentences predicting what might come next based on today\'s commits and patterns'),
-  funFact: z.string().optional().describe('Something amusing, surprising, or human from the commits - a creative message, unusual pattern, or community moment'),
+  weekAhead: z.string().describe('1-2 sentences on what patterns suggest might continue (based on commit activity, not speculation)'),
+  funFact: z.string().optional().describe('An amusing commit message or pattern, if any. Keep it brief. Skip if nothing notable.'),
 })
 
 export type OpenClawNewspaperData = z.infer<typeof OpenClawNewspaperSchema>
