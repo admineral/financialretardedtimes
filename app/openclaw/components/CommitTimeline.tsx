@@ -19,12 +19,8 @@ import {
   ChevronRightIcon, 
   RefreshCwIcon,
   GitCommit,
-  Users,
   GitMerge,
-  Clock,
-  Settings,
 } from 'lucide-react'
-import Link from 'next/link'
 import type { DailyStats } from '../actions/cache'
 
 export type DayRange = 1 | 3 | 7
@@ -130,20 +126,6 @@ export function CommitTimeline({
     }
   }, [selectedDate, dayRange, onDayRangeChange])
 
-  const selectedDateInfo = dailyStats.find(d => d.date === selectedDate)
-  
-  const getMultiDayStats = () => {
-    if (dayRange === 1 || dailyStats.length === 0) return null
-    const datesInRange = dailyStats.slice(0, dayRange)
-    const totalCommits = datesInRange.reduce((sum, d) => sum + d.commitCount, 0)
-    const totalMerges = datesInRange.reduce((sum, d) => sum + d.mergeCount, 0)
-    const uniqueContributors = new Set(
-      datesInRange.flatMap(d => [d.uniqueContributors])
-    ).size
-    return { totalCommits, totalMerges, uniqueContributors, daysCount: dayRange, actualDays: datesInRange.length }
-  }
-  
-  const multiDayStats = getMultiDayStats()
   const visibleDates = dailyStats.slice(scrollIndex, scrollIndex + visibleCount)
 
   const getDatesInRange = () => {
@@ -312,77 +294,8 @@ export function CommitTimeline({
           <ChevronRightIcon className="h-4 w-4" />
         </button>
 
-        {/* Stats Display */}
-        <div className="hidden md:flex items-center gap-3 border-l border-primary/20 pl-4 flex-shrink-0">
-          {multiDayStats ? (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-primary font-bold font-mono">{multiDayStats.daysCount}D</span>
-              <span className="text-muted-foreground/40">|</span>
-              <span className="font-mono text-muted-foreground flex items-center gap-1">
-                <GitCommit className="w-3 h-3" />
-                {multiDayStats.totalCommits}
-              </span>
-              <span className="text-muted-foreground/40">|</span>
-              <span className="font-mono text-muted-foreground flex items-center gap-1">
-                <GitMerge className="w-3 h-3 text-purple-400" />
-                {multiDayStats.totalMerges}
-              </span>
-            </div>
-          ) : selectedDateInfo && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-mono text-muted-foreground flex items-center gap-1">
-                <GitCommit className="w-3 h-3" />
-                {selectedDateInfo.commitCount}
-              </span>
-              <span className="text-muted-foreground/40">|</span>
-              <span className="font-mono text-muted-foreground flex items-center gap-1">
-                <Users className="w-3 h-3" />
-                {selectedDateInfo.uniqueContributors}
-              </span>
-            </div>
-          )}
-        </div>
-
         {/* Spacer */}
         <div className="flex-1" />
-        
-        {/* Timezone indicator */}
-        <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground/60 flex-shrink-0">
-          <Clock className="w-3 h-3" />
-          <span>{timezone}</span>
-        </div>
-        
-        {/* Divider */}
-        <div className="w-px h-6 bg-primary/10 hidden sm:block flex-shrink-0" />
-        
-        {/* Actions */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Refresh button */}
-          {onRefresh && (
-            <button
-              onClick={onRefresh}
-              disabled={isLoading}
-              className={`
-                p-2 rounded-full transition-all duration-200
-                hover:bg-primary/10 text-muted-foreground hover:text-primary
-                ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
-              `}
-              aria-label="Sync new commits"
-              title="Sync new commits from GitHub"
-            >
-              <RefreshCwIcon className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
-          )}
-          
-          {/* Settings link */}
-          <Link 
-            href="/openclaw/settings"
-            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-xs rounded-sm transition-all text-muted-foreground hover:text-primary hover:bg-primary/10"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Settings</span>
-          </Link>
-        </div>
       </div>
     </div>
   )

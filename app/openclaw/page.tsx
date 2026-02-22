@@ -17,7 +17,6 @@ import {
   Zap,
   Award,
   ChevronRight,
-  Clock,
   AlertCircle,
 } from 'lucide-react'
 import { CONFIG, getUIStrings, type Language } from './lib/config'
@@ -268,21 +267,49 @@ export default function OpenClawTodayPage() {
               <span className="text-muted-foreground">{today || '...'}</span>
             </div>
             <div className="flex items-center gap-3">
-              {/* Refresh Button */}
-              <button
-                onClick={() => {
-                  console.log('[OPENCLAW] Full refresh triggered by user')
-                  setCachedNewspaper(null)
-                  setHasGenerated(true)
-                  setForceRegenerate(true)
-                }}
-                disabled={isGenerating}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Force refresh newspaper"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">Refresh</span>
-              </button>
+              {/* Cache Info + Regenerate Button */}
+              {cachedNewspaper && !isGenerating ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="text-emerald-500/80">●</span>
+                  <span>
+                    {new Date(cachedNewspaper.updatedAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US', {
+                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      console.log('[OPENCLAW] User requested regeneration')
+                      setCachedNewspaper(null)
+                      setHasGenerated(true)
+                      setForceRegenerate(true)
+                    }}
+                    className="flex items-center gap-1 ml-1 text-muted-foreground hover:text-primary transition-colors"
+                    title="Regenerate newspaper"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : isGenerating ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                  <span className="hidden sm:inline">Generating...</span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    console.log('[OPENCLAW] Full refresh triggered by user')
+                    setCachedNewspaper(null)
+                    setHasGenerated(true)
+                    setForceRegenerate(true)
+                  }}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Generate newspaper"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Generate</span>
+                </button>
+              )}
               <span className="text-muted-foreground/40">|</span>
               {/* Language Toggle */}
               <div className="flex items-center gap-1 text-xs">
@@ -290,7 +317,6 @@ export default function OpenClawTodayPage() {
                   onClick={async () => {
                     setLanguage('en')
                     updateSettings({ defaultLanguage: 'en' })
-                    // Load cached newspaper for English
                     const cached = await getMostRecentNewspaper('en')
                     if (cached && settings) {
                       const cacheAgeHours = (Date.now() - new Date(cached.updatedAt).getTime()) / (1000 * 60 * 60)
@@ -321,7 +347,6 @@ export default function OpenClawTodayPage() {
                   onClick={async () => {
                     setLanguage('de')
                     updateSettings({ defaultLanguage: 'de' })
-                    // Load cached newspaper for German
                     const cached = await getMostRecentNewspaper('de')
                     if (cached && settings) {
                       const cacheAgeHours = (Date.now() - new Date(cached.updatedAt).getTime()) / (1000 * 60 * 60)
@@ -349,13 +374,6 @@ export default function OpenClawTodayPage() {
                   DE
                 </button>
               </div>
-              <Link 
-                href="/git-history" 
-                className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-              >
-                <GitBranch className="w-3 h-3" />
-                Git Explorer
-              </Link>
             </div>
           </div>
         </div>
@@ -371,9 +389,6 @@ export default function OpenClawTodayPage() {
             <h1 className="font-masthead text-4xl sm:text-5xl md:text-6xl lg:text-7xl gold-text tracking-wide mb-4">
               {CONFIG.newspaper.title}
             </h1>
-            <p className="text-sm tracking-[0.2em] uppercase text-muted-foreground/60 font-headline">
-              {CONFIG.newspaper.subtitle}
-            </p>
             <div className="flex items-center justify-center gap-6 mt-6 text-sm text-muted-foreground">
               <a 
                 href={CONFIG.repo.url}
@@ -412,35 +427,6 @@ export default function OpenClawTodayPage() {
         />
       </div>
 
-      {/* Stats Bar */}
-      <div className="w-full bg-card/30 border-b border-primary/10 relative z-10">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-center gap-8 flex-wrap">
-            <div className="flex items-center gap-2 text-sm">
-              <GitCommit className="w-4 h-4 text-primary" />
-              <span className="text-muted-foreground">{strings.commits}:</span>
-              <span className="font-bold text-foreground">{commits.length}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <GitMerge className="w-4 h-4 text-purple-400" />
-              <span className="text-muted-foreground">{strings.merges}:</span>
-              <span className="font-bold text-foreground">{stats?.merges || 0}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <Users className="w-4 h-4 text-emerald-400" />
-              <span className="text-muted-foreground">{strings.contributors}:</span>
-              <span className="font-bold text-foreground">{stats?.uniqueContributors || 0}</span>
-            </div>
-            {settings?.displayTimezone && settings.displayTimezone !== 'UTC' && (
-              <div className="flex items-center gap-2 text-sm">
-                <Clock className="w-4 h-4 text-muted-foreground" />
-                <span className="text-muted-foreground/60">{settings.displayTimezone}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Init Error */}
       {initError && (
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -459,14 +445,6 @@ export default function OpenClawTodayPage() {
 
       {/* Main Content */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10">
-        {/* Loading State */}
-        {isGenerating && !data?.headline && (
-          <div className="text-center py-16">
-            <RefreshCw className="w-12 h-12 mx-auto text-primary animate-spin mb-4" />
-            <p className="text-muted-foreground">{strings.analyzing}</p>
-          </div>
-        )}
-
         {/* Error State */}
         {error && (
           <div className="p-6 bg-destructive/10 border border-destructive/30 rounded-sm text-sm text-destructive mb-8">
@@ -484,62 +462,9 @@ export default function OpenClawTodayPage() {
           </div>
         )}
 
-        {/* Newspaper Content */}
-        {(data || isGenerating || cachedNewspaper) && (
+        {/* Newspaper Content - show skeletons during initial load or generation */}
+        {(data || isGenerating || cachedNewspaper || isLoadingCommits || isLoadingDates) && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Cache Info Banner */}
-            {cachedNewspaper && !isGenerating && (
-              <div className="lg:col-span-12 mb-2">
-                <div className="flex items-center justify-between text-xs text-muted-foreground/70 bg-muted/30 px-4 py-2 rounded-sm border border-primary/5">
-                  <span className="flex items-center gap-3">
-                    <span className="flex items-center gap-1">
-                      <span className="text-emerald-500/80">●</span>
-                      Cached: {new Date(cachedNewspaper.updatedAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US', {
-                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                      })} ({cachedNewspaper.language.toUpperCase()})
-                    </span>
-                    <span className="text-muted-foreground/40">•</span>
-                    <span className="flex items-center gap-1">
-                      <GitCommit className="w-3 h-3" />
-                      <strong className="text-foreground">{cachedNewspaper.commitCount}</strong> commits analyzed
-                    </span>
-                    {cachedNewspaper.uniqueContributors > 0 && (
-                      <>
-                        <span className="text-muted-foreground/40">•</span>
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3" />
-                          {cachedNewspaper.uniqueContributors} contributors
-                        </span>
-                      </>
-                    )}
-                  </span>
-                  <button 
-                    onClick={() => {
-                      console.log('[OPENCLAW] User requested regeneration')
-                      setCachedNewspaper(null)
-                      setHasGenerated(true)
-                      setForceRegenerate(true)
-                    }}
-                    className="text-xs hover:text-primary transition-colors underline"
-                  >
-                    {strings.regenerate || 'Regenerate'}
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            {/* Generating Banner */}
-            {isGenerating && (
-              <div className="lg:col-span-12 mb-2">
-                <div className="flex items-center justify-between text-xs text-muted-foreground/70 bg-primary/5 px-4 py-2 rounded-sm border border-primary/20">
-                  <span className="flex items-center gap-2">
-                    <RefreshCw className="w-3 h-3 animate-spin text-primary" />
-                    <span>Generating newspaper from <strong className="text-foreground">{commits.length}</strong> commits...</span>
-                  </span>
-                </div>
-              </div>
-            )}
-            
             {/* Main Column */}
             <div className="lg:col-span-8">
               {/* Headline */}
@@ -736,7 +661,7 @@ export default function OpenClawTodayPage() {
             <aside className="lg:col-span-4">
               <div className="sticky top-24 space-y-6">
                 {/* Developer Spotlight */}
-                {data?.developerSpotlight?.username && (
+                {data?.developerSpotlight?.username ? (
                   <div className="glass-card-gold p-5 rounded-sm">
                     <div className="flex items-center gap-2 mb-4">
                       <Award className="w-5 h-5 text-amber-400" />
@@ -755,10 +680,25 @@ export default function OpenClawTodayPage() {
                     </div>
                     <p className="text-sm text-muted-foreground">{data.developerSpotlight.contribution}</p>
                   </div>
+                ) : (isLoadingCommits || isGenerating) && (
+                  <div className="glass-card-gold p-5 rounded-sm">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Award className="w-5 h-5 text-amber-400" />
+                      <Skeleton className="w-32 h-4" />
+                    </div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <Skeleton className="w-12 h-12 rounded-full" />
+                      <div>
+                        <Skeleton className="w-24 h-4 mb-1" />
+                        <Skeleton className="w-16 h-3" />
+                      </div>
+                    </div>
+                    <Skeleton className="w-full h-4" />
+                  </div>
                 )}
 
                 {/* Code Insights */}
-                {data?.codeInsights && (
+                {data?.codeInsights ? (
                   <div className="glass-card p-5 rounded-sm">
                     <h4 className="font-headline text-sm font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
                       <TrendingUp className="w-4 h-4 text-primary" />
@@ -791,6 +731,27 @@ export default function OpenClawTodayPage() {
                       </div>
                     </div>
                   </div>
+                ) : (isLoadingCommits || isGenerating) && (
+                  <div className="glass-card p-5 rounded-sm">
+                    <div className="flex items-center gap-2 mb-4">
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                      <Skeleton className="w-24 h-4" />
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <Skeleton className="w-20 h-4" />
+                        <Skeleton className="w-8 h-4" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="w-24 h-4" />
+                        <Skeleton className="w-8 h-4" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="w-20 h-4" />
+                        <Skeleton className="w-8 h-4" />
+                      </div>
+                    </div>
+                  </div>
                 )}
 
                 {/* Fun Fact */}
@@ -811,37 +772,49 @@ export default function OpenClawTodayPage() {
                     {strings.recentCommits}
                   </h4>
                   <div className="space-y-3 max-h-80 overflow-y-auto">
-                    {commits.slice(0, 8).map((commit) => (
-                      <a
-                        key={commit.sha}
-                        href={commit.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block group"
-                      >
-                        <div className="flex items-start gap-2">
-                          <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${
-                            commit.isMerge 
-                              ? 'bg-purple-500/20 text-purple-400' 
-                              : 'bg-primary/20 text-primary'
-                          }`}>
-                            {commit.isMerge ? (
-                              <GitMerge className="w-3 h-3" />
-                            ) : (
-                              <GitCommit className="w-3 h-3" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate group-hover:text-primary transition-colors">
-                              {commit.message.split('\n')[0]}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {commit.author.username || commit.author.name} • {formatTime(commit.date)}
-                            </p>
+                    {isLoadingCommits ? (
+                      Array(5).fill(0).map((_, idx) => (
+                        <div key={idx} className="flex items-start gap-2">
+                          <Skeleton className="w-5 h-5 rounded-full flex-shrink-0" />
+                          <div className="flex-1">
+                            <Skeleton className="w-full h-4 mb-1" />
+                            <Skeleton className="w-24 h-3" />
                           </div>
                         </div>
-                      </a>
-                    ))}
+                      ))
+                    ) : (
+                      commits.slice(0, 8).map((commit) => (
+                        <a
+                          key={commit.sha}
+                          href={commit.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block group"
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${
+                              commit.isMerge 
+                                ? 'bg-purple-500/20 text-purple-400' 
+                                : 'bg-primary/20 text-primary'
+                            }`}>
+                              {commit.isMerge ? (
+                                <GitMerge className="w-3 h-3" />
+                              ) : (
+                                <GitCommit className="w-3 h-3" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate group-hover:text-primary transition-colors">
+                                {commit.message.split('\n')[0]}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {commit.author.username || commit.author.name} • {formatTime(commit.date)}
+                              </p>
+                            </div>
+                          </div>
+                        </a>
+                      ))
+                    )}
                   </div>
                   <Link
                     href="/git-history"
