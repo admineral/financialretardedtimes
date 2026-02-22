@@ -6,8 +6,12 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import Link from 'next/link'
-import { GitBranch, GitMerge, GitCommit, ExternalLink, Search, Loader2, ChevronLeft, ChevronRight, User, Calendar } from 'lucide-react'
+import { GitBranch, GitMerge, GitCommit, ExternalLink, Search, Loader2, ChevronLeft, ChevronRight, User, Calendar, Network } from 'lucide-react'
+import { BranchSelector } from './components/BranchSelector'
+import { GitGraphView } from './components/GitGraphView'
+import type { Branch, GraphData } from './lib/types'
 
 interface Commit {
   sha: string
@@ -51,6 +55,14 @@ export default function GitHistoryPage() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<CommitResponse | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
+  const [viewMode, setViewMode] = useState<'list' | 'graph'>('list')
+  
+  // Graph view state
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([])
+  const [graphData, setGraphData] = useState<GraphData | null>(null)
+  const [graphLoading, setGraphLoading] = useState(false)
+  const [graphError, setGraphError] = useState<string | null>(null)
 
   const fetchCommits = useCallback(async (page: number = 1) => {
     if (!repoUrl.trim()) {
@@ -117,6 +129,90 @@ export default function GitHistoryPage() {
     const lines = message.split('\n')
     return lines.length > 1 ? lines.slice(1).join('\n').trim() : null
   }
+  
+  // Fetch branches for graph view
+  const fetchBranches = useCallback(async () => {
+    if (!repoUrl.trim()) return
+    
+    setGraphLoading(true)
+    setGraphError(null)
+    
+    try {
+      const response = await fetch(
+        `/git-history/api/branches?repo=${encodeURIComponent(repoUrl)}&stats=true`
+      )
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch branches')
+      }
+      
+      setBranches(result.branches)
+      // Auto-select default branch and top 2 most recent branches
+      const autoSelect = result.branches
+        .slice(0, 3)
+        .map((b: Branch) => b.name)
+      setSelectedBranches(autoSelect)
+      
+      // Immediately fetch graph data
+      fetchGraph(result.branches.slice(0, 3).map((b: Branch) => b.name))
+    } catch (err) {
+      setGraphError(err instanceof Error ? err.message : 'Failed to fetch branches')
+      setBranches([])
+    } finally {
+      setGraphLoading(false)
+    }
+  }, [repoUrl])
+  
+  // Fetch commit graph
+  const fetchGraph = useCallback(async (branchNames: string[]) => {
+    if (!repoUrl.trim() || branchNames.length === 0) return
+    
+    setGraphLoading(true)
+    setGraphError(null)
+    
+    try {
+      const response = await fetch(
+        `/git-history/api/graph?repo=${encodeURIComponent(repoUrl)}&branches=${branchNames.join(',')}&limit=100`
+      )
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch commit graph')
+      }
+      
+      setGraphData(result)
+    } catch (err) {
+      setGraphError(err instanceof Error ? err.message : 'Failed to fetch commit graph')
+      setGraphData(null)
+    } finally {
+      setGraphLoading(false)
+    }
+  }, [repoUrl])
+  
+  // Handle branch toggle
+  const handleBranchToggle = useCallback((branchName: string) => {
+    setSelectedBranches(prev => {
+      const newSelection = prev.includes(branchName)
+        ? prev.filter(b => b !== branchName)
+        : [...prev, branchName]
+      
+      // Fetch graph with new selection
+      if (newSelection.length > 0) {
+        fetchGraph(newSelection)
+      }
+      
+      return newSelection
+    })
+  }, [fetchGraph])
+  
+  // Handle view mode change
+  const handleViewModeChange = useCallback((mode: 'list' | 'graph') => {
+    setViewMode(mode)
+    if (mode === 'graph' && branches.length === 0) {
+      fetchBranches()
+    }
+  }, [branches.length, fetchBranches])
 
   return (
     <main className="min-h-screen bg-background">
@@ -186,18 +282,68 @@ export default function GitHistoryPage() {
                 </button>
               ))}
             </div>
+            
+            {/* View Mode Tabs */}
+            {(data || graphData) && (
+              <div className="mt-4 pt-4 border-t border-primary/10">
+                <Tabs value={viewMode} onValueChange={(v) => handleViewModeChange(v as 'list' | 'graph')}>
+                  <TabsList className="grid w-full max-w-md grid-cols-2">
+                    <TabsTrigger value="list" className="flex items-center gap-2">
+                      <GitCommit className="w-4 h-4" />
+                      List View
+                    </TabsTrigger>
+                    <TabsTrigger value="graph" className="flex items-center gap-2">
+                      <Network className="w-4 h-4" />
+                      Graph View
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Error Message */}
-        {error && (
+        {error && viewMode === 'list' && (
           <div className="mb-8 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
             {error}
           </div>
         )}
+        
+        {/* Graph Error Message */}
+        {graphError && viewMode === 'graph' && (
+          <div className="mb-8 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+            {graphError}
+          </div>
+        )}
 
-        {/* Repository Info & Commits */}
-        {data && (
+        {/* Graph View */}
+        {viewMode === 'graph' && (
+          <div className="flex gap-0 border border-primary/20 rounded-lg overflow-hidden bg-card" style={{ height: 'calc(100vh - 400px)' }}>
+            <BranchSelector
+              branches={branches}
+              selectedBranches={selectedBranches}
+              onBranchToggle={handleBranchToggle}
+              onSelectAll={() => {
+                const allBranches = branches.map(b => b.name)
+                setSelectedBranches(allBranches)
+                fetchGraph(allBranches)
+              }}
+              onSelectNone={() => {
+                setSelectedBranches([])
+                setGraphData(null)
+              }}
+            />
+            <GitGraphView
+              graphData={graphData}
+              isLoading={graphLoading}
+              error={graphError}
+            />
+          </div>
+        )}
+
+        {/* Repository Info & Commits (List View) */}
+        {viewMode === 'list' && data && (
           <>
             {/* Repository Header */}
             <Card className="mb-6 border-primary/20">
@@ -349,7 +495,7 @@ export default function GitHistoryPage() {
         )}
 
         {/* Empty State */}
-        {!data && !loading && !error && (
+        {viewMode === 'list' && !data && !loading && !error && (
           <div className="text-center py-16">
             <GitBranch className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium mb-2">Keine Commits geladen</h3>

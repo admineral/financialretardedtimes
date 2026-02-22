@@ -107,10 +107,24 @@ export default function OpenClawTodayPage() {
       
       // Try to load cached newspaper for current language
       const cached = await getMostRecentNewspaper(lang)
+      let shouldAutoGenerate = false
+      
       if (cached) {
-        console.log(`[OPENCLAW] Found cached newspaper from ${cached.updatedAt}`)
-        setCachedNewspaper(cached)
-        setHasGenerated(true)
+        // Check if cache is older than configured duration (default 24h)
+        const cacheAgeHours = (Date.now() - new Date(cached.updatedAt).getTime()) / (1000 * 60 * 60)
+        const maxCacheHours = settingsData.cacheDurationHours || 24
+        
+        if (cacheAgeHours < maxCacheHours) {
+          console.log(`[OPENCLAW] Using cached newspaper from ${cached.updatedAt} (${cacheAgeHours.toFixed(1)}h old)`)
+          setCachedNewspaper(cached)
+          setHasGenerated(true)
+        } else {
+          console.log(`[OPENCLAW] Cached newspaper too old (${cacheAgeHours.toFixed(1)}h > ${maxCacheHours}h), will auto-generate`)
+          shouldAutoGenerate = true
+        }
+      } else {
+        console.log(`[OPENCLAW] No cached newspaper found for ${lang}, will auto-generate`)
+        shouldAutoGenerate = true
       }
       
       if (statsData.length === 0) {
@@ -128,6 +142,11 @@ export default function OpenClawTodayPage() {
       } else {
         setSelectedDate(statsData[0].date)
         setSelectedDates([statsData[0].date])
+      }
+      
+      // Auto-generate if needed and we have commits
+      if (shouldAutoGenerate) {
+        setHasGenerated(true)
       }
     } catch (err) {
       setInitError(err instanceof Error ? err.message : 'Failed to load data')
@@ -172,6 +191,14 @@ export default function OpenClawTodayPage() {
     loadCommits()
   }, [selectedDates])
 
+  // Auto-generate newspaper if needed
+  useEffect(() => {
+    if (!isLoadingCommits && commits.length > 0 && hasGenerated && !cachedNewspaper && !isGenerating && !newspaperData) {
+      console.log('[OPENCLAW] Auto-generating newspaper...')
+      submit({ language, commitCount: commits.length })
+    }
+  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, submit, language])
+
   const handleDateSelect = useCallback((date: string) => {
     setSelectedDate(date)
   }, [])
@@ -191,11 +218,6 @@ export default function OpenClawTodayPage() {
       setIsSyncing(false)
     }
   }, [loadData])
-
-  const handleGenerate = useCallback(() => {
-    setHasGenerated(true)
-    submit({ language, commitCount: commits.length })
-  }, [submit, language, commits.length])
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString(language === 'de' ? 'de-DE' : 'en-US', {
@@ -246,12 +268,23 @@ export default function OpenClawTodayPage() {
                     updateSettings({ defaultLanguage: 'en' })
                     // Load cached newspaper for English
                     const cached = await getMostRecentNewspaper('en')
-                    if (cached) {
-                      setCachedNewspaper(cached)
-                      setHasGenerated(true)
+                    if (cached && settings) {
+                      const cacheAgeHours = (Date.now() - new Date(cached.updatedAt).getTime()) / (1000 * 60 * 60)
+                      const maxCacheHours = settings.cacheDurationHours || 24
+                      
+                      if (cacheAgeHours < maxCacheHours) {
+                        console.log(`[OPENCLAW] Loaded EN cached newspaper from ${cached.updatedAt} (${cacheAgeHours.toFixed(1)}h old)`)
+                        setCachedNewspaper(cached)
+                        setHasGenerated(true)
+                      } else {
+                        console.log(`[OPENCLAW] EN cache too old (${cacheAgeHours.toFixed(1)}h), will auto-generate`)
+                        setCachedNewspaper(null)
+                        setHasGenerated(true)
+                      }
                     } else {
+                      console.log(`[OPENCLAW] No EN cached newspaper, will auto-generate`)
                       setCachedNewspaper(null)
-                      setHasGenerated(false)
+                      setHasGenerated(true)
                     }
                   }}
                   className={`px-2 py-1 rounded ${language === 'en' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
@@ -264,12 +297,23 @@ export default function OpenClawTodayPage() {
                     updateSettings({ defaultLanguage: 'de' })
                     // Load cached newspaper for German
                     const cached = await getMostRecentNewspaper('de')
-                    if (cached) {
-                      setCachedNewspaper(cached)
-                      setHasGenerated(true)
+                    if (cached && settings) {
+                      const cacheAgeHours = (Date.now() - new Date(cached.updatedAt).getTime()) / (1000 * 60 * 60)
+                      const maxCacheHours = settings.cacheDurationHours || 24
+                      
+                      if (cacheAgeHours < maxCacheHours) {
+                        console.log(`[OPENCLAW] Loaded DE cached newspaper from ${cached.updatedAt} (${cacheAgeHours.toFixed(1)}h old)`)
+                        setCachedNewspaper(cached)
+                        setHasGenerated(true)
+                      } else {
+                        console.log(`[OPENCLAW] DE cache too old (${cacheAgeHours.toFixed(1)}h), will auto-generate`)
+                        setCachedNewspaper(null)
+                        setHasGenerated(true)
+                      }
                     } else {
+                      console.log(`[OPENCLAW] No DE cached newspaper, will auto-generate`)
                       setCachedNewspaper(null)
-                      setHasGenerated(false)
+                      setHasGenerated(true)
                     }
                   }}
                   className={`px-2 py-1 rounded ${language === 'de' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
@@ -387,25 +431,6 @@ export default function OpenClawTodayPage() {
 
       {/* Main Content */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10">
-        {/* Generate Button */}
-        {!hasGenerated && !isGenerating && (
-          <div className="text-center mb-12">
-            <button
-              onClick={handleGenerate}
-              disabled={isLoadingCommits || commits.length === 0}
-              className="inline-flex items-center gap-3 px-8 py-4 bg-primary text-primary-foreground font-headline text-lg rounded-sm hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:shadow-primary/20"
-            >
-              <Sparkles className="w-5 h-5" />
-              {strings.generateButton}
-            </button>
-            <p className="text-sm text-muted-foreground mt-4">
-              {isLoadingCommits 
-                ? strings.loadingCommits
-                : strings.commitsReady(commits.length)}
-            </p>
-          </div>
-        )}
-
         {/* Loading State */}
         {isGenerating && !data?.headline && (
           <div className="text-center py-16">
@@ -418,14 +443,20 @@ export default function OpenClawTodayPage() {
         {error && (
           <div className="p-6 bg-destructive/10 border border-destructive/30 rounded-sm text-sm text-destructive mb-8">
             <span className="font-semibold">{strings.error}:</span> {error.message}
-            <button onClick={handleGenerate} className="ml-3 underline hover:no-underline">
+            <button 
+              onClick={() => {
+                setCachedNewspaper(null)
+                setHasGenerated(true)
+              }} 
+              className="ml-3 underline hover:no-underline"
+            >
               {strings.retry}
             </button>
           </div>
         )}
 
         {/* Newspaper Content */}
-        {(data || isGenerating) && (
+        {(data || isGenerating || cachedNewspaper) && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Cache Info Banner */}
             {cachedNewspaper && !isGenerating && (
@@ -439,8 +470,9 @@ export default function OpenClawTodayPage() {
                   </span>
                   <button 
                     onClick={() => {
+                      console.log('[OPENCLAW] User requested regeneration')
                       setCachedNewspaper(null)
-                      setHasGenerated(false)
+                      setHasGenerated(true)
                     }}
                     className="text-xs hover:text-primary transition-colors underline"
                   >
