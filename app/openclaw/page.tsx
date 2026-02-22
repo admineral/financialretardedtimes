@@ -613,7 +613,7 @@ export default function OpenClawTodayPage() {
                 )}
 
                 {data?.leadStory?.title && (
-                  <div className="mt-6 pt-4 border-t border-primary/20">
+                  <div className="mt-6 pt-4 border-t border-primary/20 flex justify-end">
                     <Link 
                       href={`/openclaw/article/${encodeURIComponent((data.leadStory.title || '').toLowerCase().replace(/\s+/g, '-'))}?title=${encodeURIComponent(data.leadStory.title || '')}&type=leadStory&language=${language}&dayRange=${selectedDates.length || 1}&selectedDate=${selectedDate || ''}`}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-sm transition-colors text-sm font-headline"
@@ -657,7 +657,7 @@ export default function OpenClawTodayPage() {
                           <p className="text-xs text-muted-foreground mb-3">{highlight.description}</p>
                           <Link 
                             href={articleUrl}
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                           >
                             {strings.readFullArticle || 'Read Full Article'}
                             <ChevronRight className="w-3 h-3" />
@@ -706,7 +706,7 @@ export default function OpenClawTodayPage() {
                           <p className="text-xs text-muted-foreground mb-2">{item.text}</p>
                           <Link 
                             href={articleUrl}
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                           >
                             {strings.readFullArticle || 'Read Full Article'}
                             <ChevronRight className="w-3 h-3" />
