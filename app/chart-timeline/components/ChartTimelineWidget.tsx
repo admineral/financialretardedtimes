@@ -46,7 +46,8 @@ interface AnalysisResponse {
     id: string
     timestamp: string
     username: string
-    quote: string
+    title: string
+    fullQuote: string
     priceContext: string
     sentiment: string
     wasCorrect?: boolean
@@ -126,12 +127,12 @@ export function ChartTimelineWidget({ autoStart = true }: ChartTimelineWidgetPro
   // Convert quotes to timeline events
   const events: TimelineEvent[] = useMemo(() => {
     return (analysis?.quotes || [])
-      .filter(q => q && q.id && q.quote && q.username && q.timestamp)
+      .filter(q => q && q.id && q.title && q.username && q.timestamp)
       .map(q => ({
         id: q.id,
         date: q.timestamp.split('T')[0] || new Date().toISOString().split('T')[0],
         time: q.timestamp.split('T')[1]?.slice(0, 5) || '12:00',
-        title: q.quote,
+        title: q.title,
         description: `@${q.username}`,
         type: 'prediction' as const,
         participants: [q.username],

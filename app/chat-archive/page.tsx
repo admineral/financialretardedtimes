@@ -5,7 +5,8 @@ import { ChatViewer, ActivityTracker, UserProfileHeader } from './components'
 import { ActivityProvider, useActivity } from '@/lib/activity-context'
 import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
-import { RefreshCwIcon, LightbulbIcon, ExternalLinkIcon, ClockIcon, MessageCircleIcon, ZapIcon, CrownIcon, Trash2Icon } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { RefreshCwIcon, LightbulbIcon, ExternalLinkIcon, ClockIcon, MessageCircleIcon, ZapIcon, CrownIcon, Trash2Icon, SearchIcon, UserIcon, HistoryIcon, XIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   Tooltip,
@@ -16,6 +17,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 
 // Inner component that uses the context
 function ChatArchiveContent() {
@@ -659,6 +661,232 @@ function LoadingScreen({ username }: { username?: string }) {
   )
 }
 
+// Constants for localStorage
+const RECENT_USERS_KEY = 'chat-archive-recent-users'
+const MAX_RECENT_USERS = 10
+const DEFAULT_ROOM = 'bitcoin_de_DE'
+
+interface RecentUser {
+  username: string
+  room: string
+  lastVisited: number
+}
+
+// Helper to get recent users from localStorage
+function getRecentUsers(): RecentUser[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = localStorage.getItem(RECENT_USERS_KEY)
+    if (stored) {
+      return JSON.parse(stored)
+    }
+  } catch (e) {
+    console.error('Error reading recent users:', e)
+  }
+  return []
+}
+
+// Helper to save a user to recent users
+function saveRecentUser(username: string, room: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const users = getRecentUsers()
+    const filtered = users.filter(u => !(u.username === username && u.room === room))
+    const newUser: RecentUser = { username, room, lastVisited: Date.now() }
+    const updated = [newUser, ...filtered].slice(0, MAX_RECENT_USERS)
+    localStorage.setItem(RECENT_USERS_KEY, JSON.stringify(updated))
+  } catch (e) {
+    console.error('Error saving recent user:', e)
+  }
+}
+
+// Helper to remove a user from recent users
+function removeRecentUser(username: string, room: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const users = getRecentUsers()
+    const filtered = users.filter(u => !(u.username === username && u.room === room))
+    localStorage.setItem(RECENT_USERS_KEY, JSON.stringify(filtered))
+  } catch (e) {
+    console.error('Error removing recent user:', e)
+  }
+}
+
+// User selection screen when no URL params
+function UserSelectionScreen() {
+  const router = useRouter()
+  const [username, setUsername] = useState('')
+  const [room, setRoom] = useState(DEFAULT_ROOM)
+  const [recentUsers, setRecentUsers] = useState<RecentUser[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+
+  useEffect(() => {
+    setRecentUsers(getRecentUsers())
+  }, [])
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!username.trim()) return
+    
+    setIsSearching(true)
+    saveRecentUser(username.trim(), room)
+    router.push(`/chat-archive?username=${encodeURIComponent(username.trim())}&room=${encodeURIComponent(room)}`)
+  }
+
+  const handleRecentUserClick = (user: RecentUser) => {
+    saveRecentUser(user.username, user.room)
+    router.push(`/chat-archive?username=${encodeURIComponent(user.username)}&room=${encodeURIComponent(user.room)}`)
+  }
+
+  const handleRemoveRecentUser = (e: React.MouseEvent, user: RecentUser) => {
+    e.stopPropagation()
+    removeRecentUser(user.username, user.room)
+    setRecentUsers(getRecentUsers())
+  }
+
+  const formatTimeAgo = (timestamp: number) => {
+    const diff = Date.now() - timestamp
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    if (hours < 24) return `${hours}h ago`
+    return `${days}d ago`
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold mb-2">Chat Archive</h1>
+          <p className="text-muted-foreground">
+            Search for a TradingView user to view their chat activity and statistics
+          </p>
+        </div>
+
+        {/* Search Form */}
+        <Card className="mb-8">
+          <CardContent className="pt-6">
+            <form onSubmit={handleSearch} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="username" className="text-sm font-medium">
+                  TradingView Username
+                </label>
+                <div className="relative">
+                  <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="username"
+                    type="text"
+                    placeholder="Enter username..."
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="pl-10"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <label htmlFor="room" className="text-sm font-medium">
+                  Chat Room
+                </label>
+                <select
+                  id="room"
+                  value={room}
+                  onChange={(e) => setRoom(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  <option value="bitcoin_de_DE">Bitcoin (DE)</option>
+                  <option value="bitcoin">Bitcoin (EN)</option>
+                  <option value="crypto_de_DE">Crypto (DE)</option>
+                  <option value="crypto">Crypto (EN)</option>
+                  <option value="stocks_de_DE">Stocks (DE)</option>
+                  <option value="stocks">Stocks (EN)</option>
+                  <option value="forex_de_DE">Forex (DE)</option>
+                  <option value="forex">Forex (EN)</option>
+                </select>
+              </div>
+
+              <Button 
+                type="submit" 
+                className="w-full" 
+                disabled={!username.trim() || isSearching}
+              >
+                {isSearching ? (
+                  <>
+                    <RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <SearchIcon className="mr-2 h-4 w-4" />
+                    View Activity
+                  </>
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Recent Users */}
+        {recentUsers.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <HistoryIcon className="h-4 w-4" />
+              <span>Recent searches</span>
+            </div>
+            
+            <div className="grid gap-2">
+              {recentUsers.map((user, index) => (
+                <Card 
+                  key={`${user.username}-${user.room}-${index}`}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => handleRecentUserClick(user)}
+                >
+                  <CardContent className="py-3 px-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <UserIcon className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-medium">{user.username}</div>
+                        <div className="text-xs text-muted-foreground">{user.room}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {formatTimeAgo(user.lastVisited)}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={(e) => handleRemoveRecentUser(e, user)}
+                      >
+                        <XIcon className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Help Text */}
+        <div className="mt-8 text-center text-sm text-muted-foreground">
+          <p>
+            You can also access user profiles directly by clicking on usernames in the{' '}
+            <a href="/Test" className="text-primary hover:underline">chat</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Wrapper to read URL params before initializing provider
 function ChatArchiveWrapper() {
   const [urlParams, setUrlParams] = useState<{room: string, username: string} | null>(null)
@@ -680,6 +908,9 @@ function ChatArchiveWrapper() {
         
         // Only proceed if we have both room and username from URL
         if (urlRoom && urlUsername) {
+          // Save to recent users
+          saveRecentUser(urlUsername, urlRoom)
+          
           setUrlParams(prev => {
             // Check if params actually changed
             if (prev?.room !== urlRoom || prev?.username !== urlUsername) {
@@ -717,6 +948,8 @@ function ChatArchiveWrapper() {
         setUrlParams(prev => {
           if (prev?.room !== urlRoom || prev?.username !== urlUsername) {
             setKey(k => k + 1)
+            // Save to recent users
+            saveRecentUser(urlUsername, urlRoom)
             return { room: urlRoom, username: urlUsername }
           }
           return prev
@@ -735,16 +968,9 @@ function ChatArchiveWrapper() {
     return <LoadingScreen username={pendingUsername || undefined} />
   }
   
-  // No URL params available - show empty state
+  // No URL params available - show user selection UI
   if (!urlParams) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <h2 className="text-2xl font-bold">Chat Archive</h2>
-          <p className="text-muted-foreground">Please select a user from the chat to view their activity.</p>
-        </div>
-      </div>
-    )
+    return <UserSelectionScreen />
   }
   
   return (

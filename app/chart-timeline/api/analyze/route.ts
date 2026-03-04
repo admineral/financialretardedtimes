@@ -15,55 +15,47 @@ import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
 
-// Schema for price-correlated quotes
+// Schema for price-correlated quotes (lenient validation for streaming)
 const ChartQuoteSchema = z.object({
   id: z.string(),
-  timestamp: z.string(), // ISO format datetime
+  timestamp: z.string(),
   username: z.string(),
-  title: z.string().max(40), // Short title for chart labels - "LONG bei 92K!"
-  fullQuote: z.string().max(200), // The exact quote from the user - verbatim!
+  title: z.string(),
+  fullQuote: z.string(),
   priceContext: z.enum([
-    'pump_call',        // Called a pump before it happened
-    'dump_call',        // Called a dump before it happened  
-    'top_call',         // Called the top
-    'bottom_call',      // Called the bottom
-    'fomo',             // FOMO statement during pump
-    'panic',            // Panic statement during dump
-    'diamond_hands',    // Holding through volatility
-    'reversal',         // Called a reversal
-    'sideways',         // Noted consolidation
-    'analysis'          // Technical analysis
+    'pump_call', 'dump_call', 'top_call', 'bottom_call',
+    'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
   ]),
   sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-  wasCorrect: z.boolean().optional(), // For predictions: was it correct?
-  priceAtQuote: z.number(), // BTC price when quote was made
-  hasTimeframe: z.boolean().optional(), // Did they specify a timeframe? ("heute", "morgen", "diese Woche")
+  wasCorrect: z.boolean().optional(),
+  priceAtQuote: z.number(),
+  hasTimeframe: z.boolean().optional(),
 })
 
 const AnalysisResponseSchema = z.object({
-  headline: z.string().max(60), // Short headline for banner
-  subheadline: z.string().max(100), // Secondary context
+  headline: z.string(), // Short headline for banner
+  subheadline: z.string(), // Secondary context
   priceChange: z.object({
     startPrice: z.number(),
     endPrice: z.number(),
     changePercent: z.number(),
     trend: z.enum(['bullish', 'bearish', 'sideways'])
   }),
-  quotes: z.array(ChartQuoteSchema).min(6).max(20), // 6-20 quality quotes
+  quotes: z.array(ChartQuoteSchema).min(1), // At least 1 quote
   bestCall: z.object({
     username: z.string(),
-    quote: z.string().max(60),
-    context: z.string().max(80)
+    quote: z.string(),
+    context: z.string()
   }).optional(),
   worstCall: z.object({
     username: z.string(),
-    quote: z.string().max(60),
-    context: z.string().max(80)
+    quote: z.string(),
+    context: z.string()
   }).optional(),
   // Metadata about data sent to AI
   dataRange: z.object({
-    messagesFrom: z.string(), // ISO date of oldest message
-    messagesTo: z.string(),   // ISO date of newest message
+    messagesFrom: z.string(),
+    messagesTo: z.string(),
     messageCount: z.number(),
   }).optional()
 })
@@ -542,15 +534,15 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
     
     // Get the most recent analysis from cache
-    const { data: cached, error } = await supabase
+    const { data: cached, error, count } = await supabase
       .from('chart_timeline_analysis_cache')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('updated_at', { ascending: false })
       .limit(1)
       .single()
     
     if (error || !cached) {
-      console.log('[ANALYZE GET] No cached analysis found')
+      console.log('[ANALYZE GET] No cached analysis found, error:', error?.message)
       return NextResponse.json({
         cached: false,
         analysis: null,
@@ -558,15 +550,23 @@ export async function GET(request: NextRequest) {
       })
     }
     
-    console.log(`[ANALYZE GET] Returning cached analysis from ${cached.updated_at}`)
+    // Log cache details for debugging
+    const analysisData = cached.analysis_data as AnalysisResponse
+    console.log(`[ANALYZE GET] Returning cached analysis:`, {
+      id: cached.id,
+      updated_at: cached.updated_at,
+      headline: analysisData?.headline?.slice(0, 40),
+      quoteCount: cached.quote_count,
+      dataRange: cached.data_range
+    })
     
     return NextResponse.json({
       cached: true,
-      analysis: cached.analysis_data as AnalysisResponse,
+      analysis: analysisData,
       fetchedAt: cached.updated_at,
       quoteCount: cached.quote_count,
       messageCount: cached.message_count,
-      dataRange: cached.data_range || null  // { messagesFrom, messagesTo }
+      dataRange: cached.data_range || null
     })
     
   } catch (error) {
@@ -636,21 +636,54 @@ export async function POST(request: NextRequest) {
       lastCandle: ohlcLast ? new Date(ohlcLast.timestamp).toISOString() : null,
     })
     
-    // Fetch ALL chat messages from the 7-day range
-    const { data: messages, error, count } = await supabase
-      .from('tv_chat_messages')
-      .select('id, username, text, time, user_pic', { count: 'exact' })
-      .gte('time', sevenDaysAgo.toISOString())
-      .lte('time', now.toISOString())
-      .order('time', { ascending: true })  // Chronological order
+    // Fetch ALL chat messages from the 7-day range using pagination
+    // Supabase has a server-side limit of 1000 rows per request, so we paginate
+    console.log('[ANALYZE] Fetching messages with pagination (1000 per batch)...')
     
-    if (error) {
-      console.error('[ANALYZE] Supabase error:', error)
-      return new Response(JSON.stringify({ error: 'Database error' }), { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      })
+    const allMessages: ChatMessage[] = []
+    let lastTime: string | null = null
+    let batchCount = 0
+    const BATCH_SIZE = 1000
+    const MAX_BATCHES = 10 // Safety limit: max 10,000 messages
+    
+    while (batchCount < MAX_BATCHES) {
+      let query = supabase
+        .from('tv_chat_messages')
+        .select('id, username, text, time, user_pic')
+        .gte('time', sevenDaysAgo.toISOString())
+        .lte('time', now.toISOString())
+        .order('time', { ascending: true })
+        .limit(BATCH_SIZE)
+      
+      // For subsequent batches, start after the last message's time
+      if (lastTime) {
+        query = query.gt('time', lastTime)
+      }
+      
+      const { data: batch, error: batchError } = await query
+      
+      if (batchError) {
+        console.error('[ANALYZE] Supabase batch error:', batchError)
+        break
+      }
+      
+      if (!batch || batch.length === 0) {
+        break // No more messages
+      }
+      
+      allMessages.push(...(batch as ChatMessage[]))
+      lastTime = batch[batch.length - 1].time
+      batchCount++
+      
+      console.log(`[ANALYZE] Batch ${batchCount}: fetched ${batch.length} messages (total: ${allMessages.length})`)
+      
+      if (batch.length < BATCH_SIZE) {
+        break // Last batch was partial, no more messages
+      }
     }
+    
+    const messages = allMessages
+    const count = allMessages.length
     
     if (!messages || messages.length === 0) {
       console.error('[ANALYZE] No messages found in date range')
@@ -675,7 +708,7 @@ export async function POST(request: NextRequest) {
     
     console.log('[ANALYZE] Chat messages:', {
       fetched: messages?.length || 0,
-      totalInRange: count,
+      batches: batchCount,
       newest: newestMsg ? { time: newestMsg.time, user: newestMsg.username, text: newestMsg.text?.slice(0, 50) } : null,
       oldest: oldestMsg ? { time: oldestMsg.time, user: oldestMsg.username } : null,
     })
@@ -704,38 +737,90 @@ export async function POST(request: NextRequest) {
     }
     console.log('[ANALYZE] Data range being sent:', dataRange)
     
+    // Delete ALL old cache entries BEFORE streaming starts
+    console.log('[ANALYZE] Deleting old cache entries...')
+    const { error: deleteError } = await supabase
+      .from('chart_timeline_analysis_cache')
+      .delete()
+      .gte('id', 0)  // Match all rows (id is an integer)
+    
+    if (deleteError) {
+      console.error('[ANALYZE] Failed to delete old cache:', deleteError)
+    } else {
+      console.log('[ANALYZE] Deleted old cache entries')
+    }
+    
     // Use streamObject for streaming response
+    // Note: gpt-5.2 is a reasoning model and doesn't support temperature
     const result = streamObject({
       model: openai('gpt-5.2'),
       schema: AnalysisResponseSchema,
       system: ANALYSIS_PROMPT,
       prompt: fullContext,
-      temperature: 0.8,
-      async onFinish({ object }) {
+      onError(event) {
+        console.error('[ANALYZE] ❌ Stream onError:', event.error)
+      },
+      async onFinish({ object, error, usage }) {
         // Store in cache when streaming completes
-        if (object) {
-          try {
-            const analysisData = object as AnalysisResponse
-            const { error: insertError } = await supabase
-              .from('chart_timeline_analysis_cache')
-              .insert({
-                analysis_data: analysisData,
-                quote_count: analysisData.quotes?.length || 0,
-                message_count: messages?.length || 0,
-                start_price: analysisData.priceChange?.startPrice,
-                end_price: analysisData.priceChange?.endPrice,
-                price_change_percent: analysisData.priceChange?.changePercent,
-                data_range: dataRange,  // Store the date range
-              })
-            
-            if (insertError) {
-              console.error('[ANALYZE] Cache insert error:', insertError)
-            } else {
-              console.log('[ANALYZE] Cached new analysis successfully')
-            }
-          } catch (cacheError) {
-            console.error('[ANALYZE] Failed to cache analysis:', cacheError)
+        // IMPORTANT: Create a fresh supabase client for the async callback
+        // The original client may have stale connection in streaming context
+        console.log('[ANALYZE] 🏁 Stream finished:', { 
+          hasObject: !!object, 
+          hasError: !!error,
+          usage 
+        })
+        
+        if (error) {
+          console.error('[ANALYZE] ❌ Stream error:', error)
+          return
+        }
+        
+        if (!object) {
+          console.error('[ANALYZE] ❌ Stream finished but no object returned! This usually means schema validation failed.')
+          return
+        }
+        
+        try {
+          const freshSupabase = await createClient()
+          const analysisData = object as AnalysisResponse
+          
+          console.log('[ANALYZE] Analysis complete:', {
+            headline: analysisData.headline,
+            quoteCount: analysisData.quotes?.length || 0,
+          })
+          
+          // First, delete any entries that might have been created since we started
+          await freshSupabase
+            .from('chart_timeline_analysis_cache')
+            .delete()
+            .gte('id', 0)  // Match all rows (id is an integer)
+          
+          // Now insert the fresh analysis
+          const { data: insertedData, error: insertError } = await freshSupabase
+            .from('chart_timeline_analysis_cache')
+            .insert({
+              analysis_data: analysisData,
+              quote_count: analysisData.quotes?.length || 0,
+              message_count: messages?.length || 0,
+              start_price: analysisData.priceChange?.startPrice,
+              end_price: analysisData.priceChange?.endPrice,
+              price_change_percent: analysisData.priceChange?.changePercent,
+              data_range: dataRange,
+            })
+            .select('id, updated_at')
+            .single()
+          
+          if (insertError) {
+            console.error('[ANALYZE] ❌ Cache insert error:', JSON.stringify(insertError))
+          } else {
+            console.log('[ANALYZE] ✅ Cached new analysis successfully:', {
+              id: insertedData?.id,
+              updated_at: insertedData?.updated_at,
+              headline: analysisData.headline?.slice(0, 30)
+            })
           }
+        } catch (cacheError) {
+          console.error('[ANALYZE] ❌ Failed to cache analysis:', cacheError)
         }
       }
     })
