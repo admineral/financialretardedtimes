@@ -16,7 +16,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon } from 'lucide-react'
+import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon, ExternalLink } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
@@ -247,6 +247,14 @@ export default function NewspaperPage() {
                 <CurrentDate cacheUpdatedAt={cacheInfo?.updatedAt} />
               </div>
               <div className="flex items-center gap-3">
+                <Link
+                  href="/openclaw"
+                  onClick={() => track('newspaper_openclaw_click', { location: 'topbar' })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>OpenClaw</span>
+                </Link>
                 {isLoading && (
                   <span className="flex items-center gap-1.5 text-xs text-primary animate-pulse">
                     <SparklesIcon className="h-3.5 w-3.5" />
