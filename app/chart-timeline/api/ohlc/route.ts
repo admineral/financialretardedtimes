@@ -66,48 +66,124 @@ function getTimeframeParams(timeframe: string): { interval: string; limit: numbe
 }
 
 /**
- * Fetch OHLC data from Binance API (free, no auth required)
+ * Map timeframe to Kraken interval (in minutes) and limit
+ * Kraken intervals: 1, 5, 15, 30, 60, 240, 1440, 10080, 21600
  */
-async function fetchFromBinance(timeframe: string): Promise<OHLCData[]> {
-  const { interval, limit } = getTimeframeParams(timeframe)
-  
-  // Binance public API - no authentication needed!
-  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`
-  
-  console.log(`[OHLC API] Fetching from Binance: ${url}`)
-  
+function getKrakenParams(timeframe: string): { interval: number; since?: number } {
+  const now = Math.floor(Date.now() / 1000)
+  switch (timeframe) {
+    case '15m':
+      // 15-min candles, ~11 days
+      return { interval: 15, since: now - 11 * 24 * 60 * 60 }
+    case '1H':
+      // 1-hour candles, ~14 days
+      return { interval: 60, since: now - 14 * 24 * 60 * 60 }
+    case '4H':
+      // 4-hour candles, ~30 days
+      return { interval: 240, since: now - 30 * 24 * 60 * 60 }
+    case '1D':
+      // Daily candles, ~90 days
+      return { interval: 1440, since: now - 90 * 24 * 60 * 60 }
+    case '1W':
+      // Weekly candles, ~52 weeks
+      return { interval: 10080, since: now - 52 * 7 * 24 * 60 * 60 }
+    default:
+      return { interval: 15, since: now - 11 * 24 * 60 * 60 }
+  }
+}
+
+/**
+ * Fetch OHLC data from Kraken API (free, no auth, no geo-restrictions)
+ */
+async function fetchFromKraken(timeframe: string): Promise<OHLCData[]> {
+  const { interval, since } = getKrakenParams(timeframe)
+  const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=${interval}${since ? `&since=${since}` : ''}`
+
+  console.log(`[OHLC API] Fetching from Kraken: ${url}`)
+
   const response = await fetch(url, {
     headers: { 'Accept': 'application/json' },
     cache: 'no-store'
   })
-  
+
   if (!response.ok) {
-    // Check for rate limiting
-    if (response.status === 429) {
-      throw new Error('Rate limited by Binance')
-    }
-    // Check for IP ban
-    if (response.status === 418) {
-      throw new Error('IP banned by Binance - too many requests')
-    }
-    throw new Error(`Binance API error: ${response.status}`)
+    throw new Error(`Kraken API error: ${response.status}`)
   }
-  
-  const rawData: BinanceKline[] = await response.json()
-  
-  // Transform Binance format to our format
-  // Binance: [openTime, open, high, low, close, volume, closeTime, ...]
-  const ohlcData: OHLCData[] = rawData.map(kline => ({
-    timestamp: kline[0], // openTime in ms
-    open: parseFloat(kline[1]),
-    high: parseFloat(kline[2]),
-    low: parseFloat(kline[3]),
-    close: parseFloat(kline[4])
+
+  const json = await response.json()
+
+  if (json.error && json.error.length > 0) {
+    throw new Error(`Kraken API error: ${json.error.join(', ')}`)
+  }
+
+  // Kraken returns { result: { XXBTZUSD: [[time, open, high, low, close, vwap, volume, count], ...], last: ... } }
+  const pairData: (string | number)[][] = json.result?.XXBTZUSD ?? json.result?.XBTUSD ?? []
+
+  if (!Array.isArray(pairData) || pairData.length === 0) {
+    throw new Error('Kraken returned empty OHLC data')
+  }
+
+  // Kraken format: [time, open, high, low, close, vwap, volume, count]
+  // Timestamps are in seconds — convert to ms
+  const ohlcData: OHLCData[] = pairData.map(kline => ({
+    timestamp: Number(kline[0]) * 1000,
+    open: parseFloat(String(kline[1])),
+    high: parseFloat(String(kline[2])),
+    low: parseFloat(String(kline[3])),
+    close: parseFloat(String(kline[4]))
   }))
-  
-  console.log(`[OHLC API] Received ${ohlcData.length} candles from Binance`)
-  
+
+  console.log(`[OHLC API] Received ${ohlcData.length} candles from Kraken`)
+
   return ohlcData
+}
+
+/**
+ * Fetch OHLC data from Binance API mirrors with Kraken fallback
+ */
+async function fetchFromBinance(timeframe: string): Promise<OHLCData[]> {
+  const { interval, limit } = getTimeframeParams(timeframe)
+
+  const mirrors = [
+    `https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`,
+    `https://api2.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`,
+    `https://api3.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`,
+  ]
+
+  for (const url of mirrors) {
+    try {
+      console.log(`[OHLC API] Trying Binance mirror: ${url}`)
+
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store'
+      })
+
+      if (!response.ok) {
+        console.warn(`[OHLC API] Binance mirror failed with ${response.status}: ${url}`)
+        continue
+      }
+
+      const rawData: BinanceKline[] = await response.json()
+
+      const ohlcData: OHLCData[] = rawData.map(kline => ({
+        timestamp: kline[0],
+        open: parseFloat(kline[1]),
+        high: parseFloat(kline[2]),
+        low: parseFloat(kline[3]),
+        close: parseFloat(kline[4])
+      }))
+
+      console.log(`[OHLC API] Received ${ohlcData.length} candles from Binance mirror`)
+      return ohlcData
+    } catch (err) {
+      console.warn(`[OHLC API] Binance mirror error: ${err}`)
+    }
+  }
+
+  // All Binance mirrors failed — fall back to Kraken
+  console.warn('[OHLC API] All Binance mirrors failed, falling back to Kraken')
+  return fetchFromKraken(timeframe)
 }
 
 export async function GET(request: NextRequest) {
