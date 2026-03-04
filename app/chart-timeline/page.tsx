@@ -574,6 +574,13 @@ export default function ChartTimelinePage() {
           </div>
           <div className="flex items-center gap-4">
             <Link
+              href="/chart-leader"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-orange-500/10 text-orange-600 dark:text-orange-400 hover:bg-orange-500/20 transition-colors border border-orange-500/20"
+            >
+              <Trophy className="w-4 h-4" />
+              Leaderboard
+            </Link>
+            <Link
               href="/prediction"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
             >

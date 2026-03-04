@@ -117,7 +117,6 @@ export async function POST(request: NextRequest) {
         model: openai(CONFIG.ai.model),
         schema: OpenClawNewspaperSchema,
         system: prompts.system,
-        maxOutputTokens: CONFIG.ai.maxTokens,
         prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedCommits),
         async onFinish({ object }) {
           if (object) {
@@ -160,7 +159,6 @@ export async function POST(request: NextRequest) {
       model: openai(CONFIG.ai.model),
       schema: OpenClawNewspaperSchema,
       system: prompts.system,
-      maxOutputTokens: CONFIG.ai.maxTokens,
       prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedCommits),
       async onFinish({ object }) {
         if (object) {

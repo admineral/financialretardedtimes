@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
     .join('\n')
 
   const result = streamObject({
-    model: openai('gpt-4o-mini'),
+    model: openai('gpt-5.2'),
     schema: ExtractResponseSchema,
     system: EXTRACTION_PROMPT,
     prompt: `Aktueller BTC Preis: $${currentPrice.toLocaleString()}

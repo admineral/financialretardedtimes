@@ -221,7 +221,6 @@ Keep it factual and concise. Let the commits speak for themselves.`
       model: openai(CONFIG.ai.model),
       schema: OpenClawExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
-      maxOutputTokens: CONFIG.ai.maxTokens,
       prompt,
     })
     

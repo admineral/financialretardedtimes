@@ -405,7 +405,6 @@ ${chartUrls.map(c => `• ${c.url} (von @${c.author} um ${c.time})`).join('\n')}
       model: openai('gpt-5.2'),
       schema: UnifiedNewspaperSchema,
       system: UNIFIED_PROMPT,
-      maxOutputTokens: 8192,
       prompt: `Analysiere den folgenden Chat und erstelle eine übersichtliche Zusammenfassung.
 
 Heutiges Datum: ${today}

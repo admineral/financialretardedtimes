@@ -291,7 +291,7 @@ ${bucketSummaries.join('\n\n')}
 Gib eine vollständige Sentiment-Analyse zurück. Analysiere JEDEN Bucket. Starte sofort mit dem timeRange und dann den buckets.`
 
   const result = streamObject({
-    model: openai('gpt-4o-mini'),
+    model: openai('gpt-5.2'),
     schema: SentimentResponseSchema,
     prompt,
     onFinish: async ({ object }) => {

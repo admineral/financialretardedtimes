@@ -32,8 +32,7 @@ export const CONFIG = {
   
   // AI settings
   ai: {
-    model: 'gpt-4o' as const,
-    maxTokens: 4096,
+    model: 'gpt-5.2' as const,
   },
   
   // Cache settings (in seconds)

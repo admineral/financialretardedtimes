@@ -428,7 +428,6 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
       model: openai('gpt-5.2'),
       schema: ExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
-      maxOutputTokens: 2048, // Reduced for shorter articles
       prompt: articleContext,
     })
     

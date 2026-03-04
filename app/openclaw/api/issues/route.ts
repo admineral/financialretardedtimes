@@ -81,10 +81,9 @@ export async function POST(request: NextRequest) {
     console.log(`[OPENCLAW-ISSUES] Generating analysis with AI...`)
     
     const result = streamObject({
-      model: openai('gpt-4o'),
+      model: openai('gpt-5.2'),
       schema: OpenClawIssuesNewspaperSchema,
       system: prompts.system,
-      maxOutputTokens: 8192,
       prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedIssues),
     })
     
