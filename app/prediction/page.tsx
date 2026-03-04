@@ -37,15 +37,19 @@ interface TimelineEvent {
   date: string
   time: string
   title: string
+  fullQuote: string
+  story?: string
   description: string
   type: 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
   participants: string[]
   priceContext?: string
   sentiment?: string
+  wasCorrect?: boolean
   priceAtQuote?: number
+  hasTimeframe?: boolean
 }
 
-type Timeframe = '1H' | '4H' | '1D'
+type Timeframe = '15m' | '1H' | '4H' | '1D'
 
 function ChartSkeleton() {
   return (
@@ -158,7 +162,7 @@ function TimelineTrack({
 
 export default function PredictionMarketPage() {
   const [isMounted, setIsMounted] = useState(false)
-  const [timeframe, setTimeframe] = useState<Timeframe>('1H')
+  const [timeframe, setTimeframe] = useState<Timeframe>('15m')
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
   const [predictions, setPredictions] = useState<Prediction[]>([])
   const [summary, setSummary] = useState('')
@@ -294,24 +298,38 @@ export default function PredictionMarketPage() {
   }
 
   // Convert predictions to chart events for display
+  // Only show predictions that fall within the OHLC data range
   const chartEvents: TimelineEvent[] = useMemo(() => {
-    return predictions.slice(0, 20).map(p => {
-      const date = p.timestamp.split('T')[0]
-      const time = p.timestamp.split('T')[1]?.slice(0, 5) || '12:00'
-      return {
-        id: p.id,
-        date,
-        time,
-        title: p.prediction.slice(0, 35) + (p.prediction.length > 35 ? '...' : ''),
-        description: `@${p.username}`,
-        type: 'prediction' as const,
-        participants: [p.username],
-        priceContext: p.direction === 'bullish' ? 'pump_call' : p.direction === 'bearish' ? 'dump_call' : 'analysis',
-        sentiment: p.direction,
-        priceAtQuote: p.priceAtPrediction
-      }
-    })
-  }, [predictions])
+    if (ohlcData.length === 0) return []
+    
+    const chartStartTime = ohlcData[0]?.timestamp || 0
+    const chartEndTime = ohlcData[ohlcData.length - 1]?.timestamp || Date.now()
+    
+    return predictions
+      .filter(p => {
+        // Only include predictions whose timestamp falls within chart range
+        const predTime = new Date(p.timestamp).getTime()
+        return predTime >= chartStartTime && predTime <= chartEndTime
+      })
+      .slice(0, 25) // Limit to 25 predictions on chart
+      .map(p => {
+        const date = p.timestamp.split('T')[0]
+        const time = p.timestamp.split('T')[1]?.slice(0, 5) || '12:00'
+        return {
+          id: p.id,
+          date,
+          time,
+          title: p.prediction.slice(0, 35) + (p.prediction.length > 35 ? '...' : ''),
+          fullQuote: p.prediction,
+          description: `@${p.username}`,
+          type: 'prediction' as const,
+          participants: [p.username],
+          priceContext: p.direction === 'bullish' ? 'pump_call' : p.direction === 'bearish' ? 'dump_call' : 'analysis',
+          sentiment: p.direction,
+          priceAtQuote: p.priceAtPrediction
+        }
+      })
+  }, [predictions, ohlcData])
 
   // Group predictions by timeframe
   const grouped = useMemo(() => ({
@@ -320,7 +338,7 @@ export default function PredictionMarketPage() {
     long: predictions.filter(p => p.timeframe === 'long'),
   }), [predictions])
 
-  const timeframeOptions: Timeframe[] = ['1H', '4H', '1D']
+  const timeframeOptions: Timeframe[] = ['15m', '1H', '4H', '1D']
 
   return (
     <main className="min-h-screen bg-zinc-950">

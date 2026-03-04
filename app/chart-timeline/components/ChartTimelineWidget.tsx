@@ -24,6 +24,8 @@ interface TimelineEvent {
   date: string
   time: string
   title: string
+  fullQuote: string
+  story?: string
   description: string
   type: 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
   participants: string[]
@@ -31,6 +33,7 @@ interface TimelineEvent {
   sentiment?: string
   wasCorrect?: boolean
   priceAtQuote?: number
+  hasTimeframe?: boolean
 }
 
 interface AnalysisResponse {
@@ -48,10 +51,12 @@ interface AnalysisResponse {
     username: string
     title: string
     fullQuote: string
+    story?: string
     priceContext: string
     sentiment: string
     wasCorrect?: boolean
     priceAtQuote: number
+    hasTimeframe?: boolean
   }>
   dataRange?: {
     messagesFrom: string
@@ -133,13 +138,16 @@ export function ChartTimelineWidget({ autoStart = true }: ChartTimelineWidgetPro
         date: q.timestamp.split('T')[0] || new Date().toISOString().split('T')[0],
         time: q.timestamp.split('T')[1]?.slice(0, 5) || '12:00',
         title: q.title,
+        fullQuote: q.fullQuote || q.title,
+        story: q.story,
         description: `@${q.username}`,
         type: 'prediction' as const,
         participants: [q.username],
         priceContext: q.priceContext,
         sentiment: q.sentiment,
         wasCorrect: q.wasCorrect,
-        priceAtQuote: q.priceAtQuote
+        priceAtQuote: q.priceAtQuote,
+        hasTimeframe: q.hasTimeframe
       }))
   }, [analysis])
 

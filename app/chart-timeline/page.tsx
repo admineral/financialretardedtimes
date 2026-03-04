@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart, ChevronDown, ChevronUp } from 'lucide-react'
+import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import dynamic from 'next/dynamic'
@@ -20,6 +20,7 @@ const ChartQuoteSchema = z.object({
   username: z.string(),
   title: z.string(), // Short title for chart labels - "LONG bei 92K!"
   fullQuote: z.string(), // The exact quote from the user - verbatim!
+  story: z.string().optional(), // 2-4 sentences about the prediction context and outcome
   priceContext: z.enum([
     'pump_call', 'dump_call', 'top_call', 'bottom_call',
     'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
@@ -67,6 +68,7 @@ interface TimelineEvent {
   time: string
   title: string
   fullQuote: string // The exact quote from the user
+  story?: string // 2-4 sentences about the prediction context and outcome
   description: string
   type: 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
   participants: string[]
@@ -160,18 +162,14 @@ function getContextStyle(context: string) {
   }
 }
 
-// Single Quote Card with expand functionality
-function QuoteCard({ event }: { event: TimelineEvent }) {
-  const [expanded, setExpanded] = useState(false)
+// Single Quote Card - click to open modal
+function QuoteCard({ event, onClick }: { event: TimelineEvent; onClick: () => void }) {
   const style = getContextStyle(event.priceContext || '')
-  const hasFullQuote = event.fullQuote && event.fullQuote !== event.title
   
   return (
     <div 
-      className={`p-3 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm transition-all ${
-        hasFullQuote ? 'cursor-pointer hover:border-opacity-80' : ''
-      }`}
-      onClick={() => hasFullQuote && setExpanded(!expanded)}
+      className={`p-3 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm transition-all cursor-pointer hover:border-opacity-80 hover:scale-[1.02]`}
+      onClick={onClick}
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
@@ -193,24 +191,17 @@ function QuoteCard({ event }: { event: TimelineEvent }) {
               {event.wasCorrect ? '✓ Richtig' : '✗ Falsch'}
             </span>
           )}
-          {hasFullQuote && (
-            expanded 
-              ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> 
-              : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-          )}
         </div>
       </div>
       
       {/* Title - always visible */}
       <p className="text-sm font-bold leading-snug">„{event.title}"</p>
       
-      {/* Full Quote - when expanded */}
-      {expanded && hasFullQuote && (
-        <div className="mt-2 pt-2 border-t border-foreground/10">
-          <p className="text-xs text-muted-foreground italic leading-relaxed">
-            „{event.fullQuote}"
-          </p>
-        </div>
+      {/* Preview of story if available */}
+      {event.story && (
+        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+          {event.story}
+        </p>
       )}
       
       <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
@@ -224,8 +215,101 @@ function QuoteCard({ event }: { event: TimelineEvent }) {
   )
 }
 
+// Quote Detail Modal
+function QuoteModal({ event, onClose }: { event: TimelineEvent; onClose: () => void }) {
+  const style = getContextStyle(event.priceContext || '')
+  
+  // Close on escape key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+  
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div 
+        className={`relative max-w-lg w-full rounded-xl border-2 ${style.border} ${style.bg} bg-card shadow-2xl overflow-hidden`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className={`px-5 py-4 border-b ${style.border} flex items-center justify-between`}>
+          <div className="flex items-center gap-3">
+            <span className={`text-sm font-bold uppercase tracking-wider ${style.text}`}>
+              {style.label}
+            </span>
+            {event.hasTimeframe && (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-500/30 text-amber-300 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Zeitangabe
+              </span>
+            )}
+            {event.wasCorrect !== undefined && (
+              <span className={`text-xs px-2 py-0.5 rounded ${
+                event.wasCorrect ? 'bg-emerald-500/30 text-emerald-400' : 'bg-red-500/30 text-red-400'
+              }`}>
+                {event.wasCorrect ? '✓ Richtig' : '✗ Falsch'}
+              </span>
+            )}
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-1 rounded hover:bg-foreground/10 transition-colors"
+          >
+            <X className="w-5 h-5 text-muted-foreground" />
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="p-5 space-y-4">
+          {/* Title */}
+          <h3 className="text-xl font-bold leading-snug">
+            „{event.title}"
+          </h3>
+          
+          {/* Full Quote */}
+          <div className="p-4 rounded-lg bg-foreground/5 border border-foreground/10">
+            <p className="text-sm italic leading-relaxed text-muted-foreground">
+              „{event.fullQuote}"
+            </p>
+          </div>
+          
+          {/* Story */}
+          {event.story && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Die Geschichte
+              </h4>
+              <p className="text-sm leading-relaxed">
+                {event.story}
+              </p>
+            </div>
+          )}
+          
+          {/* Meta info */}
+          <div className="flex items-center justify-between pt-3 border-t border-foreground/10 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">@{event.participants[0]}</span>
+              <span className="text-muted-foreground">•</span>
+              <span className="text-muted-foreground">{event.date} {event.time}</span>
+            </div>
+            <span className="font-mono font-bold ${style.text}">
+              ${event.priceAtQuote?.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Quotes Grid Component
-function QuotesGrid({ events }: { events: TimelineEvent[] }) {
+function QuotesGrid({ events, onEventClick }: { events: TimelineEvent[]; onEventClick: (event: TimelineEvent) => void }) {
   return (
     <div className="max-w-7xl mx-auto px-4 pb-8">
       <div className="flex items-center gap-2 mb-4">
@@ -234,12 +318,12 @@ function QuotesGrid({ events }: { events: TimelineEvent[] }) {
           Zitate auf dem Chart ({events.length})
         </h3>
         <span className="text-xs text-muted-foreground ml-2">
-          Klick für volles Zitat
+          Klick für Details & Story
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {events.map(event => (
-          <QuoteCard key={event.id} event={event} />
+          <QuoteCard key={event.id} event={event} onClick={() => onEventClick(event)} />
         ))}
       </div>
     </div>
@@ -253,6 +337,8 @@ export default function ChartTimelinePage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isRefreshingOhlc, setIsRefreshingOhlc] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [minLineLength, setMinLineLength] = useState(100) // Extra offset beyond minimum clearance (50-150)
+  const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null) // For modal
   
   // Cache timestamps
   const [ohlcFetchedAt, setOhlcFetchedAt] = useState<string | null>(null)
@@ -299,6 +385,7 @@ export default function ChartTimelinePage() {
           time,
           title: q.title,
           fullQuote: q.fullQuote || q.title, // Fallback to title if no fullQuote
+          story: q.story,
           description: `@${q.username} • $${q.priceAtQuote?.toLocaleString() || '?'}`,
           type: mapContextToType(q.priceContext),
           participants: [q.username],
@@ -531,11 +618,25 @@ export default function ChartTimelinePage() {
       {/* Controls */}
       <div className="w-full border-b border-foreground/10 py-3 bg-muted/10">
         <div className="max-w-7xl mx-auto px-4 flex justify-between items-center flex-wrap gap-3">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <TimeframeSelector value={timeframe} onChange={setTimeframe} />
             <span className="text-xs text-muted-foreground">
               {ohlcData.length} candles • {aiEvents.length} Zitate
             </span>
+            <div className="flex items-center gap-2 ml-2 border-l border-foreground/20 pl-4">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">
+                Linienlänge:
+              </label>
+              <input
+                type="range"
+                min="50"
+                max="150"
+                value={minLineLength}
+                onChange={(e) => setMinLineLength(Number(e.target.value))}
+                className="w-20 h-1 accent-amber-500 cursor-pointer"
+              />
+              <span className="text-xs font-mono text-muted-foreground w-8">{minLineLength}</span>
+            </div>
           </div>
           
           <div className="flex items-center gap-3">
@@ -607,6 +708,8 @@ export default function ChartTimelinePage() {
               ohlcData={ohlcData} 
               events={aiEvents}  // Live streaming - shows quotes as they arrive
               timeframe={timeframe}
+              minLineLength={minLineLength}
+              onEventClick={setSelectedEvent}
             />
           </div>
         )}
@@ -659,7 +762,12 @@ export default function ChartTimelinePage() {
 
       {/* Quotes Grid */}
       {aiEvents.length > 0 && (
-        <QuotesGrid events={aiEvents} />
+        <QuotesGrid events={aiEvents} onEventClick={setSelectedEvent} />
+      )}
+
+      {/* Quote Detail Modal */}
+      {selectedEvent && (
+        <QuoteModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
       )}
 
       {/* No Analysis Prompt */}

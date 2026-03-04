@@ -22,6 +22,7 @@ const ChartQuoteSchema = z.object({
   username: z.string(),
   title: z.string(),
   fullQuote: z.string(),
+  story: z.string(), // 2-3 sentences about the prediction context, what happened, and outcome
   priceContext: z.enum([
     'pump_call', 'dump_call', 'top_call', 'bottom_call',
     'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
@@ -442,10 +443,10 @@ Bevorzuge Calls mit ZEITLICHEN Angaben – das macht sie überprüfbar und spann
 - Rate Chart Game Tipps (//PREIS)
 
 ═══════════════════════════════════════════════════════════════════════
-ZITAT-FORMAT – TITEL + ORIGINAL-ZITAT
+ZITAT-FORMAT – TITEL + ORIGINAL-ZITAT + STORY
 ═══════════════════════════════════════════════════════════════════════
 
-Für jeden Quote brauchst du ZWEI Felder:
+Für jeden Quote brauchst du DREI Felder:
 
 1. **title** (max 40 Zeichen): Knackiger Titel für Chart-Label
    - "LONG bei 92K!" / "Top Call" / "Morgen 100K"
@@ -456,6 +457,12 @@ Für jeden Quote brauchst du ZWEI Felder:
    - Nicht umformulieren oder kürzen
    - Der User soll sich selbst erkennen
    - Beispiel: "Achtung Leute, heute noch 100k. Wer jetzt noch short ist, wird das bereuen. Letzte Warnung!"
+
+3. **story** (2-4 Sätze): Die Geschichte hinter dem Call!
+   - WAS war die Situation? (Preis, Marktlage, vorherige Bewegung)
+   - WIE hat der User argumentiert? (technisch, emotional, Bauchgefühl?)
+   - WAS passierte danach? (Wurde der Call bestätigt oder widerlegt?)
+   - Beispiel: "Bitcoin hatte gerade 5% verloren und stand bei $91.500. @CryptoKing war einer der wenigen die bullish blieben und auf technische Indikatoren verwies. Innerhalb der nächsten 12 Stunden stieg BTC tatsächlich auf $96.000 – ein perfekter Call am lokalen Tief."
 
 ═══════════════════════════════════════════════════════════════════════
 PREIS-KORRELATION – CALLS AN WENDEPUNKTEN

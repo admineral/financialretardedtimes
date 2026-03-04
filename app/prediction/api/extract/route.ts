@@ -107,11 +107,18 @@ Berechne das targetDate als ISO String:
 - "Q1 2026" → 2026-03-31
 
 ## FORMAT
-Extrahiere 5-30 Vorhersagen, priorisiere:
+Extrahiere 15-30 Vorhersagen, priorisiere:
 1. Klare Zeitangaben
 2. Konkrete Preistargets
 3. Hohe Confidence
 4. Interessante/kontroverse Takes
+
+## ⚠️ KRITISCH: ZEITLICHE VERTEILUNG!
+Du MUSST Vorhersagen aus JEDEM Tag des 7-Tage-Zeitraums finden!
+- Mindestens 2-3 Vorhersagen pro Tag
+- MAXIMAL 5 Vorhersagen vom gleichen Tag
+- Verteile die Vorhersagen über die GESAMTE Woche
+- Nimm lieber eine mittelmäßige Vorhersage von einem unterrepräsentierten Tag als eine weitere vom gleichen Tag
 
 Gib auch eine kurze Summary mit dem generellen Sentiment.`
 
@@ -133,7 +140,16 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
     
-    // Check cache first
+    // If force refresh, delete old cache first to ensure fresh data
+    if (forceRefresh) {
+      console.log('[PREDICTIONS] Force refresh - deleting old cache...')
+      await supabase
+        .from('chat_timeline_cache')
+        .delete()
+        .eq('cache_key', CACHE_KEY)
+    }
+    
+    // Check cache first (only if not force refresh)
     if (!forceRefresh) {
       const { data: cached, error: cacheError } = await supabase
         .from('chat_timeline_cache')
@@ -218,10 +234,15 @@ Finde 10-25 konkrete Vorhersagen mit Zeitzielen.`,
     // Predictions from AI
     const enrichedPredictions = result.object.predictions
     
-    // Save to cache
+    // Save to cache - delete first then insert to ensure clean state
+    await supabase
+      .from('chat_timeline_cache')
+      .delete()
+      .eq('cache_key', CACHE_KEY)
+    
     const { error: cacheError } = await supabase
       .from('chat_timeline_cache')
-      .upsert({
+      .insert({
         cache_key: CACHE_KEY,
         events: enrichedPredictions,
         event_count: enrichedPredictions.length,
@@ -233,7 +254,7 @@ Finde 10-25 konkrete Vorhersagen mit Zeitzielen.`,
           messageCount: messages.length,
           currentPrice
         }
-      }, { onConflict: 'cache_key' })
+      })
     
     if (cacheError) {
       console.error('[PREDICTIONS] Cache save error:', cacheError)

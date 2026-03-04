@@ -42,6 +42,8 @@ interface TimelineEvent {
   date: string
   time: string
   title: string
+  fullQuote: string
+  story?: string
   description: string
   type: 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
   participants: string[]
@@ -49,6 +51,7 @@ interface TimelineEvent {
   sentiment?: string
   wasCorrect?: boolean
   priceAtQuote?: number
+  hasTimeframe?: boolean
 }
 
 type Timeframe = '15m' | '1H' | '4H' | '1D' | '1W'
@@ -58,6 +61,8 @@ interface ChartJSCandlestickProps {
   events: TimelineEvent[]
   timeframe: Timeframe
   disableZoom?: boolean
+  minLineLength?: number // 0-100, percentage of price range
+  onEventClick?: (event: TimelineEvent) => void // Callback when clicking on a label
 }
 
 // Color config for different event types
@@ -93,9 +98,10 @@ function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OH
   return closest
 }
 
-export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = false }: ChartJSCandlestickProps) {
+export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = false, minLineLength = 12, onEventClick }: ChartJSCandlestickProps) {
   const chartRef = useRef<ChartJS | null>(null)
   const [isMounted, setIsMounted] = useState(false)
+  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
 
   useEffect(() => {
     setIsMounted(true)
@@ -165,8 +171,17 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       if (roomAbove < range * 0.15) isAbove = false
       if (roomBelow < range * 0.15) isAbove = true
       
-      // Calculate label position
-      const baseOffset = range * (0.12 + (hash % 8) * 0.02)
+      // Calculate minimum clearance to avoid overlapping candle bars
+      // Label box is roughly 50px tall, estimate in price units based on chart range
+      const labelHeightEstimate = range * 0.04 // ~4% of visible range for label box
+      const candleHeight = candle.high - candle.low
+      const minClearance = Math.max(candleHeight * 0.5, labelHeightEstimate) + range * 0.02
+      
+      // Calculate label position - minLineLength adds extra offset beyond minimum clearance
+      const extraOffset = (minLineLength / 100) * range * 0.20 // 0-20% extra based on slider
+      const variationOffset = (hash % 8) * range * 0.015 // Small random variation
+      const totalOffset = minClearance + extraOffset + variationOffset
+      
       const xPattern = [0.8, -0.8, 1.2, -1.2, 0.4, -0.4][idx % 6]
       const labelX = candle.timestamp + (xOffset * xPattern)
       
@@ -175,26 +190,30 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       
       if (isAbove) {
         dotY = candle.high
-        labelY = candle.high + baseOffset
+        labelY = candle.high + totalOffset
       } else {
         dotY = candle.low
-        labelY = candle.low - baseOffset
+        labelY = candle.low - totalOffset
       }
       
-      // Avoid overlaps by shifting
+      // Avoid overlaps with other labels by shifting
       for (let attempt = 0; attempt < 3; attempt++) {
         const hasOverlap = usedPositions.some(pos => 
           Math.abs(pos.x - labelX) < xOffset * 2 && 
-          Math.abs(pos.y - labelY) < range * 0.06
+          Math.abs(pos.y - labelY) < labelHeightEstimate * 1.5
         )
         if (!hasOverlap) break
-        labelY += isAbove ? range * 0.04 : -range * 0.04
+        labelY += isAbove ? labelHeightEstimate : -labelHeightEstimate
       }
       
       usedPositions.push({ x: labelX, y: labelY, above: isAbove })
       
       // Truncate quote
       const shortQuote = event.title.length > 35 ? event.title.slice(0, 35) + '...' : event.title
+
+      const isHovered = hoveredEventId === event.id
+      const baseZ = idx
+      const hoverZ = 1000 // Bring to front when hovered
 
       // Line from candle to label
       annotations[`line-${event.id}`] = {
@@ -203,9 +222,10 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         xMax: labelX,
         yMin: dotY,
         yMax: labelY,
-        borderColor: colors.dot,
-        borderWidth: 1,
+        borderColor: isHovered ? colors.dot : colors.dot,
+        borderWidth: isHovered ? 2 : 1,
         borderDash: [4, 4],
+        z: isHovered ? hoverZ : baseZ,
       }
 
       // Dot on candle
@@ -213,35 +233,40 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         type: 'point',
         xValue: candle.timestamp,
         yValue: dotY,
-        radius: 5,
+        radius: isHovered ? 7 : 5,
         backgroundColor: colors.dot,
-        borderColor: 'rgba(0,0,0,0.5)',
-        borderWidth: 1,
+        borderColor: isHovered ? '#fff' : 'rgba(0,0,0,0.5)',
+        borderWidth: isHovered ? 2 : 1,
+        z: isHovered ? hoverZ : baseZ,
       }
 
-      // Label box
+      // Label box with hover and click interaction
       annotations[`label-${event.id}`] = {
         type: 'label',
         xValue: labelX,
         yValue: labelY,
-        backgroundColor: colors.bg,
-        borderColor: colors.dot,
-        borderWidth: 1,
+        backgroundColor: isHovered ? colors.dot : colors.bg,
+        borderColor: isHovered ? '#fff' : colors.dot,
+        borderWidth: isHovered ? 2 : 1,
         borderRadius: 4,
         padding: { top: 3, bottom: 3, left: 5, right: 5 },
         color: '#fff',
-        font: { size: 9, family: 'system-ui' },
+        font: { size: isHovered ? 10 : 9, family: 'system-ui', weight: isHovered ? 'bold' : 'normal' },
         content: [
           `${colors.label}  ${event.time?.slice(0, 5) || ''}`,
           shortQuote,
           `@${event.participants[0] || 'Anon'}`
         ],
         textAlign: 'left' as const,
+        z: isHovered ? hoverZ : baseZ,
+        enter: () => setHoveredEventId(event.id),
+        leave: () => setHoveredEventId(null),
+        click: () => onEventClick?.(event),
       }
     })
 
     return annotations
-  }, [events, ohlcData, timeframe])
+  }, [events, ohlcData, timeframe, minLineLength, hoveredEventId, onEventClick])
 
   // Chart data
   const chartData = {
