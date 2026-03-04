@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { TrendingUp, RefreshCw, ExternalLink, Sparkles, Clock, Database, Quote, Brain } from 'lucide-react'
+import { TrendingUp, RefreshCw, ExternalLink, Sparkles, Clock, Database, Quote, Brain, BarChart2 } from 'lucide-react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 
@@ -235,11 +235,18 @@ export function ChartTimelineWidget({ autoStart = true, showMinLineSlider = fals
             <span className="hidden sm:inline">Prediction</span>
           </Link>
           <Link 
-            href="/chart-timeline" 
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+            href="/chart-timeline/sentiment" 
+            className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-500 transition-colors border border-violet-500/20 bg-violet-500/10 hover:bg-violet-500/20 rounded px-2 py-1"
           >
-            <span className="hidden sm:inline">Vollbild</span>
-            <ExternalLink className="w-3.5 h-3.5" />
+            <BarChart2 className="w-3 h-3" />
+            <span className="hidden sm:inline">Sentiment</span>
+          </Link>
+          <Link 
+            href="/chart-timeline" 
+            className="flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400 hover:text-sky-500 transition-colors border border-sky-500/20 bg-sky-500/10 hover:bg-sky-500/20 rounded px-2 py-1"
+          >
+            <ExternalLink className="w-3 h-3" />
+            <span className="hidden sm:inline">Timeline</span>
           </Link>
         </div>
       </div>

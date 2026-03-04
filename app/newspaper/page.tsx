@@ -30,7 +30,8 @@ import {
 } from './components'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedWidget, FearGreedProvider } from '@/app/test-fg/components'
-import { ChartTimelineWidget } from '@/app/chart-timeline/components'
+import { ChartTimelineWidget, SentimentWidget } from '@/app/chart-timeline/components'
+import { PredictionWidget } from '@/app/prediction/components'
 import { ChatTicker } from '@/app/components/ChatTicker'
 import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
@@ -267,13 +268,6 @@ export default function NewspaperPage() {
                     </span>
                   )}
                 </div>
-                <Link
-                  href="/prediction"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
-                >
-                  <SparklesIcon className="h-3.5 w-3.5" />
-                  Prediction
-                </Link>
                 <ThemeSwitcher />
               </div>
             </div>
@@ -455,6 +449,16 @@ export default function NewspaperPage() {
               <ChartTimelineWidget autoStart showMinLineSlider />
             </div>
           </section>
+        )}
+
+        {/* Sentiment Section */}
+        {dayRange === 1 && !isLoading && (
+          <SentimentWidget />
+        )}
+
+        {/* Prediction Market Section */}
+        {dayRange === 1 && !isLoading && (
+          <PredictionWidget />
         )}
 
         {/* Older Editions Section */}

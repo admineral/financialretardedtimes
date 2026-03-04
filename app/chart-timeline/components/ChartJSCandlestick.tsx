@@ -300,15 +300,22 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       x: {
         type: 'time' as const,
         time: {
-          unit: (timeframe === '15m' ? 'hour' : timeframe === '1H' || timeframe === '4H' ? 'day' : 'week') as 'hour' | 'day' | 'week',
+          // Let Chart.js auto-pick the tick density — just define how each unit looks
           displayFormats: {
-            hour: 'HH:mm',
+            minute: 'HH:mm',
+            hour: 'dd MMM HH:mm',
             day: 'dd MMM',
             week: 'dd MMM',
           },
         },
         grid: { color: '#27272a' },
-        ticks: { color: '#6b7280', font: { size: 10 } },
+        ticks: {
+          color: '#6b7280',
+          font: { size: 10 },
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 12,
+        },
       },
       y: {
         position: 'left' as const,

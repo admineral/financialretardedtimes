@@ -6,6 +6,7 @@
 // These are safe for SSR or use dynamic imports internally
 export { QuoteCard, QuoteDot, typeConfig } from './QuoteCard'
 export { ChartTimelineWidget } from './ChartTimelineWidget'
+export { SentimentWidget } from './SentimentWidget'
 
 // ChartJSCandlestick should be imported dynamically:
 // const ChartJSCandlestick = dynamic(() => import('./ChartJSCandlestick').then(m => m.ChartJSCandlestick), { ssr: false })
