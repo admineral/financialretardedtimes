@@ -32,6 +32,7 @@ import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedWidget, FearGreedProvider } from '@/app/test-fg/components'
 import { ChartTimelineWidget, SentimentWidget } from '@/app/chart-timeline/components'
 import { PredictionWidget } from '@/app/prediction/components'
+import { LeaderboardWidget } from '@/app/chart-leader/components'
 import { ChatTicker } from '@/app/components/ChatTicker'
 import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
@@ -449,6 +450,11 @@ export default function NewspaperPage() {
             </aside>
           </div>
         </div>
+
+        {/* Leaderboard Section */}
+        {dayRange === 1 && !isLoading && (
+          <LeaderboardWidget />
+        )}
 
         {/* Chart Timeline Section */}
         {dayRange === 1 && !isLoading && (

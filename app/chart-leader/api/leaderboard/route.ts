@@ -26,7 +26,7 @@ const LeaderboardEntrySchema = z.object({
   correctCalls: z.number(),
   wrongCalls: z.number(),
   totalCalls: z.number(),
-  winRate: z.number().min(0).max(100),       // % correct
+  winRate: z.number().min(0).max(100).transform(v => v <= 1 ? Math.round(v * 100) : v),       // % correct, z.B. 75 für 75%
   bestCall: z.object({
     quote: z.string(),
     priceAtCall: z.number(),
@@ -172,37 +172,59 @@ async function fetchMessages(
 }
 
 async function fetchOHLC(
-  supabase: Awaited<ReturnType<typeof createClient>>
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  daysBack = 7
 ): Promise<OHLCData[]> {
+  const cutoff = Date.now() - daysBack * 24 * 60 * 60 * 1000
+
   try {
-    // Try 1H from cache
+    // Try Supabase OHLC cache first (shared with chart-timeline, 5min TTL, 1H = 14 days of candles)
     const { data: cached } = await supabase
       .from('chart_timeline_ohlc_cache')
-      .select('candles')
+      .select('candles, updated_at')
       .eq('timeframe', '1H')
       .single()
 
-    if (cached?.candles && Array.isArray(cached.candles)) {
-      return cached.candles as OHLCData[]
+    if (cached?.candles && Array.isArray(cached.candles) && cached.candles.length > 0) {
+      // Filter to only the candles within the analysis window
+      const filtered = (cached.candles as OHLCData[]).filter(c => c.timestamp >= cutoff)
+      if (filtered.length > 0) {
+        console.log(`[LEADERBOARD] OHLC from Supabase cache: ${filtered.length} candles (${daysBack}d), cached at ${cached.updated_at}`)
+        return filtered
+      }
     }
 
-    // Fallback: Binance 1h last 7 days
-    const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=168'
-    const res = await fetch(url, { cache: 'no-store' })
-    if (!res.ok) return []
+    // Cache miss — fetch directly from Binance mirrors
+    console.log('[LEADERBOARD] OHLC cache miss, fetching from Binance')
+    const limit = Math.min(daysBack * 24, 1000)
+    const mirrors = [
+      `https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=${limit}`,
+      `https://api2.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=${limit}`,
+      `https://api3.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=${limit}`,
+    ]
 
     type BinanceKline = [number, string, string, string, string, ...unknown[]]
-    const raw: BinanceKline[] = await res.json()
-    return raw.map((k) => ({
-      timestamp: k[0],
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-    }))
-  } catch {
-    return []
+    for (const url of mirrors) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' })
+        if (!res.ok) continue
+        const raw: BinanceKline[] = await res.json()
+        const data = raw.map((k) => ({
+          timestamp: k[0],
+          open: parseFloat(k[1] as string),
+          high: parseFloat(k[2] as string),
+          low: parseFloat(k[3] as string),
+          close: parseFloat(k[4] as string),
+        }))
+        console.log(`[LEADERBOARD] OHLC from Binance: ${data.length} candles`)
+        return data
+      } catch { continue }
+    }
+  } catch (err) {
+    console.error('[LEADERBOARD] OHLC fetch error:', err)
   }
+
+  return []
 }
 
 function getPriceAtTime(timestamp: string, ohlcData: OHLCData[]): number {
@@ -220,8 +242,8 @@ function getPriceAtTime(timestamp: string, ohlcData: OHLCData[]): number {
   return closest.close
 }
 
-function buildPriceTimeline(ohlcData: OHLCData[]): string {
-  if (ohlcData.length === 0) return 'Keine Preisdaten verfügbar.'
+function buildPriceTimeline(ohlcData: OHLCData[], daysBack: number): { text: string; from: string; to: string } {
+  if (ohlcData.length === 0) return { text: 'Keine Preisdaten verfügbar.', from: '', to: '' }
 
   const lines: string[] = []
   const first = ohlcData[0]
@@ -230,40 +252,31 @@ function buildPriceTimeline(ohlcData: OHLCData[]): string {
   const high = Math.max(...ohlcData.map((c) => c.high))
   const low = Math.min(...ohlcData.map((c) => c.low))
 
-  lines.push(`## BTC Preis (7 Tage)`)
-  lines.push(
-    `Start: $${first.open.toFixed(0)} → Ende: $${last.close.toFixed(0)} (${change}%)`
-  )
-  lines.push(`7-Tage-Hoch: $${high.toFixed(0)} | 7-Tage-Tief: $${low.toFixed(0)}`)
+  const fromDate = new Date(first.timestamp).toISOString()
+  const toDate = new Date(last.timestamp).toISOString()
+
+  lines.push(`## BTC Preis (letzte ${daysBack} Tage)`)
+  lines.push(`Start: $${first.open.toFixed(0)} → Ende: $${last.close.toFixed(0)} (${change}%)`)
+  lines.push(`${daysBack}-Tage-Hoch: $${high.toFixed(0)} | ${daysBack}-Tage-Tief: $${low.toFixed(0)}`)
+  lines.push(`Zeitraum: ${fromDate.split('T')[0]} bis ${toDate.split('T')[0]}`)
   lines.push('')
 
-  // 4-hour price points for context
-  const fourHourMs = 4 * 60 * 60 * 1000
-  const buckets = new Map<number, OHLCData[]>()
+  // All 1H candles — KI braucht jeden Stundenpreis für präzise Call-Bewertung
+  lines.push(`## 1H Preisübersicht (alle ${ohlcData.length} Kerzen):`)
   for (const c of ohlcData) {
-    const b = Math.floor(c.timestamp / fourHourMs) * fourHourMs
-    if (!buckets.has(b)) buckets.set(b, [])
-    buckets.get(b)!.push(c)
-  }
-
-  lines.push(`## 4H Preisübersicht (für Call-Bewertung):`)
-  for (const [ts, candles] of [...buckets.entries()].sort()) {
-    const open = candles[0].open
-    const close = candles[candles.length - 1].close
-    const pct = (((close - open) / open) * 100).toFixed(1)
-    const emoji = close >= open ? '🟢' : '🔴'
-    const date = new Date(ts).toLocaleString('de-DE', {
+    const pct = (((c.close - c.open) / c.open) * 100).toFixed(1)
+    const emoji = c.close >= c.open ? '🟢' : '🔴'
+    const date = new Date(c.timestamp).toLocaleString('de-DE', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'Europe/Berlin',
     })
-    lines.push(
-      `${date}: $${open.toFixed(0)}→$${close.toFixed(0)} ${emoji} ${pct}%`
-    )
+    lines.push(`${date}: $${c.open.toFixed(0)}→$${c.close.toFixed(0)} ${emoji} ${pct}%`)
   }
 
-  return lines.join('\n')
+  return { text: lines.join('\n'), from: fromDate, to: toDate }
 }
 
 // Evenly sample messages across the week (max ~500 for prompt)
@@ -320,13 +333,18 @@ BEWERTUNGSREGELN:
 ═══════════════════════════════════════════════════════════════════════
 SCORING SYSTEM
 ═══════════════════════════════════════════════════════════════════════
-score (0-100):
+score (0-100, ganzzahlig):
 - 100: Perfekter Call genau am Wendepunkt mit Zeitangabe
 - 80-99: Richtiger Call, gut getimed
 - 60-79: Richtiger Call, normal
 - 40-59: Gemischte Performance
 - 20-39: Mehr Fehler als Treffer
 - 0-19: Chronisch falsch gelegen
+
+winRate (0-100, ganzzahlig, NICHT als Dezimal!):
+- Beispiel: 3 von 4 Calls richtig → winRate = 75 (NICHT 0.75!)
+- Beispiel: 1 von 2 Calls richtig → winRate = 50 (NICHT 0.5!)
+- Formel: (correctCalls / totalCalls) × 100, gerundet auf ganze Zahl
 
 BADGES:
 - oracle: 80%+ winRate, mindestens 3 Calls
@@ -362,6 +380,7 @@ Starte sofort mit dem weekSummary.`
 // ══════════════════════════════════════════════════════════════════════
 
 export async function GET() {
+  console.log('[LEADERBOARD GET] Fetching cache...')
   const supabase = await createClient()
 
   try {
@@ -369,23 +388,51 @@ export async function GET() {
       .from('leaderboard_analysis_cache')
       .select('data, updated_at')
       .eq('cache_key', CACHE_KEY)
-      .single()
+      .maybeSingle()
 
-    if (error || !cached?.data) {
+    if (error) {
+      console.error('[LEADERBOARD GET] Supabase error:', error.message, error.code)
+      return NextResponse.json({ cached: false, leaderboard: null })
+    }
+
+    if (!cached?.data) {
+      console.log('[LEADERBOARD GET] No cached data yet — table empty or key not found')
+      return NextResponse.json({ cached: false, leaderboard: null })
+    }
+
+    console.log('[LEADERBOARD GET] Raw data type:', typeof cached.data, 'updated_at:', cached.updated_at)
+
+    // Supabase JSONB can come back as string if stored incorrectly
+    let payload: Record<string, unknown>
+    if (typeof cached.data === 'string') {
+      try {
+        payload = JSON.parse(cached.data)
+        console.log('[LEADERBOARD GET] Parsed string data')
+      } catch {
+        console.error('[LEADERBOARD GET] Failed to parse cached.data string')
+        return NextResponse.json({ cached: false, leaderboard: null })
+      }
+    } else {
+      payload = cached.data as Record<string, unknown>
+    }
+
+    const leaderboard = payload?.leaderboard
+    if (!leaderboard || !Array.isArray(leaderboard) || leaderboard.length === 0) {
+      console.warn('[LEADERBOARD GET] Cached data has no leaderboard entries. Keys:', Object.keys(payload))
       return NextResponse.json({ cached: false, leaderboard: null })
     }
 
     const stale = !isCacheValid(cached.updated_at)
-    console.log(`[LEADERBOARD GET] Returning ${stale ? 'stale' : 'fresh'} cache`)
+    console.log(`[LEADERBOARD GET] Returning ${stale ? 'stale' : 'fresh'} cache with ${leaderboard.length} entries`)
 
     return NextResponse.json({
       cached: true,
       stale,
       fetchedAt: cached.updated_at,
-      ...(cached.data as object),
+      ...payload,
     })
   } catch (err) {
-    console.error('[LEADERBOARD GET] Error:', err)
+    console.error('[LEADERBOARD GET] Unexpected error:', err)
     return NextResponse.json({ cached: false, leaderboard: null })
   }
 }
@@ -396,10 +443,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const DAYS_BACK = 7
 
   const [{ messages, from, to }, ohlcData] = await Promise.all([
-    fetchMessages(supabase, 7),
-    fetchOHLC(supabase),
+    fetchMessages(supabase, DAYS_BACK),
+    fetchOHLC(supabase, DAYS_BACK),
   ])
 
   if (messages.length === 0) {
@@ -407,7 +455,9 @@ export async function POST(request: NextRequest) {
   }
 
   const sampled = sampleMessages(messages, 500)
-  const priceTimeline = buildPriceTimeline(ohlcData)
+  const { text: priceTimeline, from: priceFrom, to: priceTo } = buildPriceTimeline(ohlcData, DAYS_BACK)
+
+  console.log(`[LEADERBOARD] ${ohlcData.length} OHLC candles (${priceFrom?.split('T')[0]} → ${priceTo?.split('T')[0]})`)
 
   // Annotate messages with BTC price at time of sending
   const annotatedMessages = sampled.map((m) => {
@@ -432,7 +482,8 @@ export async function POST(request: NextRequest) {
     providerOptions: { openai: { reasoning: { effort: 'high' } } },
     prompt: `${priceTimeline}
 
-Zeitraum: ${from} bis ${to}
+Analysierter Zeitraum (Chat): ${from} bis ${to}
+Preisdaten verfügbar: ${priceFrom || from} bis ${priceTo || to}
 Gesamt Nachrichten: ${messages.length} (Stichprobe: ${sampled.length})
 Einzigartige User: ${uniqueUsers}
 Heutiges Datum: ${new Date().toISOString().split('T')[0]}
