@@ -267,12 +267,17 @@ export default function NewspaperPage() {
                     </span>
                   )}
                 </div>
+                <Link
+                  href="/prediction"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
+                >
+                  <SparklesIcon className="h-3.5 w-3.5" />
+                  Prediction
+                </Link>
                 <ThemeSwitcher />
               </div>
             </div>
           </div>
-
-          {/* Main Masthead */}
           <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
             <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
               {/* Title Section */}
@@ -447,7 +452,7 @@ export default function NewspaperPage() {
         {dayRange === 1 && !isLoading && (
           <section className="border-t border-primary/10 mt-8 bg-card/20 relative z-10">
             <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-              <ChartTimelineWidget autoStart />
+              <ChartTimelineWidget autoStart showMinLineSlider />
             </div>
           </section>
         )}

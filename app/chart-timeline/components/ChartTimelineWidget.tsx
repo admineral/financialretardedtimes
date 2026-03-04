@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { TrendingUp, RefreshCw, ExternalLink, Sparkles, Clock, Database, Quote } from 'lucide-react'
+import { TrendingUp, RefreshCw, ExternalLink, Sparkles, Clock, Database, Quote, Brain } from 'lucide-react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 
@@ -67,6 +67,7 @@ interface AnalysisResponse {
 
 interface ChartTimelineWidgetProps {
   autoStart?: boolean
+  showMinLineSlider?: boolean
 }
 
 function formatRelativeTime(isoString: string | null): string {
@@ -85,13 +86,14 @@ function formatRelativeTime(isoString: string | null): string {
   return `vor ${diffDays}d`
 }
 
-export function ChartTimelineWidget({ autoStart = true }: ChartTimelineWidgetProps) {
+export function ChartTimelineWidget({ autoStart = true, showMinLineSlider = false }: ChartTimelineWidgetProps) {
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [ohlcFetchedAt, setOhlcFetchedAt] = useState<string | null>(null)
   const [analysisFetchedAt, setAnalysisFetchedAt] = useState<string | null>(null)
   const [isCached, setIsCached] = useState(false)
+  const [minLineLength, setMinLineLength] = useState(100)
 
   const fetchData = useCallback(async (force: boolean = false) => {
     setIsLoading(true)
@@ -198,6 +200,20 @@ export function ChartTimelineWidget({ autoStart = true }: ChartTimelineWidgetPro
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {showMinLineSlider && (
+            <div className="flex items-center gap-1.5">
+              <label className="text-[10px] text-muted-foreground whitespace-nowrap">Linienlänge:</label>
+              <input
+                type="range"
+                min="50"
+                max="150"
+                value={minLineLength}
+                onChange={(e) => setMinLineLength(Number(e.target.value))}
+                className="w-16 h-1 accent-amber-500 cursor-pointer"
+              />
+              <span className="text-[10px] font-mono text-muted-foreground w-6">{minLineLength}</span>
+            </div>
+          )}
           {priceChange && (
             <span className={`text-xs font-mono ${trendColor}`}>
               {priceChange.changePercent > 0 ? '+' : ''}{priceChange.changePercent?.toFixed(1)}%
@@ -211,6 +227,13 @@ export function ChartTimelineWidget({ autoStart = true }: ChartTimelineWidgetPro
           >
             <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${isLoading ? 'animate-spin' : ''}`} />
           </button>
+          <Link 
+            href="/prediction" 
+            className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500 transition-colors border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 rounded px-2 py-1"
+          >
+            <Brain className="w-3 h-3" />
+            <span className="hidden sm:inline">Prediction</span>
+          </Link>
           <Link 
             href="/chart-timeline" 
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
@@ -267,6 +290,7 @@ export function ChartTimelineWidget({ autoStart = true }: ChartTimelineWidgetPro
               events={events}
               timeframe="15m"
               disableZoom
+              minLineLength={minLineLength}
             />
           </div>
         )}

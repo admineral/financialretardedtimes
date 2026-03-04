@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart, ChevronDown, ChevronUp, X, Brain } from 'lucide-react'
+import Link from 'next/link'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import dynamic from 'next/dynamic'
@@ -572,6 +573,13 @@ export default function ChartTimelinePage() {
             </h1>
           </div>
           <div className="flex items-center gap-4">
+            <Link
+              href="/prediction"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
+            >
+              <Brain className="w-4 h-4" />
+              Prediction
+            </Link>
             <ThemeSwitcher />
           </div>
         </div>
