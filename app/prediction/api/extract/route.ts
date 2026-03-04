@@ -271,6 +271,7 @@ export async function POST(request: NextRequest) {
     model: openai('gpt-5.2'),
     schema: ExtractResponseSchema,
     system: EXTRACTION_PROMPT,
+    providerOptions: { openai: { reasoning: { effort: 'high' } } },
     prompt: `Aktueller BTC Preis: $${currentPrice.toLocaleString()}
 Heutiges Datum: ${endDate.toISOString().split('T')[0]}
 Zeitraum: ${startDate.toISOString().split('T')[0]} bis ${endDate.toISOString().split('T')[0]}

@@ -519,6 +519,7 @@ export async function POST(request: NextRequest) {
       model: openai('gpt-5.2'),
       schema: FearGreedSchema,
       system: FEAR_GREED_PROMPT,
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
       prompt: `Analysiere den folgenden Chat und erstelle Fear & Greed Indices für alle drei Zeiträume.
 
 HEUTE ist der ${todayStr}

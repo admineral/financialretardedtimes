@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
       schema: OpenClawIssuesNewspaperSchema,
       system: prompts.system,
       prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedIssues),
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
     })
     
     return result.toTextStreamResponse()

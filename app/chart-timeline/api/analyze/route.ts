@@ -764,6 +764,7 @@ export async function POST(request: NextRequest) {
       schema: AnalysisResponseSchema,
       system: ANALYSIS_PROMPT,
       prompt: fullContext,
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
       onError(event) {
         console.error('[ANALYZE] ❌ Stream onError:', event.error)
       },

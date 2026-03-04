@@ -429,6 +429,7 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
       schema: ExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
       prompt: articleContext,
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
     })
     
     return result.toTextStreamResponse()

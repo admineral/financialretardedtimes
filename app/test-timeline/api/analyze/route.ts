@@ -435,6 +435,7 @@ ${chatContext}`
       schema: TimelineResponseSchema,
       system: TIMELINE_PROMPT,
       prompt: aiPrompt,
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
       temperature: 0.7,
       onFinish: async ({ object }) => {
         // Save to cache when stream completes

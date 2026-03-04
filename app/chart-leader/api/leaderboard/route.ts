@@ -429,6 +429,7 @@ export async function POST(request: NextRequest) {
     model: openai('gpt-5.2'),
     schema: LeaderboardResponseSchema,
     system: LEADERBOARD_PROMPT,
+    providerOptions: { openai: { reasoning: { effort: 'high' } } },
     prompt: `${priceTimeline}
 
 Zeitraum: ${from} bis ${to}

@@ -294,6 +294,7 @@ Gib eine vollständige Sentiment-Analyse zurück. Analysiere JEDEN Bucket. Start
     model: openai('gpt-5.2'),
     schema: SentimentResponseSchema,
     prompt,
+    providerOptions: { openai: { reasoning: { effort: 'high' } } },
     onFinish: async ({ object }) => {
       if (!object) return
       // Enrich with prices and cache

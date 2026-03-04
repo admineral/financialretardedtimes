@@ -222,6 +222,7 @@ Keep it factual and concise. Let the commits speak for themselves.`
       schema: OpenClawExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
       prompt,
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
     })
     
     return result.toTextStreamResponse()

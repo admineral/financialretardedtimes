@@ -381,6 +381,7 @@ export async function POST() {
       model: openai('gpt-5.2'),
       schema: AITickerResponseSchema,
       system: TICKER_PROMPT,
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
       prompt: `Extrahiere die unterhaltsamsten Ticker-Events aus diesem Chat (letzte 24h):
 
 ${chatContext}

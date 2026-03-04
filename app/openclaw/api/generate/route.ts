@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
         schema: OpenClawNewspaperSchema,
         system: prompts.system,
         prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedCommits),
+        providerOptions: { openai: { reasoning: { effort: 'high' } } },
         async onFinish({ object }) {
           if (object) {
             console.log(`[OPENCLAW] Saving generated newspaper to cache`)
@@ -160,6 +161,7 @@ export async function POST(request: NextRequest) {
       schema: OpenClawNewspaperSchema,
       system: prompts.system,
       prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedCommits),
+      providerOptions: { openai: { reasoning: { effort: 'high' } } },
       async onFinish({ object }) {
         if (object) {
           console.log(`[OPENCLAW] Saving generated newspaper to cache`)
