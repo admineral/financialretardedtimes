@@ -359,7 +359,7 @@ export default function RateChartPage() {
       // Check if we're in winners period (real or simulated)
       const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 12)
       
-      // Only fetch during Winners Period (00:00-08:00 Vienna) or in test mode
+      // Only fetch during Winners Period (00:00-12:00 Vienna) or in test mode
       if (!isWinnersPeriod) {
         // Clear midnight price when not in winners period
         if (testMode === null) {
@@ -646,7 +646,37 @@ export default function RateChartPage() {
           throw new Error(data.error || 'Failed to fetch messages')
         }
         
-        const allMessages: ChatMessage[] = data.messages || []
+        let allMessages: ChatMessage[] = data.messages || []
+        
+        // During Winners Period (00:00-12:00), also fetch TODAY's messages for Next Round preview
+        const now = new Date()
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Europe/Vienna',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          hour12: false
+        })
+        const parts = formatter.formatToParts(now)
+        const getPart = (type: string) => parts.find(p => p.type === type)?.value || ''
+        const viennaHour = parseInt(getPart('hour'))
+        
+        if (viennaHour < 12) {
+          // We're in Winners Period - also fetch today's messages for early bird predictions
+          const todayDate = `${getPart('year')}-${getPart('month')}-${getPart('day')}`
+          
+          if (todayDate !== gameDate) {
+            console.log(`[RATE-CHART] 📥 Also fetching TODAY's messages (${todayDate}) for Next Round preview...`)
+            const todayResponse = await fetch(`/Rate-Chart/api/messages?date=${todayDate}&_t=${Date.now()}`)
+            const todayData = await todayResponse.json()
+            
+            if (todayData.success && todayData.messages?.length > 0) {
+              console.log(`[RATE-CHART] 📥 Found ${todayData.messages.length} messages for today`)
+              allMessages = [...allMessages, ...todayData.messages]
+            }
+          }
+        }
         
         // Log message time range
         if (allMessages.length > 0) {
@@ -726,8 +756,8 @@ export default function RateChartPage() {
     const currentHour = viennaTime.getHours()
     
     // Use test mode value if set, otherwise use real time check
-    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 8)
-    
+    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 12)
+
     let gameDayStart: Date
     let gameDayEnd: Date
     
@@ -792,7 +822,7 @@ export default function RateChartPage() {
     const currentMinute = viennaTime.getMinutes()
     
     // Use test mode value if set, otherwise use real time check
-    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 8)
+    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 12)
     
     console.log(`[RATE-CHART] ════════════════════════════════════════════`)
     console.log(`[RATE-CHART] 🕐 Current Vienna Time: ${viennaTime.toLocaleString('de-AT')}${testMode ? ' (SIMULATED)' : ''}`)
@@ -803,7 +833,7 @@ export default function RateChartPage() {
     let gameDayEnd: Date
     
     if (isWinnersPeriod) {
-      // Winners Period (00:00-08:00): Show YESTERDAY's complete game (00:00-23:59 yesterday)
+      // Winners Period (00:00-12:00): Show YESTERDAY's complete game (00:00-23:59 yesterday)
       const yesterdayMidnight = new Date(viennaTime)
       yesterdayMidnight.setDate(yesterdayMidnight.getDate() - 1)
       yesterdayMidnight.setHours(0, 0, 0, 0)
@@ -952,9 +982,9 @@ export default function RateChartPage() {
     const currentHour = viennaTime.getHours()
     
     // Use test mode value if set, otherwise use real time check
-    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 8)
+    const isWinnersPeriod = isTestPastMidnight !== null ? isTestPastMidnight : (currentHour < 12)
     
-    // Only show during Winners Period (00:00-08:00)
+    // Only show during Winners Period (00:00-12:00)
     if (!isWinnersPeriod) return []
     
     const midnightToday = new Date(viennaTime)
@@ -1135,7 +1165,7 @@ export default function RateChartPage() {
     })
   }, [nextRoundGuesses, currentBitcoinPrice])
 
-  // Save winners to leaderboard during Winners Period (00:00-08:00 Vienna time)
+  // Save winners to leaderboard during Winners Period (00:00-12:00 Vienna time)
   // This checks if yesterday's winners have been saved, and saves them if not
   useEffect(() => {
     const saveWinnersToLeaderboard = async () => {
@@ -1797,133 +1827,6 @@ export default function RateChartPage() {
             </div>
           )}
 
-          {/* WINNER PHASE BANNER (00:00-12:00) */}
-          {isPastMidnight && leaderboard.length > 0 && (
-            <div className="mb-8">
-              {/* Hero banner */}
-              <div className="relative overflow-hidden rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-zinc-900 to-zinc-900 p-6 md:p-8">
-                {/* Glowing orb background */}
-                <div className="pointer-events-none absolute -top-20 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-amber-500/10 blur-3xl" />
-                <div className="pointer-events-none absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/5 via-transparent to-transparent" />
-
-                {/* Top label */}
-                <div className="relative flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-bold uppercase tracking-widest">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                      Winner Phase
-                    </span>
-                  </div>
-                  {midnightPrice !== null && (
-                    <div className="text-right">
-                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Midnight BTC</div>
-                      <div className="text-sm font-bold text-amber-400">${midnightPrice.toLocaleString()}</div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Podium: top 3 */}
-                <div className="relative flex items-end justify-center gap-3 md:gap-6 mb-6">
-                  {/* 2nd place */}
-                  {leaderboard.length > 1 ? (
-                    <div className="flex flex-col items-center gap-2 pb-2">
-                      <Avatar className="h-12 w-12 md:h-14 md:w-14 border-2 border-zinc-400/60 ring-2 ring-zinc-400/20 shadow-lg">
-                        <AvatarImage src={leaderboard[1].avatar || undefined} alt={leaderboard[1].username} />
-                        <AvatarFallback className="bg-zinc-700 text-zinc-200 text-sm font-bold">
-                          {leaderboard[1].username.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="text-center">
-                        <div className="text-2xl">🥈</div>
-                        <div className="text-xs font-semibold text-zinc-300 max-w-[80px] truncate">{leaderboard[1].username}</div>
-                        {midnightPrice !== null && (
-                          <div className="text-[10px] text-zinc-500">${Math.abs(leaderboard[1].latestGuess - midnightPrice).toLocaleString()} off</div>
-                        )}
-                      </div>
-                      <div className="h-16 w-14 md:w-20 bg-zinc-400/10 border border-zinc-400/20 rounded-t-lg flex items-center justify-center">
-                        <span className="text-zinc-400 font-black text-xl">2</span>
-                      </div>
-                    </div>
-                  ) : <div className="w-14 md:w-20" />}
-
-                  {/* 1st place — tallest */}
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="relative">
-                      <div className="absolute -inset-1 rounded-full bg-amber-500/30 blur-md animate-pulse" />
-                      <Avatar className="relative h-16 w-16 md:h-20 md:w-20 border-2 border-amber-400/80 ring-2 ring-amber-400/30 shadow-xl shadow-amber-500/20">
-                        <AvatarImage src={leaderboard[0].avatar || undefined} alt={leaderboard[0].username} />
-                        <AvatarFallback className="bg-amber-900/60 text-amber-200 text-lg font-black">
-                          {leaderboard[0].username.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-3xl">🥇</div>
-                      <div className="text-sm font-black text-amber-300 max-w-[100px] truncate">{leaderboard[0].username}</div>
-                      {midnightPrice !== null && (
-                        <div className="text-[10px] text-amber-500/70">${Math.abs(leaderboard[0].latestGuess - midnightPrice).toLocaleString()} off</div>
-                      )}
-                    </div>
-                    <div className="h-24 w-14 md:w-20 bg-amber-500/10 border border-amber-500/30 rounded-t-lg flex items-center justify-center">
-                      <span className="text-amber-400 font-black text-2xl">1</span>
-                    </div>
-                  </div>
-
-                  {/* 3rd place */}
-                  {leaderboard.length > 2 ? (
-                    <div className="flex flex-col items-center gap-2 pb-4">
-                      <Avatar className="h-10 w-10 md:h-12 md:w-12 border-2 border-orange-700/60 ring-2 ring-orange-700/20 shadow-lg">
-                        <AvatarImage src={leaderboard[2].avatar || undefined} alt={leaderboard[2].username} />
-                        <AvatarFallback className="bg-orange-900/50 text-orange-200 text-xs font-bold">
-                          {leaderboard[2].username.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="text-center">
-                        <div className="text-xl">🥉</div>
-                        <div className="text-xs font-semibold text-orange-300/80 max-w-[80px] truncate">{leaderboard[2].username}</div>
-                        {midnightPrice !== null && (
-                          <div className="text-[10px] text-zinc-500">${Math.abs(leaderboard[2].latestGuess - midnightPrice).toLocaleString()} off</div>
-                        )}
-                      </div>
-                      <div className="h-10 w-14 md:w-20 bg-orange-700/10 border border-orange-700/20 rounded-t-lg flex items-center justify-center">
-                        <span className="text-orange-500/70 font-black text-lg">3</span>
-                      </div>
-                    </div>
-                  ) : <div className="w-14 md:w-20" />}
-                </div>
-
-                {/* Winner prediction detail */}
-                <div className="relative flex flex-col sm:flex-row items-center justify-center gap-3 p-3 rounded-2xl bg-zinc-800/60 border border-zinc-700/50">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-zinc-500 text-xs">Winner guessed</span>
-                    <span className="font-black text-amber-300">${leaderboard[0].latestGuess.toLocaleString()}</span>
-                  </div>
-                  {midnightPrice !== null && (
-                    <>
-                      <span className="hidden sm:block text-zinc-700">•</span>
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-zinc-500 text-xs">only</span>
-                        <span className="font-black text-emerald-400">${Math.abs(leaderboard[0].latestGuess - midnightPrice).toLocaleString()}</span>
-                        <span className="text-zinc-500 text-xs">away from midnight price</span>
-                      </div>
-                    </>
-                  )}
-                  <span className="hidden sm:block text-zinc-700">•</span>
-                  <div className="text-xs text-zinc-500">
-                    {leaderboard.length} participant{leaderboard.length !== 1 ? 's' : ''}
-                  </div>
-                </div>
-
-                {/* Time remaining in winner phase */}
-                <div className="relative mt-4 flex items-center justify-center gap-2 text-xs text-zinc-600">
-                  <span>Winner phase ends at 12:00 Vienna time</span>
-                  <span>•</span>
-                  <span className="text-zinc-500 font-mono">{timeUntilMidnight} remaining</span>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Main Layout: Left Participants + Right Leaderboards */}
           <div className="mb-12 flex flex-col lg:flex-row gap-6">
             {/* LEFT SIDE - Participants List */}
@@ -2370,7 +2273,7 @@ export default function RateChartPage() {
                     <div className="w-5 h-5 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
                   </div>
                 ) : isPastMidnight ? (
-                  /* WINNERS PERIOD (00:00-08:00): Show live leaderboard (yesterday's game being calculated) */
+                  /* WINNERS PERIOD (00:00-12:00): Show live leaderboard (yesterday's game being calculated) */
                   leaderboard.length > 0 ? (
                     <div className="space-y-2">
                       {leaderboard.slice(0, isYesterdayExpanded ? leaderboard.length : 3).map((entry, index) => {
