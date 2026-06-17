@@ -1,22 +1,22 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { format, formatDistanceToNow } from 'date-fns'
-import { 
-  Trophy, 
-  TrendingUp, 
-  Users, 
-  Target, 
-  Coins, 
-  Gift, 
-  ChevronLeft, 
-  X, 
-  Info,
-  Flame,
-  Crown,
-  Zap
+import { Avatar,AvatarFallback,AvatarImage } from '@/components/ui/avatar'
+import { formatDistanceToNow } from 'date-fns'
+import {
+ChevronLeft,
+Coins,
+Crown,
+Flame,
+Gift,
+Info,
+Target,
+TrendingUp,
+Trophy,
+Users,
+X,
+Zap
 } from 'lucide-react'
+import { useCallback,useEffect,useMemo,useState } from 'react'
 
 interface LeaderboardEntry {
   username: string
@@ -103,7 +103,6 @@ export default function PredictionMarket({
   const [betType, setBetType] = useState<'win' | 'top3'>('win')
   const [isPlacingBet, setIsPlacingBet] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showHistory, setShowHistory] = useState(false)
   const [topBettors, setTopBettors] = useState<{ user_identifier: string; display_name?: string; total_credits: number; total_bets_won?: number; best_streak?: number }[]>([])
   
   const [showDropdown, setShowDropdown] = useState(false)
@@ -203,6 +202,7 @@ export default function PredictionMarket({
     
     // Don't load topBettors from localStorage - always get fresh from API
     // localStorage data can be corrupted or out of sync
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Local credit initialization is intentionally kept outside this storage loader's dependency cycle.
   }, [userId, gameDate])
 
   const initializeLocalCredits = () => {
@@ -367,7 +367,7 @@ export default function PredictionMarket({
       const data = await response.json()
       
       if (!response.ok) {
-        placeBetLocally(targetUsername, targetAvatar, latestPrediction)
+        placeBetLocally(targetUsername)
         return
       }
       
@@ -378,14 +378,14 @@ export default function PredictionMarket({
       setBetAmount(10)
       fetchMarketData()
       
-    } catch (err) {
-      placeBetLocally(targetUsername, targetAvatar, latestPrediction)
+    } catch {
+      placeBetLocally(targetUsername)
     } finally {
       setIsPlacingBet(false)
     }
   }
 
-  const placeBetLocally = (targetUsername: string, targetAvatar?: string, latestPrediction?: number) => {
+  const placeBetLocally = (targetUsername: string) => {
     if (!userCredits) return
     
     const existingBet = userBets.find(b => b.target_username === targetUsername && b.bet_type === betType)
@@ -681,6 +681,7 @@ export default function PredictionMarket({
         diff: Math.abs(entry.latestGuess - referencePrice)
       }
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Odds helpers read the same state already represented by these dependencies.
   }, [leaderboard, marketPools, userBets, referencePrice])
 
   if (isLoading) {
@@ -1338,7 +1339,7 @@ export default function PredictionMarket({
               <div className="glass-card p-5 rounded-xl">
                 <h3 className="font-bold mb-4 flex items-center gap-2">
                   <Info className="w-5 h-5 text-blue-400" />
-                  <span>So funktioniert's</span>
+                  <span>So funktioniert&apos;s</span>
                 </h3>
                 <div className="space-y-3 text-sm text-muted-foreground">
                   <div className="flex items-start gap-3">

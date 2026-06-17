@@ -15,9 +15,9 @@
 
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { AlertTriangle,Laugh,MessageSquare,RefreshCw,Sparkles,TrendingDown,TrendingUp,X } from 'lucide-react'
+import { useCallback,useEffect,useRef,useState } from 'react'
 import { createPortal } from 'react-dom'
-import { TrendingUp, TrendingDown, Laugh, Zap, MessageSquare, AlertTriangle, RefreshCw, Sparkles, X } from 'lucide-react'
 
 // Event types
 type TickerEventType = 'bullish' | 'bearish' | 'funny' | 'drama' | 'insight' | 'call' | 'fail'
@@ -148,7 +148,7 @@ function renderQuoteContent(quote: string, quoteAuthor: string, style: { border:
         <div className="space-y-1">
           <div className="text-[9px] text-blue-600 dark:text-blue-400">
             <span className="font-medium">@{parsed.quotedUser}:</span>{' '}
-            <span className="italic text-muted-foreground">„{parsed.quotedText.slice(0, 50)}{parsed.quotedText.length > 50 ? '...' : ''}"</span>
+            <span className="italic text-muted-foreground">„{parsed.quotedText.slice(0, 50)}{parsed.quotedText.length > 50 ? '...' : ''}“</span>
           </div>
           {parsed.responseText && (
             <p className="text-[10px] text-foreground/80">
@@ -171,7 +171,7 @@ function renderQuoteContent(quote: string, quoteAuthor: string, style: { border:
             </span>
           </div>
           <p className="text-sm text-gray-600 dark:text-muted-foreground italic">
-            „{parsed.quotedText}"
+            „{parsed.quotedText}“
           </p>
         </div>
         {/* Response */}
@@ -188,14 +188,14 @@ function renderQuoteContent(quote: string, quoteAuthor: string, style: { border:
   if (compact) {
     return (
       <p className="text-[10px] italic text-foreground/80 leading-snug">
-        „{quote}"
+        „{quote}“
       </p>
     )
   }
   
   return (
     <p className="text-sm text-gray-700 dark:text-inherit italic">
-      „{quote}"
+      „{quote}“
     </p>
   )
 }
@@ -276,7 +276,7 @@ function renderTextWithQuotes(text: string, compact = false) {
             return (
               <span key={index} className="text-muted-foreground/70">
                 <span className="text-blue-600 dark:text-blue-400 font-medium">@{part.username}:</span>{' '}
-                <span className="italic">„{part.content}"</span>{' '}
+                <span className="italic">„{part.content}“</span>{' '}
               </span>
             )
           }
@@ -300,7 +300,7 @@ function renderTextWithQuotes(text: string, compact = false) {
                 </span>
               </div>
               <p className="text-sm text-gray-600 dark:text-muted-foreground italic">
-                „{part.content}"
+                „{part.content}“
               </p>
             </div>
           )
@@ -445,7 +445,7 @@ function TickerItem({ event }: { event: TickerEvent }) {
         <div className="flex items-center gap-2 text-[9px] text-muted-foreground/60 whitespace-nowrap pl-0.5">
           {cleanQuote && (
             <>
-              <span className="italic">„{cleanQuote.text}"</span>
+              <span className="italic">„{cleanQuote.text}“</span>
               <span className="opacity-40">—</span>
               <span>@{cleanQuote.author}</span>
             </>
@@ -844,17 +844,6 @@ export function ChatTicker({
     // Auto-resume when mouse leaves (both pause and stop)
     setIsPaused(false)
     setIsStopped(false)
-  }
-  
-  // Toggle play/pause (used by button)
-  const togglePlayPause = () => {
-    setIsStopped(prev => {
-      if (prev) {
-        // Resuming - also unpause
-        setIsPaused(false)
-      }
-      return !prev
-    })
   }
   
   // Handle wheel scroll - only capture horizontal scroll, let vertical pass through for page scroll

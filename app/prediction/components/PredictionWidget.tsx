@@ -119,10 +119,10 @@ function PredictionModal({ prediction, onClose }: { prediction: Prediction; onCl
 
         {/* Content */}
         <div className="p-5 space-y-4">
-          <h3 className="text-xl font-bold leading-snug">„{prediction.prediction}"</h3>
+          <h3 className="text-xl font-bold leading-snug">„{prediction.prediction}“</h3>
 
           <div className="p-4 rounded-lg bg-white/5 border border-white/10">
-            <p className="text-sm italic leading-relaxed text-zinc-400">„{prediction.originalText}"</p>
+            <p className="text-sm italic leading-relaxed text-zinc-400">„{prediction.originalText}“</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
@@ -227,7 +227,7 @@ export function PredictionWidget() {
   const [predictions, setPredictions] = useState<Prediction[]>([])
   const [summary, setSummary] = useState('')
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
-  const [currentPrice, setCurrentPrice] = useState(0)
+  const [, setCurrentPrice] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [fetchedAt, setFetchedAt] = useState<string | null>(null)
   const [modalPrediction, setModalPrediction] = useState<Prediction | null>(null)

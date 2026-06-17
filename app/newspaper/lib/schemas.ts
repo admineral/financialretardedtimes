@@ -15,12 +15,11 @@
  * - UNIFIED_PROMPT: System prompt for the AI model
  */
 
-import { z } from 'zod'
 
 // Re-export types for convenience
-export { 
-  UnifiedNewspaperSchema,
-  type UnifiedNewspaperData 
+export {
+UnifiedNewspaperSchema,
+type UnifiedNewspaperData
 } from './types'
 
 /**

@@ -46,7 +46,6 @@ export function DateTimeline({
   isLoading,
   onDateSelect,
   onDayRangeChange,
-  onRefresh,
   cumulativeUsers
 }: DateTimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null)
@@ -66,13 +65,9 @@ export function DateTimeline({
     return () => window.removeEventListener('resize', updateVisibleCount)
   }, [])
 
-  const updateScrollButtons = () => {
+  useEffect(() => {
     setCanScrollLeft(scrollIndex > 0)
     setCanScrollRight(scrollIndex + visibleCount < availableDates.length)
-  }
-
-  useEffect(() => {
-    updateScrollButtons()
   }, [scrollIndex, visibleCount, availableDates.length])
 
   const scrollTimeline = (direction: 'left' | 'right') => {

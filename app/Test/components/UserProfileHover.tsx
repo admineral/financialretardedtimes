@@ -38,7 +38,6 @@ interface UserProfileHoverProps {
 
 // Day range options - 0 means "MAX" (all available data)
 const DAY_RANGES = [30, 60, 90, 180, 0] as const
-type DayRange = typeof DAY_RANGES[number]
 
 /**
  * Skeleton loading state that matches the full card layout
@@ -226,7 +225,7 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
   const userId = userMessages.length > 0 ? userMessages[0].user_id || null : null
   
   // Retry state for fallback fetching
-  const [retryCount, setRetryCount] = useState(0)
+  const [, setRetryCount] = useState(0)
   
   // Fetch extended profile data from TradingView
   const { profile, isLoading: profileLoading, refetch: refetchProfile } = useUserProfile({
@@ -407,9 +406,6 @@ export function UserProfileHover({ username, userMessages, className = '' }: Use
     )
   }
 
-  // If we have activity/profile data but no local messages, use fallback rendering
-  const showFallbackProfile = (!userStats || userMessages.length === 0) && (hasActivityData || hasProfileData)
-  
   const latestMessage = userMessages[userMessages.length - 1]
   const userBadges = latestMessage?.badges || []
   const isPremium = userBadges.some(badge => badge.name.includes('premium'))

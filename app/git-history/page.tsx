@@ -162,6 +162,7 @@ export default function GitHistoryPage() {
     } finally {
       setGraphLoading(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchBranches triggers the current graph fetch after branch selection.
   }, [repoUrl])
   
   // Fetch commit graph
@@ -457,11 +458,14 @@ export default function GitHistoryPage() {
                         <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
                           <div className="flex items-center gap-2">
                             {commit.author.avatar ? (
-                              <img
-                                src={commit.author.avatar}
-                                alt={commit.author.name}
-                                className="w-5 h-5 rounded-full"
-                              />
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element -- GitHub avatar URLs are dynamic and not covered by the image config. */}
+                                <img
+                                  src={commit.author.avatar}
+                                  alt={commit.author.name}
+                                  className="w-5 h-5 rounded-full"
+                                />
+                              </>
                             ) : (
                               <User className="w-4 h-4" />
                             )}

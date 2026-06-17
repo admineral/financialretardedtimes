@@ -32,7 +32,7 @@ export const CONFIG = {
   
   // AI settings
   ai: {
-    model: 'gpt-5.2' as const,
+    model: 'gpt-5.4' as const,
   },
   
   // Cache settings (in seconds)
@@ -78,6 +78,9 @@ export function getUIStrings(language: Language) {
       commitsReady: (count: number) => `${count} commits ready for analysis`,
       analyzing: 'AI analyzing commits...',
       error: 'Error',
+      githubUnavailable: 'GitHub is not available right now. Please try again later.',
+      stalePreview: 'Hinweis: old data point',
+      stalePreviewDescription: 'Fresh GitHub data is unavailable, so this is a stored preview from an earlier generation.',
       retry: 'Try again',
       leadArticle: 'Lead Article',
       technicalHighlights: 'Technical Highlights',
@@ -108,6 +111,9 @@ export function getUIStrings(language: Language) {
       commitsReady: (count: number) => `${count} Commits bereit zur Analyse`,
       analyzing: 'KI analysiert Commits...',
       error: 'Fehler',
+      githubUnavailable: 'GitHub ist gerade nicht erreichbar. Bitte versuche es später noch einmal.',
+      stalePreview: 'Hinweis: alter Datenstand',
+      stalePreviewDescription: 'Frische GitHub-Daten sind gerade nicht verfügbar, daher zeigen wir eine gespeicherte Vorschau aus einer früheren Generierung.',
       retry: 'Erneut versuchen',
       leadArticle: 'Leitartikel',
       technicalHighlights: 'Technische Highlights',

@@ -63,7 +63,7 @@ export default function ProtectedLayout({
       <footer className="w-full border-t-2 border-foreground/20 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="text-center text-xs text-muted-foreground font-body">
-            <p>© 2025 Financial Retarded Times • „Keine Finanzberatung – nur Entertainment"</p>
+            <p>© 2025 Financial Retarded Times • „Keine Finanzberatung – nur Entertainment“</p>
           </div>
         </div>
       </footer>

@@ -1,56 +1,85 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
-import Link from 'next/link'
-import { 
-  GitBranch, 
-  GitMerge, 
-  GitCommit, 
-  Users, 
-  Newspaper, 
-  RefreshCw, 
-  ExternalLink,
-  Sparkles,
-  Calendar,
-  TrendingUp,
-  Zap,
-  Award,
-  ChevronRight,
-  AlertCircle,
-} from 'lucide-react'
-import { CONFIG, getUIStrings, type Language } from './lib/config'
-import { OpenClawNewspaperSchema, type OpenClawNewspaperData } from './lib/schemas'
-import type { CommitStats } from './lib/types'
-import { Skeleton, CategoryBadge, getCategoryStyle, CommitTimeline, CommitTicker, CommitChart, type DayRange } from './components'
 import {
-  getSettings,
-  updateSettings,
-  initializeCache,
-  syncCommits,
-  getCachedCommits,
-  getDailyStats,
-  calculateStatsFromCache,
-  getMostRecentNewspaper,
-  type DailyStats,
-  type CachedCommit,
-  type OpenClawSettings,
-  type CachedNewspaper,
+AlertCircle,
+Award,
+Calendar,
+ChevronRight,
+ExternalLink,
+GitBranch,
+GitCommit,
+GitMerge,
+Newspaper,
+RefreshCw,
+Sparkles,
+TrendingUp,
+Zap
+} from 'lucide-react'
+import Link from 'next/link'
+import { useCallback,useEffect,useRef,useState } from 'react'
+import {
+getCachedCommits,
+getDailyStats,
+getMostRecentNewspaper,
+getSettings,
+initializeCache,
+syncCommits,
+updateSettings,
+type CachedCommit,
+type CachedNewspaper,
+type DailyStats,
+type OpenClawSettings,
 } from './actions/cache'
+import { CategoryBadge,CommitChart,CommitTicker,CommitTimeline,getCategoryStyle,Skeleton,type DayRange } from './components'
+import { CONFIG,getUIStrings,type Language } from './lib/config'
+import { OpenClawNewspaperSchema,type OpenClawNewspaperData } from './lib/schemas'
+
+type GenerationAttempt = {
+  id: string
+  startedAt: string
+  force: boolean
+  language: Language
+  commitCount: number
+  dayRange: number
+  selectedDates: string[]
+  trigger: 'auto' | 'manual' | 'retry' | 'language'
+}
+
+type CommitLoadStatus = {
+  phase: 'idle' | 'fetching' | 'calculating' | 'ready' | 'error'
+  message: string
+  startDate: string | null
+  endDate: string | null
+  loadedCount: number
+}
 
 function StreamingCursor({ show }: { show: boolean }) {
   if (!show) return null
   return <span className="inline-block w-0.5 h-[1em] bg-primary animate-pulse ml-1 align-middle" />
 }
 
+function isGitHubUnavailableMessage(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return normalized.includes('github api error: 403') || 
+    normalized.includes('github is not available') ||
+    normalized.includes('github ist gerade nicht erreichbar') ||
+    normalized.includes('github_rate_limited')
+}
+
+function isOpenClawClientDebugEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_OPENCLAW_DEBUG_LOGS === 'true'
+}
+
 export default function OpenClawTodayPage() {
+  const lastAutoGenerateKey = useRef<string | null>(null)
   const [commits, setCommits] = useState<CachedCommit[]>([])
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
-  const [stats, setStats] = useState<CommitStats | null>(null)
   const [settings, setSettings] = useState<OpenClawSettings | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [selectedDates, setSelectedDates] = useState<string[]>([])
   const [cachedNewspaper, setCachedNewspaper] = useState<CachedNewspaper | null>(null)
+  const [staleNewspaper, setStaleNewspaper] = useState<CachedNewspaper | null>(null)
   
   const [isLoadingCommits, setIsLoadingCommits] = useState(true)
   const [isLoadingDates, setIsLoadingDates] = useState(true)
@@ -60,6 +89,14 @@ export default function OpenClawTodayPage() {
   const [today, setToday] = useState<string>('')
   const [language, setLanguage] = useState<Language>('en')
   const [initError, setInitError] = useState<string | null>(null)
+  const [generationAttempt, setGenerationAttempt] = useState<GenerationAttempt | null>(null)
+  const [commitLoadStatus, setCommitLoadStatus] = useState<CommitLoadStatus>({
+    phase: 'idle',
+    message: 'Waiting for date selection',
+    startDate: null,
+    endDate: null,
+    loadedCount: 0,
+  })
   
   const strings = getUIStrings(language)
   
@@ -72,10 +109,65 @@ export default function OpenClawTodayPage() {
     api: '/openclaw/api/generate',
     schema: OpenClawNewspaperSchema,
   })
+  const isInitGitHubUnavailable = initError ? isGitHubUnavailableMessage(initError) : false
+  const isGenerateGitHubUnavailable = error?.message ? isGitHubUnavailableMessage(error.message) : false
+  const displayInitError = initError
+    ? isInitGitHubUnavailable ? strings.githubUnavailable : initError
+    : null
+  const displayGenerateError = error?.message
+    ? isGenerateGitHubUnavailable ? strings.githubUnavailable : error.message
+    : null
+  const stalePreviewNewspaper = !cachedNewspaper && staleNewspaper ? staleNewspaper : null
+  const shouldShowStalePreview = !!stalePreviewNewspaper && (!!displayGenerateError || !newspaperData)
+
+  const generateNewspaper = useCallback((force: boolean = false, trigger: GenerationAttempt['trigger'] = 'manual') => {
+    const dayRange = selectedDates.length || 1
+    const attempt: GenerationAttempt = {
+      id: `${Date.now().toString(36)}-${trigger}`,
+      startedAt: new Date().toISOString(),
+      force,
+      language,
+      commitCount: commits.length || CONFIG.newspaper.defaultCommitCount,
+      dayRange,
+      selectedDates,
+      trigger,
+    }
+
+    setGenerationAttempt(attempt)
+    console.info(
+      `[OPENCLAW UI] Generation ${attempt.id} started (${trigger}, ${language.toUpperCase()}, ${dayRange}d, ${attempt.commitCount} commits)`
+    )
+
+    if (isOpenClawClientDebugEnabled()) {
+      console.groupCollapsed(
+        `[OPENCLAW UI DEBUG] ${trigger} generation ${attempt.id}: ${language.toUpperCase()}, ${dayRange} day(s), ${attempt.commitCount} commit(s), force=${force}`
+      )
+      console.info('[OPENCLAW UI DEBUG] Attempt details', attempt)
+      console.info('[OPENCLAW UI DEBUG] Request target', '/openclaw/api/generate')
+      console.info('[OPENCLAW UI DEBUG] Expected steps', [
+        force ? 'Sync latest commits before generation' : 'Check generated newspaper cache first',
+        'Load cached commits for the requested day range',
+        'Build an AI prompt from commit stats and recent commit messages',
+        `Stream a newspaper object with ${CONFIG.ai.model}`,
+        'Save the finished newspaper to Supabase cache',
+      ])
+      console.groupEnd()
+    }
+
+    submit({ 
+      language, 
+      commitCount: attempt.commitCount, 
+      dayRange, 
+      forceRegenerate: force,
+      selectedDates,
+      attemptId: attempt.id,
+    })
+  }, [commits.length, language, selectedDates, submit])
 
   // Use streamed data if available, otherwise use cached newspaper
-  const data = (newspaperData as Partial<OpenClawNewspaperData> | undefined) || 
-    (cachedNewspaper?.data as Partial<OpenClawNewspaperData> | undefined)
+  const data = (!displayGenerateError ? newspaperData as Partial<OpenClawNewspaperData> | undefined : undefined) || 
+    (cachedNewspaper?.data as Partial<OpenClawNewspaperData> | undefined) ||
+    (stalePreviewNewspaper?.data as Partial<OpenClawNewspaperData> | undefined)
 
   // Set today's date based on current language
   useEffect(() => {
@@ -118,13 +210,17 @@ export default function OpenClawTodayPage() {
         if (cacheAgeHours < maxCacheHours) {
           console.log(`[OPENCLAW] Using cached newspaper from ${cached.updatedAt} (${cacheAgeHours.toFixed(1)}h old)`)
           setCachedNewspaper(cached)
+          setStaleNewspaper(null)
           setHasGenerated(true)
         } else {
           console.log(`[OPENCLAW] Cached newspaper too old (${cacheAgeHours.toFixed(1)}h > ${maxCacheHours}h), will auto-generate`)
+          setStaleNewspaper(cached)
           shouldAutoGenerate = true
         }
       } else {
         console.log(`[OPENCLAW] No cached newspaper found for ${lang}, will auto-generate`)
+        const fallback = await getMostRecentNewspaper()
+        setStaleNewspaper(fallback)
         shouldAutoGenerate = true
       }
       
@@ -164,47 +260,113 @@ export default function OpenClawTodayPage() {
   useEffect(() => {
     if (selectedDates.length === 0) {
       setCommits([])
-      setStats(null)
       setIsLoadingCommits(false)
+      setCommitLoadStatus({
+        phase: 'idle',
+        message: language === 'de' ? 'Warte auf Datumsauswahl' : 'Waiting for date selection',
+        startDate: null,
+        endDate: null,
+        loadedCount: 0,
+      })
       return
     }
+
+    let cancelled = false
     
     async function loadCommits() {
       setIsLoadingCommits(true)
+      const startDate = selectedDates[selectedDates.length - 1]
+      const endDate = selectedDates[0]
+      setCommitLoadStatus({
+        phase: 'fetching',
+        message: language === 'de'
+          ? `Lade Commit-Cache fuer ${startDate} bis ${endDate}`
+          : `Loading commit cache for ${startDate} to ${endDate}`,
+        startDate,
+        endDate,
+        loadedCount: 0,
+      })
+
       try {
-        const startDate = selectedDates[selectedDates.length - 1]
-        const endDate = selectedDates[0]
-        
         const cachedCommits = await getCachedCommits({
           startDate,
           endDate,
         })
-        
+
+        if (cancelled) return
         setCommits(cachedCommits)
-        const calculatedStats = await calculateStatsFromCache(cachedCommits)
-        setStats(calculatedStats)
+        setCommitLoadStatus({
+          phase: 'ready',
+          message: language === 'de'
+            ? `${cachedCommits.length} Commits geladen und bereit fuer die Analyse`
+            : `${cachedCommits.length} commits loaded and ready for analysis`,
+          startDate,
+          endDate,
+          loadedCount: cachedCommits.length,
+        })
       } catch (err) {
         console.error('Failed to load commits:', err)
+        if (!cancelled) {
+          setCommitLoadStatus({
+            phase: 'error',
+            message: err instanceof Error ? err.message : 'Failed to load commits',
+            startDate,
+            endDate,
+            loadedCount: 0,
+          })
+        }
       } finally {
-        setIsLoadingCommits(false)
+        if (!cancelled) {
+          setIsLoadingCommits(false)
+        }
       }
     }
     
     loadCommits()
-  }, [selectedDates])
+    return () => {
+      cancelled = true
+    }
+  }, [language, selectedDates])
 
   // Auto-generate newspaper if needed
   useEffect(() => {
-    if (!isLoadingCommits && commits.length > 0 && hasGenerated && !cachedNewspaper && !isGenerating && !newspaperData) {
+    if (!isLoadingCommits && commits.length > 0 && hasGenerated && !cachedNewspaper && !isGenerating && !newspaperData && !error) {
       const dayRange = selectedDates.length || 1
+      const autoGenerateKey = `${language}:${selectedDates.join(',')}:${dayRange}:${forceRegenerate}`
+      
+      if (lastAutoGenerateKey.current === autoGenerateKey) {
+        return
+      }
+      
+      lastAutoGenerateKey.current = autoGenerateKey
       console.log(`[OPENCLAW] Auto-generating newspaper... (forceRegenerate: ${forceRegenerate}, dayRange: ${dayRange}, commits: ${commits.length})`)
-      submit({ language, commitCount: commits.length, dayRange, forceRegenerate })
+      generateNewspaper(forceRegenerate, 'auto')
       // Reset force flag after triggering
       if (forceRegenerate) {
         setForceRegenerate(false)
       }
     }
-  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, submit, language, forceRegenerate, selectedDates.length])
+  }, [isLoadingCommits, commits.length, hasGenerated, cachedNewspaper, isGenerating, newspaperData, error, language, forceRegenerate, selectedDates, generateNewspaper])
+
+  useEffect(() => {
+    if (!generationAttempt) return
+
+    if (isGenerating) {
+      if (isOpenClawClientDebugEnabled()) {
+        console.info(`[OPENCLAW UI DEBUG] Generation ${generationAttempt.id} is streaming`)
+      }
+      return
+    }
+
+    if (error) {
+      console.error(`[OPENCLAW UI] Generation ${generationAttempt.id} failed`, error)
+      return
+    }
+
+    if (newspaperData) {
+      console.info(`[OPENCLAW UI] Generation ${generationAttempt.id} received newspaper data`)
+    }
+  }, [error, generationAttempt, isGenerating, newspaperData])
 
   const handleDateSelect = useCallback((date: string) => {
     setSelectedDate(date)
@@ -226,15 +388,6 @@ export default function OpenClawTodayPage() {
     }
   }, [loadData])
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString(language === 'de' ? 'de-DE' : 'en-US', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
   const formatTime = (dateString: string) => {
     const tz = settings?.displayTimezone || 'UTC'
     try {
@@ -250,6 +403,53 @@ export default function OpenClawTodayPage() {
       })
     }
   }
+
+  const commitLoadRangeLabel = commitLoadStatus.startDate && commitLoadStatus.endDate
+    ? commitLoadStatus.startDate === commitLoadStatus.endDate
+      ? commitLoadStatus.startDate
+      : `${commitLoadStatus.startDate} -> ${commitLoadStatus.endDate}`
+    : language === 'de' ? 'kein Zeitraum' : 'no range'
+
+  const generationSteps = generationAttempt ? [
+    {
+      label: generationAttempt.force
+        ? (language === 'de' ? 'Synchronisiere frische GitHub-Commits' : 'Sync fresh GitHub commits')
+        : (language === 'de' ? 'Pruefe vorhandenen Zeitungscache' : 'Check existing newspaper cache'),
+      detail: generationAttempt.force
+        ? (language === 'de' ? 'Erzwungene Regeneration aktualisiert zuerst den lokalen Commit-Cache.' : 'Forced regeneration refreshes the local commit cache first.')
+        : (language === 'de' ? 'Wenn ein frischer Cache existiert, wird keine neue KI-Anfrage gebraucht.' : 'If a fresh cache exists, no new AI request is needed.'),
+      done: generationAttempt.force ? !isGenerating && !!newspaperData : true,
+    },
+    {
+      label: language === 'de' ? 'Lade Commit-Daten fuer den Zeitraum' : 'Load commit data for the range',
+      detail: `${commitLoadStatus.message} · ${commitLoadRangeLabel}`,
+      done: !isLoadingCommits,
+    },
+    {
+      label: language === 'de' ? 'Baue Prompt aus Commit-Statistiken' : 'Build prompt from commit statistics',
+      detail: language === 'de'
+        ? 'Der Server nutzt Gesamtstatistiken und bis zu 200 aktuelle Commits als Kontext.'
+        : 'The server uses aggregate stats and up to 200 recent commits as context.',
+      done: !!data?.headline || !!data?.leadStory,
+    },
+    {
+      label: language === 'de' ? 'Streame Zeitung vom KI-Modell' : 'Stream newspaper from the AI model',
+      detail: `${CONFIG.ai.model} · ${generationAttempt.language.toUpperCase()} · ${generationAttempt.trigger} trigger · attempt ${generationAttempt.id}`,
+      done: !!newspaperData && !isGenerating,
+    },
+    {
+      label: language === 'de' ? 'Speichere fertige Zeitung im Cache' : 'Save finished newspaper to cache',
+      detail: language === 'de'
+        ? 'Nach Abschluss schreibt der API-Handler die Ausgabe in Supabase.'
+        : 'When streaming finishes, the API handler writes the output to Supabase.',
+      done: !!newspaperData && !isGenerating && !error,
+    },
+  ] : []
+  const isGenerationComplete = !!generationAttempt &&
+    !isGenerating &&
+    !error &&
+    generationSteps.length > 0 &&
+    generationSteps.every(step => step.done)
 
   return (
     <main className="min-h-screen bg-background relative">
@@ -279,9 +479,10 @@ export default function OpenClawTodayPage() {
                   <button
                     onClick={() => {
                       console.log('[OPENCLAW] User requested regeneration')
+                      lastAutoGenerateKey.current = null
                       setCachedNewspaper(null)
                       setHasGenerated(true)
-                      setForceRegenerate(true)
+                      generateNewspaper(true, 'manual')
                     }}
                     className="flex items-center gap-1 ml-1 text-muted-foreground hover:text-primary transition-colors"
                     title="Regenerate newspaper"
@@ -298,9 +499,10 @@ export default function OpenClawTodayPage() {
                 <button
                   onClick={() => {
                     console.log('[OPENCLAW] Full refresh triggered by user')
+                    lastAutoGenerateKey.current = null
                     setCachedNewspaper(null)
                     setHasGenerated(true)
-                    setForceRegenerate(true)
+                    generateNewspaper(true, 'manual')
                   }}
                   disabled={isGenerating}
                   className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -325,16 +527,20 @@ export default function OpenClawTodayPage() {
                       if (cacheAgeHours < maxCacheHours) {
                         console.log(`[OPENCLAW] Loaded EN cached newspaper from ${cached.updatedAt} (${cacheAgeHours.toFixed(1)}h old)`)
                         setCachedNewspaper(cached)
+                        setStaleNewspaper(null)
                         setHasGenerated(true)
                       } else {
                         console.log(`[OPENCLAW] EN cache too old (${cacheAgeHours.toFixed(1)}h), will auto-generate`)
                         setCachedNewspaper(null)
+                        setStaleNewspaper(cached)
                         setHasGenerated(true)
                         setForceRegenerate(true)
                       }
                     } else {
                       console.log(`[OPENCLAW] No EN cached newspaper, will auto-generate`)
+                      const fallback = await getMostRecentNewspaper()
                       setCachedNewspaper(null)
+                      setStaleNewspaper(fallback)
                       setHasGenerated(true)
                       setForceRegenerate(true)
                     }
@@ -355,16 +561,20 @@ export default function OpenClawTodayPage() {
                       if (cacheAgeHours < maxCacheHours) {
                         console.log(`[OPENCLAW] Loaded DE cached newspaper from ${cached.updatedAt} (${cacheAgeHours.toFixed(1)}h old)`)
                         setCachedNewspaper(cached)
+                        setStaleNewspaper(null)
                         setHasGenerated(true)
                       } else {
                         console.log(`[OPENCLAW] DE cache too old (${cacheAgeHours.toFixed(1)}h), will auto-generate`)
                         setCachedNewspaper(null)
+                        setStaleNewspaper(cached)
                         setHasGenerated(true)
                         setForceRegenerate(true)
                       }
                     } else {
                       console.log(`[OPENCLAW] No DE cached newspaper, will auto-generate`)
+                      const fallback = await getMostRecentNewspaper()
                       setCachedNewspaper(null)
+                      setStaleNewspaper(fallback)
                       setHasGenerated(true)
                       setForceRegenerate(true)
                     }
@@ -436,16 +646,20 @@ export default function OpenClawTodayPage() {
       </div>
 
       {/* Init Error */}
-      {initError && (
+      {displayInitError && (
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-sm flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
-            <p className="text-sm text-destructive">{initError}</p>
+          <div className={`p-4 rounded-sm flex items-center gap-3 ${
+            isInitGitHubUnavailable
+              ? 'bg-amber-500/10 border border-amber-500/30'
+              : 'bg-destructive/10 border border-destructive/30'
+          }`}>
+            <AlertCircle className={`w-5 h-5 flex-shrink-0 ${isInitGitHubUnavailable ? 'text-amber-500' : 'text-destructive'}`} />
+            <p className={`text-sm ${isInitGitHubUnavailable ? 'text-amber-200' : 'text-destructive'}`}>{displayInitError}</p>
             <button 
               onClick={loadData}
-              className="ml-auto text-destructive hover:underline text-sm"
+              className={`ml-auto hover:underline text-sm ${isInitGitHubUnavailable ? 'text-amber-200' : 'text-destructive'}`}
             >
-              Retry
+              {strings.retry}
             </button>
           </div>
         </div>
@@ -453,20 +667,163 @@ export default function OpenClawTodayPage() {
 
       {/* Main Content */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10">
+        {/* Generation Status */}
+        {(isGenerating || generationAttempt) && !cachedNewspaper && !displayGenerateError && (
+          <div className={`mb-8 glass-card-gold rounded-sm border border-primary/30 shadow-[0_0_30px_rgba(234,179,8,0.08)] ${isGenerationComplete ? 'p-3' : 'p-5'}`}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className={`flex items-center gap-2 ${isGenerationComplete ? '' : 'mb-2'}`}>
+                  {isGenerationComplete ? (
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-[11px] text-emerald-300">✓</span>
+                  ) : (
+                    <RefreshCw className={`w-4 h-4 text-primary ${isGenerating ? 'animate-spin' : ''}`} />
+                  )}
+                  <span className="font-headline text-sm font-semibold uppercase tracking-wider text-primary">
+                    {isGenerating
+                      ? (language === 'de' ? 'Generierung laeuft im Hintergrund' : 'Generating in the background')
+                      : (language === 'de' ? 'Letzte Generierung' : 'Last generation attempt')}
+                  </span>
+                </div>
+                {!isGenerationComplete && (
+                  <p className="text-sm text-muted-foreground">
+                    {language === 'de'
+                      ? 'OpenClaw prueft Cache und Commit-Daten, baut daraus einen Prompt und streamt dann die Zeitung.'
+                      : 'OpenClaw is checking cache and commit data, building the prompt, then streaming the newspaper.'}
+                  </p>
+                )}
+              </div>
+
+              {generationAttempt && (
+                <div className={`grid gap-x-4 gap-y-1 text-xs font-mono text-muted-foreground sm:text-right ${isGenerationComplete ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
+                  <span>{language === 'de' ? 'Sprache' : 'Language'}: {generationAttempt.language.toUpperCase()}</span>
+                  <span>{language === 'de' ? 'Zeitraum' : 'Range'}: {generationAttempt.dayRange}d</span>
+                  <span>{language === 'de' ? 'Commits' : 'Commits'}: {generationAttempt.commitCount}</span>
+                  <span>{language === 'de' ? 'Trigger' : 'Trigger'}: {generationAttempt.trigger}</span>
+                </div>
+              )}
+            </div>
+
+            {generationAttempt && isGenerationComplete && (
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground font-mono">
+                <span>{CONFIG.ai.model}</span>
+                <span>{commitLoadRangeLabel}</span>
+                <span>{language === 'de' ? 'Versuch' : 'attempt'} {generationAttempt.id}</span>
+                <span className="text-emerald-300">{language === 'de' ? 'alle Schritte abgeschlossen' : 'all steps complete'}</span>
+              </div>
+            )}
+
+            {generationAttempt && !isGenerationComplete && (
+              <div className="mt-5 grid gap-2">
+                {generationSteps.map((step, idx) => (
+                  <div key={`${generationAttempt.id}-${idx}`} className="flex items-start gap-3 rounded-sm bg-background/40 p-3 border border-primary/10">
+                    <div className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${
+                      step.done
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : isGenerating
+                          ? 'bg-primary/20 text-primary'
+                          : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {step.done ? '✓' : idx + 1}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{step.label}</p>
+                      <p className="text-xs text-muted-foreground">{step.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(isLoadingCommits || commitLoadStatus.phase === 'calculating') && (
+          <div className="p-5 bg-amber-500/10 border-2 border-amber-500/40 rounded-sm mb-8 shadow-[0_0_30px_rgba(245,158,11,0.08)]">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+              <RefreshCw className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5 animate-spin" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="font-headline text-sm font-semibold uppercase tracking-wider text-amber-200">
+                    {language === 'de' ? 'Hinweis: Commit-Daten werden geladen' : 'Notice: loading commit data'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-[11px] text-amber-200 border border-amber-500/20 font-mono">
+                    {commitLoadStatus.phase}
+                  </span>
+                </div>
+                <p className="text-sm text-amber-100/90 mb-2">
+                  {commitLoadStatus.message}
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-100/70 font-mono">
+                  <span>{language === 'de' ? 'Zeitraum' : 'Range'}: {commitLoadRangeLabel}</span>
+                  <span>{language === 'de' ? 'Geladen' : 'Loaded'}: {commitLoadStatus.loadedCount} commits</span>
+                  <span>{language === 'de' ? 'Quelle' : 'Source'}: Supabase cache</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Error State */}
-        {error && (
-          <div className="p-6 bg-destructive/10 border border-destructive/30 rounded-sm text-sm text-destructive mb-8">
-            <span className="font-semibold">{strings.error}:</span> {error.message}
+        {displayGenerateError && (
+          <div className={`p-6 rounded-sm text-sm mb-8 flex flex-col sm:flex-row sm:items-center gap-3 ${
+            isGenerateGitHubUnavailable
+              ? 'bg-amber-500/10 border border-amber-500/30 text-amber-200'
+              : 'bg-destructive/10 border border-destructive/30 text-destructive'
+          }`}>
+            <div className="flex items-center gap-2">
+              <AlertCircle className={`w-5 h-5 flex-shrink-0 ${isGenerateGitHubUnavailable ? 'text-amber-500' : 'text-destructive'}`} />
+              {!isGenerateGitHubUnavailable && <span className="font-semibold">{strings.error}:</span>}
+              <span>{displayGenerateError}</span>
+            </div>
             <button 
               onClick={() => {
+                lastAutoGenerateKey.current = null
                 setCachedNewspaper(null)
                 setHasGenerated(true)
-                setForceRegenerate(true)
+                generateNewspaper(true, 'retry')
               }} 
-              className="ml-3 underline hover:no-underline"
+              className="sm:ml-auto underline hover:no-underline"
             >
               {strings.retry}
             </button>
+          </div>
+        )}
+
+        {shouldShowStalePreview && stalePreviewNewspaper && (
+          <div className="p-5 bg-amber-500/10 border-2 border-amber-500/40 rounded-sm mb-8 shadow-[0_0_30px_rgba(245,158,11,0.08)]">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="font-headline text-sm font-semibold uppercase tracking-wider text-amber-200">
+                    {strings.stalePreview}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-[11px] text-amber-200 border border-amber-500/20">
+                    {language === 'de' ? 'Generiert: ' : 'Generated: '}
+                    {new Date(stalePreviewNewspaper.updatedAt).toLocaleString(language === 'de' ? 'de-DE' : 'en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+                <p className="text-sm text-amber-100/90 mb-2">
+                  {strings.stalePreviewDescription}
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-100/70 font-mono">
+                  <span>{language === 'de' ? 'Datenstand' : 'Data date'}: {stalePreviewNewspaper.cacheDate}</span>
+                  <span>{language === 'de' ? 'Zeitraum' : 'Range'}: {stalePreviewNewspaper.dayRange} day{stalePreviewNewspaper.dayRange === 1 ? '' : 's'}</span>
+                  <span>{stalePreviewNewspaper.commitCount} commits</span>
+                  <span>{stalePreviewNewspaper.language.toUpperCase()}</span>
+                </div>
+                {typeof stalePreviewNewspaper.data.headline === 'string' && (
+                  <p className="mt-3 text-sm text-muted-foreground italic truncate">
+                    {language === 'de' ? 'Vorschau' : 'Preview'}: {stalePreviewNewspaper.data.headline}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -839,13 +1196,16 @@ export default function OpenClawTodayPage() {
       </div>
 
       {/* Commit Chart Section */}
-      {!isLoadingCommits && commits.length > 0 && (
+      {(isLoadingCommits || commits.length > 0) && (
         <section className="border-t border-primary/10 mt-8 bg-card/20 relative z-10">
           <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <CommitChart 
               dailyStats={dailyStats}
               commits={commits}
               isLoading={isLoadingCommits}
+              loadingMessage={commitLoadStatus.message}
+              loadingRange={commitLoadRangeLabel}
+              loadedCount={commitLoadStatus.loadedCount}
             />
           </div>
         </section>

@@ -13,14 +13,14 @@
 
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
-import { 
-  ChevronLeftIcon, 
-  ChevronRightIcon, 
-  RefreshCwIcon,
-  GitCommit,
-  GitMerge,
+import {
+ChevronLeftIcon,
+ChevronRightIcon,
+GitCommit,
+GitMerge,
+RefreshCwIcon,
 } from 'lucide-react'
+import { useEffect,useRef,useState } from 'react'
 import type { DailyStats } from '../actions/cache'
 
 export type DayRange = 1 | 3 | 7
@@ -46,8 +46,6 @@ export function CommitTimeline({
   isLoading,
   onDateSelect,
   onDayRangeChange,
-  onRefresh,
-  timezone = 'UTC',
 }: CommitTimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null)
   const [dayRange, setDayRange] = useState<DayRange>(1)
@@ -66,13 +64,9 @@ export function CommitTimeline({
     return () => window.removeEventListener('resize', updateVisibleCount)
   }, [])
 
-  const updateScrollButtons = () => {
+  useEffect(() => {
     setCanScrollLeft(scrollIndex > 0)
     setCanScrollRight(scrollIndex + visibleCount < dailyStats.length)
-  }
-
-  useEffect(() => {
-    updateScrollButtons()
   }, [scrollIndex, visibleCount, dailyStats.length])
 
   const scrollTimeline = (direction: 'left' | 'right') => {
@@ -142,19 +136,6 @@ export function CommitTimeline({
     return 'bg-primary/30'
   }
 
-  const formatRelativeDate = (dateStr: string): string => {
-    const date = new Date(dateStr + 'T12:00:00')
-    const today = new Date()
-    today.setHours(12, 0, 0, 0)
-    
-    const diffDays = Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-    
-    if (diffDays === 0) return 'Today'
-    if (diffDays === 1) return 'Yesterday'
-    if (diffDays < 7) return `${diffDays}d ago`
-    return ''
-  }
-
   return (
     <div className="w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
       <div className="py-3 flex items-center gap-3 sm:gap-4">
@@ -216,8 +197,6 @@ export function CommitTimeline({
               const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
               const dayNum = date.getDate()
               const month = date.toLocaleDateString('en-US', { month: 'short' })
-              const relativeDate = formatRelativeDate(dateStats.date)
-              
               return (
                 <button
                   key={dateStats.date}

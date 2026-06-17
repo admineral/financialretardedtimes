@@ -354,7 +354,6 @@ ${chartUrls.map(c => `• ${c.url} (von @${c.author} um ${c.time})`).join('\n')}
     const effectiveDayRange = dayRange || (selectedDates ? selectedDates.length : 1)
     
     // Log summary of what we're sending to the model
-    const isMultiDay = effectiveDayRange > 1
     const nowStr = new Date().toLocaleString('de-DE', { 
       day: '2-digit', month: 'short', year: 'numeric', 
       hour: '2-digit', minute: '2-digit', 

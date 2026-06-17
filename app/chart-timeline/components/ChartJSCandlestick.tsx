@@ -62,6 +62,9 @@ interface TimelineEvent {
 
 type Timeframe = '15m' | '1H' | '4H' | '1D' | '1W'
 
+type FinancialPoint = { o?: number; c?: number }
+type FinancialContext = { raw?: FinancialPoint }
+
 interface ChartJSCandlestickProps {
   ohlcData: OHLCData[]
   events: TimelineEvent[]
@@ -113,6 +116,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
     setIsMounted(true)
     return () => {
       if (chartRef.current) {
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- destroy the current Chart.js instance at unmount.
         chartRef.current.destroy()
       }
     }
@@ -143,7 +147,7 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
 
   // Build annotations from events
   const buildAnnotations = useCallback(() => {
-    const annotations: Record<string, any> = {}
+    const annotations: Record<string, unknown> = {}
     if (ohlcData.length === 0) return annotations
 
     const minPrice = Math.min(...ohlcData.map(c => c.low))
@@ -285,12 +289,12 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
         l: candle.low,
         c: candle.close,
       })),
-      borderColor: (ctx: any) => {
-        const { o, c } = ctx.raw || {}
+      borderColor: (ctx: FinancialContext) => {
+        const { o = 0, c = 0 } = ctx.raw || {}
         return c >= o ? '#22c55e' : '#ef4444'
       },
-      backgroundColor: (ctx: any) => {
-        const { o, c } = ctx.raw || {}
+      backgroundColor: (ctx: FinancialContext) => {
+        const { o = 0, c = 0 } = ctx.raw || {}
         return c >= o ? '#22c55e' : '#ef4444'
       },
       borderWidth: 1,
@@ -411,8 +415,8 @@ export function ChartJSCandlestick({ ohlcData, events, timeframe, disableZoom = 
       <Chart
         ref={chartRef}
         type="candlestick"
-        data={chartData}
-        options={options}
+        data={chartData as never}
+        options={options as never}
       />
     </div>
   )

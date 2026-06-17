@@ -419,7 +419,6 @@ export async function GET(request: NextRequest) {
         console.log(`[CRON]    - needs_initial_fetch: ${needsInitialFetch}`)
         
         let messages: ChatMessage[]
-        let usedSmartSync = false
         
         // Check if this is a hard refresh (skip smart sync)
         const hardRefresh = searchParams.get('hard') === 'true'
@@ -465,7 +464,6 @@ export async function GET(request: NextRequest) {
           
           const result = await smartFetchUntilExisting(roomId, existingIds, newestTime)
           messages = result.messages
-          usedSmartSync = true
           
           console.log(`[CRON] 🧠 Smart sync result: ${messages.length} new messages, stopped early: ${result.stoppedEarly}`)
         }

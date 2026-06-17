@@ -565,10 +565,8 @@ export const ChattersList = forwardRef<ChattersListRef, ChattersListProps>(funct
   // Calculate fetch progress
   const totalChatters = chatters.length
   const completedFetches = Array.from(fetchStatuses.values()).filter(s => s.status === 'complete').length
-  const activeFetches = Array.from(fetchStatuses.values()).filter(s => s.status === 'fetching').length
   const erroredFetches = Array.from(fetchStatuses.values()).filter(s => s.status === 'error').length
   const totalProcessed = completedFetches + erroredFetches
-  const hasPendingFetches = !isFetchingComplete && (activeFetches > 0 || totalProcessed < totalChatters)
 
   return (
     <div className="h-full flex flex-col">

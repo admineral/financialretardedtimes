@@ -410,7 +410,7 @@ const StyledQuoteDisplay = React.memo(function StyledQuoteDisplay({
           <Quote className="h-8 w-8 text-muted-foreground/30 flex-shrink-0 mt-1" />
           <div>
             <p className="text-xl font-body italic leading-relaxed">
-              „{quote.text}"
+              „{quote.text}“
             </p>
             <footer className="mt-4 flex items-center gap-2">
               <cite className="font-semibold not-italic">— @{quote.from}</cite>
@@ -430,7 +430,7 @@ const StyledQuoteDisplay = React.memo(function StyledQuoteDisplay({
   return (
     <blockquote className={`mt-4 pl-4 border-l-4 ${style.border} ${style.bg} py-3 pr-4 rounded-r ${className}`}>
       <p className="text-muted-foreground italic">
-        „{quote.text}"
+        „{quote.text}“
       </p>
       <footer className="mt-2 flex items-center gap-2 text-sm">
         <cite className="font-semibold not-italic">— @{quote.from}</cite>
@@ -612,6 +612,7 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
         dayRange
       })
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- submit must run only once with the initial URL-derived article parameters.
   }, []) // Empty deps - run only once on mount
   
   // Regenerate handler
@@ -936,7 +937,7 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
       {/* Footer */}
       <footer className="w-full border-t border-foreground/10 mt-8">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 text-center text-xs text-muted-foreground">
-          <p>© 2025 Financial Retarded Times • „Keine Finanzberatung – nur Entertainment"</p>
+          <p>© 2025 Financial Retarded Times • „Keine Finanzberatung – nur Entertainment“</p>
         </div>
       </footer>
     </main>

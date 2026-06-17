@@ -116,11 +116,10 @@ function InlineQuoteCard({
   )
 }
 
-export function ChartWithOverlays({ ohlcData, events, timeframe }: ChartWithOverlaysProps) {
+export function ChartWithOverlays({ ohlcData, events }: ChartWithOverlaysProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [positionedEvents, setPositionedEvents] = useState<PositionedEvent[]>([])
   const [isMounted, setIsMounted] = useState(false)
-  const [chartOffset, setChartOffset] = useState({ left: 0, top: 0 })
 
   useEffect(() => {
     setIsMounted(true)
@@ -168,11 +167,6 @@ export function ChartWithOverlays({ ohlcData, events, timeframe }: ChartWithOver
     if (!chartArea) return
 
     const chartRect = chartArea.getBoundingClientRect()
-    setChartOffset({
-      left: chartRect.left - containerRect.left,
-      top: chartRect.top - containerRect.top
-    })
-
     // Get all candlestick paths
     const candlePaths = chartArea.querySelectorAll('.apexcharts-candlestick-area')
     
@@ -231,7 +225,7 @@ export function ChartWithOverlays({ ohlcData, events, timeframe }: ChartWithOver
           isAbove,
           visible: candleCenter >= 0 && candleCenter <= chartRect.width
         })
-      } catch (e) {
+      } catch {
         // getBBox can fail if element not rendered
       }
     })

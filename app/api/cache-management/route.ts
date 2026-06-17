@@ -75,7 +75,7 @@ export async function DELETE(request: NextRequest) {
         results.activityDaily = count || 0
         console.log(`  ✅ tv_user_activity_daily: ${count} rows deleted`)
       }
-    } catch (e) {
+    } catch {
       console.error('  ❌ tv_user_activity_daily: Table may not exist')
     }
 
@@ -94,7 +94,7 @@ export async function DELETE(request: NextRequest) {
         results.activityMessages = count || 0
         console.log(`  ✅ tv_user_activity_messages: ${count} rows deleted`)
       }
-    } catch (e) {
+    } catch {
       console.error('  ❌ tv_user_activity_messages: Table may not exist')
     }
 
@@ -112,7 +112,7 @@ export async function DELETE(request: NextRequest) {
         results.profile = count || 0
         console.log(`  ✅ tv_user_profiles: ${count} rows deleted`)
       }
-    } catch (e) {
+    } catch {
       console.error('  ❌ tv_user_profiles: Table may not exist')
     }
 
@@ -131,7 +131,7 @@ export async function DELETE(request: NextRequest) {
         results.chatMessages = count || 0
         console.log(`  ✅ tv_chat_messages: ${count} rows deleted`)
       }
-    } catch (e) {
+    } catch {
       console.error('  ❌ tv_chat_messages: Table may not exist')
     }
 

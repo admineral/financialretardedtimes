@@ -536,12 +536,12 @@ NUR JSON ausgeben, keine Erklärungen.`
 /**
  * GET - Return cached analysis
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const supabase = await createClient()
     
     // Get the most recent analysis from cache
-    const { data: cached, error, count } = await supabase
+    const { data: cached, error } = await supabase
       .from('chart_timeline_analysis_cache')
       .select('*', { count: 'exact' })
       .order('updated_at', { ascending: false })
@@ -690,7 +690,6 @@ export async function POST(request: NextRequest) {
     }
     
     const messages = allMessages
-    const count = allMessages.length
     
     if (!messages || messages.length === 0) {
       console.error('[ANALYZE] No messages found in date range')
@@ -701,7 +700,6 @@ export async function POST(request: NextRequest) {
     }
     
     // Group messages by day for logging
-    const dayMs = 24 * 60 * 60 * 1000
     const messagesByDay = new Map<string, number>()
     for (const msg of messages) {
       const day = new Date(msg.time).toISOString().split('T')[0]

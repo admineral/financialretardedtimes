@@ -23,9 +23,8 @@
  * - Fallback: If RPC unavailable, fetches all messages and aggregates client-side
  */
 
-import { NextRequest } from 'next/server'
-import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { headers } from 'next/headers'
 
 export interface DateStats {
   date: string // YYYY-MM-DD
@@ -33,7 +32,7 @@ export interface DateStats {
   uniqueUsers: number
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   await headers()
   
   try {

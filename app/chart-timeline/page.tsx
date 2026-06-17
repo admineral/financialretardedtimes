@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { RefreshCw, TrendingUp, Sparkles, Quote, Trophy, Skull, Clock, Database, CandlestickChart, ChevronDown, ChevronUp, X, Brain } from 'lucide-react'
-import Link from 'next/link'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
-import { z } from 'zod'
+import { Brain,CandlestickChart,Clock,Database,Quote,RefreshCw,Skull,Sparkles,TrendingUp,Trophy,X } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
+import { useCallback,useEffect,useMemo,useState } from 'react'
+import { z } from 'zod'
 
 // Dynamic import for Chart.js (SSR issues)
 const ChartJSCandlestick = dynamic(
@@ -196,7 +196,7 @@ function QuoteCard({ event, onClick }: { event: TimelineEvent; onClick: () => vo
       </div>
       
       {/* Title - always visible */}
-      <p className="text-sm font-bold leading-snug">„{event.title}"</p>
+      <p className="text-sm font-bold leading-snug">„{event.title}“</p>
       
       {/* Preview of story if available */}
       {event.story && (
@@ -270,13 +270,13 @@ function QuoteModal({ event, onClose }: { event: TimelineEvent; onClose: () => v
         <div className="p-5 space-y-4">
           {/* Title */}
           <h3 className="text-xl font-bold leading-snug">
-            „{event.title}"
+            „{event.title}“
           </h3>
           
           {/* Full Quote */}
           <div className="p-4 rounded-lg bg-foreground/5 border border-foreground/10">
             <p className="text-sm italic leading-relaxed text-muted-foreground">
-              „{event.fullQuote}"
+              „{event.fullQuote}“
             </p>
           </div>
           
@@ -743,7 +743,7 @@ export default function ChartTimelinePage() {
                     Bester Call der Woche
                   </span>
                 </div>
-                <p className="font-medium">„{aiAnalysis.bestCall.quote}"</p>
+                <p className="font-medium">„{aiAnalysis.bestCall.quote}“</p>
                 <p className="text-sm text-muted-foreground mt-1">
                   — @{aiAnalysis.bestCall.username}
                 </p>
@@ -762,7 +762,7 @@ export default function ChartTimelinePage() {
                     Schlechtester Call
                   </span>
                 </div>
-                <p className="font-medium">„{aiAnalysis.worstCall.quote}"</p>
+                <p className="font-medium">„{aiAnalysis.worstCall.quote}“</p>
                 <p className="text-sm text-muted-foreground mt-1">
                   — @{aiAnalysis.worstCall.username}
                 </p>
@@ -792,7 +792,7 @@ export default function ChartTimelinePage() {
             <Sparkles className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
             <h3 className="font-medium mb-2">Keine Analyse verfügbar</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Klicke auf „Neu laden" um eine frische AI-Analyse zu generieren.
+              Klicke auf „Neu laden“ um eine frische AI-Analyse zu generieren.
             </p>
             <button
               onClick={forceRefresh}

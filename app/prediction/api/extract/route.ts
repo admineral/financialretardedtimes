@@ -8,7 +8,7 @@
  * - POST /prediction/api/extract          → stream fresh AI extraction
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
@@ -110,6 +110,11 @@ Gib auch eine kurze Summary mit dem generellen Sentiment.`
 const CACHE_KEY = 'predictions-7d'
 const CACHE_TTL_MINUTES = 60 // return stale after 1h but always show something
 
+type CachedPredictionData = {
+  predictions?: unknown[]
+  summary?: string
+}
+
 function isCacheValid(updatedAt: string, ttlMinutes = CACHE_TTL_MINUTES): boolean {
   const diffMinutes = (Date.now() - new Date(updatedAt).getTime()) / 60000
   console.log(`[PREDICTIONS] Cache age: ${Math.round(diffMinutes)}min (TTL: ${ttlMinutes}min)`)
@@ -194,14 +199,15 @@ export async function GET() {
 
     // Always return whatever is cached (stale or not) — page shows it immediately
     const stale = !isCacheValid(cached.updated_at)
-    console.log(`[PREDICTIONS GET] Returning ${stale ? 'stale' : 'fresh'} cache (${(cached.data as any).predictions?.length} predictions)`)
+    const cachedData = cached.data as CachedPredictionData
+    console.log(`[PREDICTIONS GET] Returning ${stale ? 'stale' : 'fresh'} cache (${cachedData.predictions?.length} predictions)`)
 
     return NextResponse.json({
       cached: true,
       stale,
       fetchedAt: cached.updated_at,
-      predictions: (cached.data as any).predictions ?? [],
-      summary: (cached.data as any).summary ?? '',
+      predictions: cachedData.predictions ?? [],
+      summary: cachedData.summary ?? '',
     })
   } catch (err) {
     console.error('[PREDICTIONS GET] Error:', err)
@@ -213,7 +219,7 @@ export async function GET() {
 // POST — stream fresh AI extraction
 // ═══════════════════════════════════════════════════════════════════════
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   const supabase = await createClient()
 
   const endDate = new Date()

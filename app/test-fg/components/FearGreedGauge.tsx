@@ -355,7 +355,7 @@ export function FearGreedWidget({
       {/* Insight Text */}
       {data?.insight && (
         <p className="mt-3 text-[11px] text-muted-foreground font-body leading-relaxed text-center italic">
-          „{data.insight}"
+          „{data.insight}“
         </p>
       )}
 

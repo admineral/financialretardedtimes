@@ -532,7 +532,7 @@ export default function NewspaperPage() {
               <div className="inline-flex items-center gap-3 text-xs text-muted-foreground/50">
                 <span>© 2024-2025 Financial Retarded Times</span>
                 <span className="text-primary/30">•</span>
-                <span className="italic">„Keine Finanzberatung – nur Entertainment"</span>
+                <span className="italic">„Keine Finanzberatung – nur Entertainment“</span>
               </div>
             </div>
           </div>

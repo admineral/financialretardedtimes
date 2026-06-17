@@ -7,7 +7,6 @@ import { profileLogger as log } from '@/lib/logger'
 const TRADINGVIEW_ORIGIN = 'https://de.tradingview.com'
 
 // Profile cache TTL in hours (24 hours)
-const PROFILE_CACHE_TTL_HOURS = 24
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

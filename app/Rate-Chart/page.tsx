@@ -34,7 +34,7 @@ export default function RateChartPage() {
   const [loadingStatus, setLoadingStatus] = useState('Initializing...')
   const [loadedCount, setLoadedCount] = useState(0)
   const [currentBitcoinPrice, setCurrentBitcoinPrice] = useState(120000)
-  const [isPriceLoading, setIsPriceLoading] = useState(true)
+  const [, setIsPriceLoading] = useState(true)
   const [priceFetchTime, setPriceFetchTime] = useState<Date | null>(null)
   const [midnightPrice, setMidnightPrice] = useState<number | null>(null)
   const [midnightPriceTime, setMidnightPriceTime] = useState<Date | null>(null)
@@ -93,7 +93,6 @@ export default function RateChartPage() {
   const [allTimeLimit, setAllTimeLimit] = useState(100)
   const [isLoadingMoreAllTime, setIsLoadingMoreAllTime] = useState(false)
   const [allTimeSortBy, setAllTimeSortBy] = useState<'points' | 'siege'>('points')
-  const [yesterdayShowCount, setYesterdayShowCount] = useState(10)
   const [yesterdayParticipants, setYesterdayParticipants] = useState<{
     username: string
     avatar: string | null
@@ -151,6 +150,7 @@ export default function RateChartPage() {
     if (!isMounted) return 0
     const viennaTime = getSimulatedViennaTime()
     return viennaTime.getHours()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- getSimulatedViennaTime is derived from the listed test-mode state.
   }, [testMode, isMounted, testModeEnabled])
   
   const isTestRevealed = useMemo(() => {
@@ -254,7 +254,7 @@ export default function RateChartPage() {
       } else {
         setResetMessage(`❌ Error: ${data.error || 'Failed to reset'}`)
       }
-    } catch (error) {
+    } catch {
       setResetMessage('❌ Failed to connect to server')
     } finally {
       setIsResettingData(false)
@@ -469,6 +469,7 @@ export default function RateChartPage() {
     updateCountdown()
     const countdownInterval = setInterval(updateCountdown, 1000)
     return () => clearInterval(countdownInterval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- countdown intentionally follows test mode and midnight state only.
   }, [testMode, isTestPastMidnight])
 
   // Countdown to next auto-refresh
@@ -745,7 +746,7 @@ export default function RateChartPage() {
     }, 5 * 60 * 1000)
     
     return () => clearInterval(refreshInterval)
-  }, [fetchBitcoinPrice])
+  }, [fetchBitcoinPrice, messages.length])
 
   // Detect reset command from BigBangTheory
   const resetTimestamp = useMemo<Date | null>(() => {
@@ -801,6 +802,7 @@ export default function RateChartPage() {
     })
     
     return reset
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reset detection derives game windows from the listed test-mode state.
   }, [messages, isMounted, isTestPastMidnight, testMode])
 
   useEffect(() => {
@@ -878,7 +880,7 @@ export default function RateChartPage() {
     let messagesWithPricePattern = 0
     let validGuessesFound = 0
     
-    messages.forEach((message, idx) => {
+    messages.forEach((message) => {
       const messageDate = new Date(message.time)
       const messageViennaTime = new Date(messageDate.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
       
@@ -970,6 +972,7 @@ export default function RateChartPage() {
     console.log(`[RATE-CHART] ════════════════════════════════════════════`)
     
     return guesses
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- prediction extraction derives game windows from the listed test-mode state.
   }, [messages, resetTimestamp, isMounted, isTestPastMidnight, testMode])
 
   // Next round predictions (only during Winners Period)
@@ -1047,6 +1050,7 @@ export default function RateChartPage() {
     })
     
     return guesses
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- next-round extraction derives game windows from the listed test-mode state.
   }, [messages, isMounted, isTestPastMidnight, testMode])
 
   // Group by username and create leaderboard
@@ -1422,8 +1426,6 @@ export default function RateChartPage() {
   }
 
   // Arena View (default)
-  const isArenaMode = viewMode === 'arena' // For the toggle display below
-
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white font-mono selection:bg-orange-500/30">
       {/* Animated background */}
@@ -1651,7 +1653,7 @@ export default function RateChartPage() {
                   <span className="text-white">ARENA</span>
                 </h1>
                 <p className="text-zinc-500 text-sm max-w-lg">
-                  Daily Bitcoin price predictions. Type in chat: <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95k</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95.5k</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95000</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95,000</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95.000</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">//95.5</code>
+                  Daily Bitcoin price predictions. Type in chat: <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95k'}</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95.5k'}</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95000'}</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95,000'}</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95.000'}</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95'}</code> <code className="px-1 py-0.5 bg-zinc-800 rounded text-orange-400 text-xs">{'//95.5'}</code>
                 </p>
               </div>
 
@@ -1864,17 +1866,13 @@ export default function RateChartPage() {
                 <div className="text-center py-16 text-zinc-500 bg-zinc-800/40 border border-zinc-700 rounded-2xl">
                   <div className="text-6xl mb-4">📊</div>
                   <div className="text-xl font-bold mb-2">No predictions yet</div>
-                  <div className="text-sm">Use <code className="px-2 py-1 bg-zinc-800 rounded">//price</code> in chat to make a prediction</div>
+                  <div className="text-sm">Use <code className="px-2 py-1 bg-zinc-800 rounded">{'//price'}</code> in chat to make a prediction</div>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {leaderboard.map((entry, index) => {
                     const priceDiff = getPriceDiff(entry.latestGuess)
                     const timeBonus = getTimeBonusLabel(entry.guesses[0]?.timeBonus || 0)
-                    // Calculate odds based on position - early submitters get better odds
-                    const odds = Math.max(1.5, Math.min(12, 1.5 + index * 0.6))
-                    const probability = Math.round((1 / odds) * 100)
-                    
                     return (
                       <div key={entry.username}>
                         <div
@@ -2390,7 +2388,7 @@ export default function RateChartPage() {
                       
                       return (
                         <>
-                          {entries.map((entry, index) => (
+                          {entries.map((entry) => (
                             <div 
                               key={entry.username}
                               className={`flex items-center gap-2 p-2 rounded-lg ${

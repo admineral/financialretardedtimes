@@ -98,15 +98,9 @@ export function ActivityProvider({
     let sampleMessages = 0 // Messages we have samples for (for hour distribution)
     let daysWithFullData = 0
     let daysWithSampleData = 0
-    let daysWithActivity = 0
-
     activities.forEach(activity => {
       // Add the REAL count (not just sample count)
       totalMessages += activity.count
-      
-      if (activity.count > 0) {
-        daysWithActivity++
-      }
       
       if (activity.messages && activity.messages.length > 0) {
         activity.messages.forEach(message => {

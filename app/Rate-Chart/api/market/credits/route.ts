@@ -51,11 +51,13 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
     
     // Get user credits
-    let { data: credits, error } = await supabase
+    const creditsResult = await supabase
       .from('market_user_credits')
       .select('*')
       .eq('user_identifier', userId)
       .single()
+    let credits = creditsResult.data
+    const error = creditsResult.error
     
     if (error && error.code === 'PGRST116') {
       // User doesn't exist, create new account with random nickname
@@ -231,7 +233,7 @@ export async function POST(request: NextRequest) {
         const bonusAmount = 100
         
         // Add bonus credits
-        const { data: updatedCredits, error: updateError } = await supabase
+        const { error: updateError } = await supabase
           .from('market_user_credits')
           .update({
             available_credits: supabase.rpc('increment_credits', { amount: bonusAmount }),

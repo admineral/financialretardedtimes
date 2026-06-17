@@ -4,3 +4,4 @@ ignoredBuiltDependencies:
 onlyBuiltDependencies:
   - puppeteer
   - supabase
+  - unrs-resolver

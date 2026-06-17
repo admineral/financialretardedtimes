@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { format, formatDistanceToNow } from 'date-fns'
-import { Coins, ChevronDown, Gift, Target, Flame, Trophy, User, X, Check } from 'lucide-react'
+import { formatDistanceToNow } from 'date-fns'
+import { Check,ChevronDown,Coins,Flame,Gift,Target,Trophy,User,X } from 'lucide-react'
+import { useCallback,useEffect,useRef,useState } from 'react'
 
 interface UserCredits {
   user_identifier: string
@@ -99,6 +99,7 @@ export default function CreditsDisplay() {
     } finally {
       setIsLoading(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Local-storage fallback is intentionally stable for this user fetch callback.
   }, [userId])
 
   const loadFromLocalStorage = () => {
@@ -246,7 +247,7 @@ export default function CreditsDisplay() {
       } else {
         setNicknameError(data.error || 'Failed to save nickname')
       }
-    } catch (err) {
+    } catch {
       setNicknameError('Error saving nickname')
     } finally {
       setSavingNickname(false)
@@ -304,7 +305,7 @@ export default function CreditsDisplay() {
         setBonusMessage(data.error || 'Fehler')
         setTimeout(() => setBonusMessage(null), 3000)
       }
-    } catch (err) {
+    } catch {
       setBonusMessage('Fehler')
       setTimeout(() => setBonusMessage(null), 3000)
     } finally {

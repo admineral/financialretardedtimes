@@ -24,7 +24,7 @@ const ROW_HEIGHT = 80
 
 export function GitGraphView({ graphData, isLoading, error }: GitGraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [containerHeight, setContainerHeight] = useState(600)
+  const [, setContainerHeight] = useState(600)
   
   useEffect(() => {
     const updateHeight = () => {

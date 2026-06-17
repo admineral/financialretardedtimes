@@ -982,7 +982,6 @@ export function ChatViewer({ room, date, username, tradingViewUrl, onAutoLoad = 
                               setCalendarOpen(false)
                             }
                           }}
-                          initialFocus
                         />
                       </PopoverContent>
                     </Popover>

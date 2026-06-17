@@ -55,6 +55,11 @@ interface OHLCData {
   close: number
 }
 
+type FinancialPoint = { o?: number; h?: number; l?: number; c?: number }
+type FinancialContext = { raw?: FinancialPoint }
+type PointContext = { dataIndex: number }
+type TooltipItem = { parsed?: { x?: number }; dataset: { label?: string }; raw?: { x?: number; y?: number } & FinancialPoint }
+
 interface Props {
   buckets: SentimentBucket[]
   ohlcData: OHLCData[]
@@ -74,7 +79,10 @@ export function SentimentCandlestickChart({ buckets, ohlcData }: Props) {
 
   useEffect(() => {
     setIsMounted(true)
-    return () => { chartRef.current?.destroy() }
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- destroy the current Chart.js instance at unmount.
+      chartRef.current?.destroy()
+    }
   }, [])
 
   const resetZoom = useCallback(() => chartRef.current?.resetZoom(), [])
@@ -97,7 +105,7 @@ export function SentimentCandlestickChart({ buckets, ohlcData }: Props) {
   const bearPoints = buckets.map((b) => ({ x: new Date(b.timestamp).getTime(), y: -b.bearishScore }))
 
   // Zero line for sentiment overlay (midpoint of price range)
-  const annotations: Record<string, any> = {
+  const annotations: Record<string, unknown> = {
     sentimentZero: {
       type: 'line',
       yMin: 0,
@@ -131,8 +139,8 @@ export function SentimentCandlestickChart({ buckets, ohlcData }: Props) {
           l: c.low,
           c: c.close,
         })),
-        borderColor: (ctx: any) => (ctx.raw?.c >= ctx.raw?.o ? '#22c55e' : '#ef4444'),
-        backgroundColor: (ctx: any) => (ctx.raw?.c >= ctx.raw?.o ? '#22c55e' : '#ef4444'),
+        borderColor: (ctx: FinancialContext) => ((ctx.raw?.c ?? 0) >= (ctx.raw?.o ?? 0) ? '#22c55e' : '#ef4444'),
+        backgroundColor: (ctx: FinancialContext) => ((ctx.raw?.c ?? 0) >= (ctx.raw?.o ?? 0) ? '#22c55e' : '#ef4444'),
         borderWidth: 1,
         yAxisID: 'y',
         order: 1,
@@ -173,11 +181,11 @@ export function SentimentCandlestickChart({ buckets, ohlcData }: Props) {
         borderColor: '#818cf8',
         backgroundColor: 'transparent',
         borderWidth: 2.5,
-        pointRadius: (ctx: any) => {
+        pointRadius: (ctx: PointContext) => {
           const raw = netPoints[ctx.dataIndex]?.y ?? 0
           return Math.abs(raw) > 60 ? 5 : 0
         },
-        pointBackgroundColor: (ctx: any) => {
+        pointBackgroundColor: (ctx: PointContext) => {
           const raw = netPoints[ctx.dataIndex]?.y ?? 0
           return getSentimentColor(raw)
         },
@@ -245,18 +253,22 @@ export function SentimentCandlestickChart({ buckets, ohlcData }: Props) {
       legend: { display: false },
       tooltip: {
         callbacks: {
-          title: (items: any[]) => {
+          title: (items: TooltipItem[]) => {
             const ts = items[0]?.parsed?.x
             if (!ts) return ''
             return new Date(ts).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
           },
-          label: (item: any) => {
+          label: (item: TooltipItem) => {
             if (item.dataset.label === 'BTC/USD') {
               const d = item.raw
-              return d ? `BTC  O:$${Math.round(d.o).toLocaleString()}  H:$${Math.round(d.h).toLocaleString()}  L:$${Math.round(d.l).toLocaleString()}  C:$${Math.round(d.c).toLocaleString()}` : ''
+              if (!d || d.o === undefined || d.h === undefined || d.l === undefined || d.c === undefined) {
+                return ''
+              }
+              return `BTC  O:$${Math.round(d.o).toLocaleString()}  H:$${Math.round(d.h).toLocaleString()}  L:$${Math.round(d.l).toLocaleString()}  C:$${Math.round(d.c).toLocaleString()}`
             }
             if (item.dataset.label === 'Net Sentiment') {
               const ts = item.raw?.x
+              if (ts === undefined) return ''
               const bucket = buckets.find((b) => Math.abs(new Date(b.timestamp).getTime() - ts) < 8 * 3600000)
               if (!bucket) return ''
               const net = bucket.netSentiment
@@ -315,7 +327,7 @@ export function SentimentCandlestickChart({ buckets, ohlcData }: Props) {
         <button onClick={resetZoom} className="px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-700 border-x border-zinc-700">Reset</button>
         <button onClick={zoomIn} className="px-2 py-1 text-sm text-zinc-300 hover:bg-zinc-700 rounded-r">+</button>
       </div>
-      <Chart ref={chartRef} type="candlestick" data={chartData as any} options={options as any} />
+      <Chart ref={chartRef} type="candlestick" data={chartData as never} options={options as never} />
     </div>
   )
 }

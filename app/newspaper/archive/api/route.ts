@@ -7,9 +7,8 @@
  * ENDPOINT: GET /newspaper/archive/api
  */
 
-import { NextRequest } from 'next/server'
-import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { headers } from 'next/headers'
 
 interface Message {
   id: string
@@ -29,7 +28,7 @@ interface DayGroup {
   isExpanded: boolean
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   await headers()
   
   try {

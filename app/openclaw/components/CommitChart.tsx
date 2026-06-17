@@ -8,11 +8,14 @@ interface CommitChartProps {
   dailyStats: DailyStats[]
   commits: CachedCommit[]
   isLoading?: boolean
+  loadingMessage?: string
+  loadingRange?: string
+  loadedCount?: number
 }
 
 type ChartRange = 7 | 14 | 30 | 90 | 'all'
 
-export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps) {
+export function CommitChart({ dailyStats, commits, isLoading, loadingMessage, loadingRange, loadedCount = 0 }: CommitChartProps) {
   const [chartRange, setChartRange] = useState<ChartRange>(7)
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
   
@@ -29,20 +32,21 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
   const chartData = useMemo(() => {
     const days: { date: string; commitCount: number; uniqueContributors: number; mergeCount: number }[] = []
     const statsMap = new Map(dailyStats.map(d => [d.date, d]))
+    if (!dataDateRange.newest) return days
     
     let numDays: number
     if (chartRange === 'all') {
       if (!dataDateRange.oldest) return days
       const oldest = new Date(dataDateRange.oldest + 'T00:00:00')
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      numDays = Math.ceil((today.getTime() - oldest.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      const newest = new Date(dataDateRange.newest + 'T00:00:00')
+      numDays = Math.ceil((newest.getTime() - oldest.getTime()) / (1000 * 60 * 60 * 24)) + 1
     } else {
       numDays = chartRange
     }
     
+    const newestDate = new Date(dataDateRange.newest + 'T00:00:00')
     for (let i = numDays - 1; i >= 0; i--) {
-      const date = new Date()
+      const date = new Date(newestDate)
       date.setDate(date.getDate() - i)
       const dateStr = date.toISOString().split('T')[0]
       
@@ -93,13 +97,51 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
 
   if (isLoading) {
     return (
-      <div className="w-full animate-pulse space-y-4">
+      <div className="w-full space-y-4">
+        <div className="glass-card-gold rounded-lg p-4 border border-primary/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-primary mb-1">
+                <Activity className="w-4 h-4 animate-pulse" />
+                <span className="font-headline text-sm font-bold uppercase tracking-wider">
+                  Loading Commit Activity
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {loadingMessage || 'Loading commits and preparing chart data...'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-mono text-muted-foreground">
+              {loadingRange && (
+                <span className="px-2 py-1 rounded bg-primary/10 border border-primary/10">
+                  {loadingRange}
+                </span>
+              )}
+              <span className="px-2 py-1 rounded bg-primary/10 border border-primary/10">
+                {loadedCount} loaded
+              </span>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-20 bg-muted/20 rounded-lg" />
+            <div key={i} className="h-20 bg-muted/20 rounded-lg animate-pulse" />
           ))}
         </div>
-        <div className="h-64 bg-muted/20 rounded-lg" />
+        <div className="glass-card rounded-lg p-4">
+          <div className="h-64 flex items-end gap-1">
+            {[...Array(42)].map((_, idx) => (
+              <div
+                key={idx}
+                className="flex-1 bg-primary/20 rounded-t animate-pulse"
+                style={{
+                  height: `${12 + ((idx * 17) % 80)}%`,
+                  animationDelay: `${(idx % 8) * 80}ms`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
@@ -208,7 +250,7 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
         
         {totalCommitsInRange === 0 ? (
           <div className="h-64 flex items-center justify-center text-muted-foreground text-sm">
-            No commits found. Click "Sync" to fetch data.
+            No commits found. Click Sync to fetch data.
           </div>
         ) : (
           <div className="p-4">
@@ -239,8 +281,6 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
                     const heightPercent = hasCommits 
                       ? Math.max((day.commitCount / maxCommits) * 100, 2) 
                       : 0
-                    
-                    const barWidth = Math.max(100 / chartData.length - 0.5, 2)
                     
                     return (
                       <div
@@ -377,6 +417,8 @@ export function CommitChart({ dailyStats, commits, isLoading }: CommitChartProps
               </div>
             </div>
             <div className="text-muted-foreground">
+              Selected: {commits.length.toLocaleString()} commits
+              {' · '}
               {chartData[0]?.date && new Date(chartData[0].date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               {' → '}
               {chartData[chartData.length - 1]?.date && new Date(chartData[chartData.length - 1].date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

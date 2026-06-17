@@ -19,13 +19,13 @@
  * - 500: Error during refresh
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { cronLogger as log } from '@/lib/logger'
 
 export const maxDuration = 60 // Allow up to 60 seconds for AI generation
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   // Verify cron authorization in production
   const headersList = await headers()
   const authHeader = headersList.get('authorization')

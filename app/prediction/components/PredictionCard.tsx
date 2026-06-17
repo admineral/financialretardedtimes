@@ -1,22 +1,22 @@
 'use client'
 
-import { useState } from 'react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { formatDistanceToNow, format, differenceInDays } from 'date-fns'
+import { Avatar,AvatarFallback,AvatarImage } from '@/components/ui/avatar'
+import { differenceInDays,formatDistanceToNow } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Minus,
-  Clock,
-  Target,
-  Flame,
-  ChartBar,
-  Crosshair,
-  ThumbsUp,
-  ThumbsDown,
-  Users
+import {
+ChartBar,
+Clock,
+Crosshair,
+Flame,
+Minus,
+Target,
+ThumbsDown,
+ThumbsUp,
+TrendingDown,
+TrendingUp,
+Users
 } from 'lucide-react'
+import { useState } from 'react'
 
 export interface Prediction {
   id: string
@@ -37,7 +37,7 @@ export interface Prediction {
 
 interface PredictionCardProps {
   prediction: Prediction
-  currentPrice: number
+  currentPrice?: number
   onBetYes?: (prediction: Prediction) => void
   onBetNo?: (prediction: Prediction) => void
   yesPool?: number
@@ -65,7 +65,6 @@ const confidenceConfig = {
 
 export function PredictionCard({ 
   prediction, 
-  currentPrice, 
   onBetYes, 
   onBetNo,
   yesPool = 0,
@@ -79,11 +78,6 @@ export function PredictionCard({
   const conf = confidenceConfig[prediction.confidence]
   const TfIcon = tf.icon
   const DirIcon = dir.icon
-  
-  // Calculate progress toward target
-  const priceChange = prediction.targetPrice 
-    ? ((currentPrice - prediction.priceAtPrediction) / (prediction.targetPrice - prediction.priceAtPrediction)) * 100
-    : null
   
   // Time remaining
   const daysRemaining = prediction.targetDate 
@@ -121,7 +115,7 @@ export function PredictionCard({
               </div>
               <p className="text-sm text-foreground/90 mt-1 leading-snug">
                 {prediction.emoji && <span className="mr-1">{prediction.emoji}</span>}
-                „{prediction.prediction}"
+                „{prediction.prediction}“
               </p>
             </div>
           </div>
@@ -256,7 +250,7 @@ export function PredictionCard({
             </div>
           </div>
           <p className="mt-2 italic text-foreground/60 line-clamp-2">
-            „{prediction.originalText}"
+            „{prediction.originalText}“
           </p>
         </div>
       )}

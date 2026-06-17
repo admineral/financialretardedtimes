@@ -48,7 +48,6 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 // Environment detection
 const isDev = process.env.NODE_ENV === 'development'
-const isServer = typeof window === 'undefined'
 
 // Default options based on environment
 const defaultOptions: LoggerOptions = {
@@ -60,14 +59,6 @@ const defaultOptions: LoggerOptions = {
 
 // Aggregation state
 const aggregatedLogs = new Map<string, { count: number; firstTime: number; lastData?: Record<string, unknown> }>()
-
-// Icons for different contexts and levels
-const LEVEL_ICONS: Record<LogLevel, string> = {
-  debug: '🔍',
-  info: '📋',
-  warn: '⚠️',
-  error: '❌',
-}
 
 const CONTEXT_ICONS: Record<string, string> = {
   'CACHE': '💾',
@@ -96,7 +87,6 @@ function getContextIcon(context: string): string {
 
 function formatLogMessage(entry: LogEntry, options: LoggerOptions): string {
   const icon = getContextIcon(entry.context)
-  const levelIcon = LEVEL_ICONS[entry.level]
   const prefix = `[${entry.context}]`
   
   let msg = `${icon} ${prefix} ${entry.message}`

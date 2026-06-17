@@ -227,11 +227,14 @@ export default function ArchivePage() {
                           {/* Avatar */}
                           <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden">
                             {msg.user_pic ? (
-                              <img 
-                                src={msg.user_pic} 
-                                alt={msg.username}
-                                className="w-full h-full object-cover"
-                              />
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element -- TradingView avatar URLs are already proxied/validated elsewhere in this legacy archive view. */}
+                                <img 
+                                  src={msg.user_pic} 
+                                  alt={msg.username}
+                                  className="w-full h-full object-cover"
+                                />
+                              </>
                             ) : (
                               <span className="text-xs font-medium text-muted-foreground">
                                 {msg.username.charAt(0).toUpperCase()}

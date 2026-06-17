@@ -5,16 +5,15 @@
  * Uses Supabase cache for efficiency, falls back to GitHub API.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { 
-  getCachedCommits, 
-  getDailyStats, 
-  calculateStatsFromCache,
-  initializeCache,
-  syncCommits,
-  getSettings,
+import { NextRequest,NextResponse } from 'next/server'
+import {
+calculateStatsFromCache,
+getCachedCommits,
+getDailyStats,
+getSettings,
+initializeCache
 } from '../../actions/cache'
-import { fetchCommits, calculateStats } from '../../actions/github'
+import { calculateStats,fetchCommits } from '../../actions/github'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

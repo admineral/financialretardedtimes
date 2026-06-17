@@ -1,32 +1,32 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
-import Link from 'next/link'
-import { 
-  GitPullRequest,
-  AlertCircle,
-  CheckCircle2,
-  Circle,
-  RefreshCw,
-  ExternalLink,
-  Copy,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Zap,
-  Target,
-  TrendingUp,
-  Clock,
-  Users,
-  Layers,
-  Sparkles,
-  AlertTriangle,
-  ArrowRight,
+import {
+AlertCircle,
+AlertTriangle,
+ArrowRight,
+Check,
+CheckCircle2,
+ChevronDown,
+ChevronRight,
+Circle,
+Clock,
+Copy,
+ExternalLink,
+GitPullRequest,
+Layers,
+RefreshCw,
+Sparkles,
+Target,
+TrendingUp,
+Users,
+Zap,
 } from 'lucide-react'
-import { CONFIG, getUIStrings, type Language } from '../lib/config'
-import { OpenClawIssuesNewspaperSchema, type OpenClawIssuesNewspaperData, type IssueCluster } from '../lib/schemas'
+import Link from 'next/link'
+import { useCallback,useEffect,useState } from 'react'
 import { Skeleton } from '../components'
+import { CONFIG,getUIStrings,type Language } from '../lib/config'
+import { OpenClawIssuesNewspaperSchema,type IssueCluster } from '../lib/schemas'
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false)

@@ -6,13 +6,12 @@
 
 'use client'
 
-import { useState } from 'react'
-import { Branch } from '../lib/types'
-import { GitBranch, Check, Shield, Clock, TrendingUp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { Check,Clock,GitBranch,Shield,TrendingUp } from 'lucide-react'
+import { useState } from 'react'
+import { Branch } from '../lib/types'
 
 interface BranchSelectorProps {
   branches: Branch[]

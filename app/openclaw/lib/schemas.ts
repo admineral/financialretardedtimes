@@ -71,7 +71,7 @@ export const OpenClawNewspaperSchema = z.object({
     username: z.string().describe('GitHub username (with @) of the most active contributor'),
     contribution: z.string().describe('Factual description of what they worked on'),
     commitCount: z.number().describe('Their commit count for this period'),
-  }).optional().describe('The contributor with most commits today'),
+  }).nullable().describe('The contributor with most commits today, or null if there is no clear spotlight'),
   
   technicalHighlights: z.array(z.object({
     category: z.enum([
@@ -86,25 +86,25 @@ export const OpenClawNewspaperSchema = z.object({
     ]),
     title: z.string().describe('Clear title describing the change'),
     description: z.string().describe('1 sentence explaining what changed'),
-    commitSha: z.string().optional().describe('The short SHA of the related commit'),
+    commitSha: z.string().nullable().describe('The short SHA of the related commit, or null if this highlight summarizes multiple commits'),
   })).describe('4-6 notable commits, one sentence each'),
   
   briefNews: z.array(z.object({
     title: z.string().describe('Short label for this pattern (3-6 words)'),
     text: z.string().describe('1-2 sentences noting the pattern across commits'),
-    relatedCommits: z.number().optional().describe('How many commits relate to this pattern'),
-  })).optional().describe('3-5 patterns observed across commits (e.g., "iOS: 5 stability fixes", "Test coverage expanded")'),
+    relatedCommits: z.number().nullable().describe('How many commits relate to this pattern, or null if unknown'),
+  })).nullable().describe('3-5 patterns observed across commits (e.g., "iOS: 5 stability fixes", "Test coverage expanded"), or null if there are no patterns'),
   
   codeInsights: z.object({
     totalCommits: z.number(),
     mergeCommits: z.number(),
     uniqueContributors: z.number(),
-    mostActiveDay: z.string().optional(),
+    mostActiveDay: z.string().nullable(),
     dominantCategory: z.string().describe('The category with the most commits'),
   }),
   
   weekAhead: z.string().describe('1-2 sentences on what patterns suggest might continue (based on commit activity, not speculation)'),
-  funFact: z.string().optional().describe('An amusing commit message or pattern, if any. Keep it brief. Skip if nothing notable.'),
+  funFact: z.string().nullable().describe('An amusing commit message or pattern, if any. Use null if nothing notable.'),
 })
 
 export type OpenClawNewspaperData = z.infer<typeof OpenClawNewspaperSchema>

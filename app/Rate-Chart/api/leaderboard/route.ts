@@ -5,24 +5,10 @@
  * POST: Save daily results and update leaderboard (called at 08:00 Vienna time)
  */
 
-import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { NextRequest,NextResponse } from 'next/server'
 
 // Types
-interface LeaderboardEntry {
-  username: string
-  avatar: string | null
-  total_points: number
-  first_place_count: number
-  second_place_count: number
-  third_place_count: number
-  games_played: number
-  best_prediction_diff: number | null
-  current_streak: number
-  best_streak: number
-  total_bonus_points?: number
-}
-
 interface Participant {
   username: string
   avatar?: string

@@ -80,7 +80,7 @@ function findClosestCandle(date: string, time: string, ohlcData: OHLCData[]): OH
   return closest
 }
 
-export function CandlestickChart({ ohlcData, events, timeframe }: CandlestickChartProps) {
+export function CandlestickChart({ ohlcData, events }: CandlestickChartProps) {
   // Transform OHLC data for ApexCharts
   const series = useMemo(() => [{
     name: 'BTC/USD',

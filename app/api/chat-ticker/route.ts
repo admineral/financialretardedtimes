@@ -68,12 +68,8 @@ const AITickerResponseSchema = z.object({
   events: z.array(AITickerEventSchema).min(10).max(30).describe('10-30 Ticker-Events, chronologisch'),
 })
 
-// Full schema with id (for storage/frontend)
-const TickerEventSchema = AITickerEventSchema.extend({
-  id: z.string(),
-})
-
-type TickerEvent = z.infer<typeof TickerEventSchema>
+// Full event type with id (for storage/frontend)
+type TickerEvent = z.infer<typeof AITickerEventSchema> & { id: string }
 
 // ═══════════════════════════════════════════════════════════════════════
 // SYSTEM PROMPT

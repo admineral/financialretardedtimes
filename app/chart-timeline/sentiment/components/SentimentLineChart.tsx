@@ -58,6 +58,10 @@ interface OHLCData {
   close: number
 }
 
+type PointContext = { raw?: { x?: number; y?: number } }
+type TooltipItem = { parsed?: { x?: number }; dataset: { label?: string }; raw?: { x?: number; y?: number } }
+type ClickElement = { index: number; datasetIndex: number }
+
 interface SentimentChartProps {
   buckets: SentimentBucket[]
   divergences?: SentimentDivergence[]
@@ -66,14 +70,6 @@ interface SentimentChartProps {
   onBucketClick?: (bucket: SentimentBucket) => void
 }
 
-// Fear/Greed colors
-const fearGreedColors: Record<string, string> = {
-  extreme_fear: '#dc2626',
-  fear: '#f97316',
-  neutral: '#eab308',
-  greed: '#22c55e',
-  extreme_greed: '#10b981',
-}
 
 function getSentimentColor(net: number): string {
   if (net >= 60) return '#10b981'
@@ -96,6 +92,7 @@ export function SentimentLineChart({
   useEffect(() => {
     setIsMounted(true)
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- destroy the current Chart.js instance at unmount.
       chartRef.current?.destroy()
     }
   }, [])
@@ -148,7 +145,7 @@ export function SentimentLineChart({
   }
 
   // Build divergence annotations
-  const annotations: Record<string, any> = {}
+  const annotations: Record<string, unknown> = {}
   divergences.forEach((div, i) => {
     const ts = new Date(div.timestamp).getTime()
     const colors: Record<string, string> = {
@@ -236,16 +233,16 @@ export function SentimentLineChart({
         borderColor: '#818cf8', // indigo-400 — always distinct from amber price line
         backgroundColor: 'transparent',
         borderWidth: 2.5,
-        pointRadius: (ctx: any) => {
+        pointRadius: (ctx: PointContext) => {
           const val = ctx?.raw?.y ?? 0
           return Math.abs(val) > 60 ? 6 : 2
         },
-        pointBackgroundColor: (ctx: any) => {
+        pointBackgroundColor: (ctx: PointContext) => {
           const val = ctx?.raw?.y ?? 0
           return getSentimentColor(val)
         },
         pointBorderColor: '#fff',
-        pointBorderWidth: (ctx: any) => {
+        pointBorderWidth: (ctx: PointContext) => {
           const val = ctx?.raw?.y ?? 0
           return Math.abs(val) > 60 ? 1.5 : 0
         },
@@ -300,7 +297,7 @@ export function SentimentLineChart({
       legend: { display: false },
       tooltip: {
         callbacks: {
-          title: (items: any[]) => {
+          title: (items: TooltipItem[]) => {
             const ts = items[0]?.parsed?.x
             if (!ts) return ''
             return new Date(ts).toLocaleString('de-DE', {
@@ -308,11 +305,12 @@ export function SentimentLineChart({
               hour: '2-digit', minute: '2-digit',
             })
           },
-          label: (item: any) => {
+          label: (item: TooltipItem) => {
             if (item.dataset.label === 'Net Sentiment') {
               const v = item.raw?.y ?? 0
               // Find matching bucket
               const ts = item.raw?.x
+              if (ts === undefined) return ''
               const bucket = buckets.find(
                 (b) => Math.abs(new Date(b.timestamp).getTime() - ts) < 8 * 3600000
               )
@@ -326,6 +324,7 @@ export function SentimentLineChart({
             }
             if (item.dataset.label === 'BTC Preis (normiert)') {
               const ts = item.raw?.x
+              if (ts === undefined) return ''
               const candle = ohlcData.find(
                 (c) => Math.abs(c.timestamp - ts) < 3600000
               )
@@ -352,7 +351,7 @@ export function SentimentLineChart({
         limits: { x: { minRange: 4 * 3600000 } },
       },
     },
-    onClick: (event: any, elements: any[]) => {
+    onClick: (_event: unknown, elements: ClickElement[]) => {
       if (!onBucketClick || elements.length === 0) return
       const idx = elements[0].index
       const dataset = elements[0].datasetIndex
@@ -402,8 +401,8 @@ export function SentimentLineChart({
       <Chart
         ref={chartRef}
         type="line"
-        data={chartData}
-        options={options}
+        data={chartData as never}
+        options={options as never}
       />
     </div>
   )

@@ -5,7 +5,7 @@
  * GET: Returns current state and any discrepancies found
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 interface UserStats {
@@ -26,7 +26,7 @@ interface UserStats {
  * GET /api/Rate-Chart/market/recalculate
  * Check for discrepancies without fixing
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     console.log('[RECALCULATE] Checking market credits for discrepancies...')
     
@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
  * POST /api/Rate-Chart/market/recalculate
  * Recalculate and fix all user credits
  */
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     console.log('[RECALCULATE] 🔧 Starting market credits recalculation...')
     

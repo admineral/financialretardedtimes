@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence,motion } from 'framer-motion'
+import { useState } from 'react'
 
 interface QuoteCardProps {
   type: 'pump_call' | 'dump_call' | 'top_call' | 'bottom_call' | 'fomo' | 'panic' | 'diamond_hands' | 'reversal' | 'analysis' | 'sideways'
@@ -246,7 +246,7 @@ export function QuoteCard({
       {/* Quote */}
       <div className="px-3 py-2">
         <p className="text-[11px] leading-relaxed text-white font-medium">
-          „{truncatedQuote}"
+          „{truncatedQuote}“
         </p>
       </div>
       

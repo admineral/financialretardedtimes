@@ -12,15 +12,15 @@
 
 'use client'
 
-import { useEffect, useRef, useState, useCallback, useTransition } from 'react'
-import { createPortal } from 'react-dom'
 import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { ChevronRight,Loader2,Quote,Sparkles,Zap } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { Quote, ChevronRight, Sparkles, MessageCircle, Users, Zap, Loader2 } from 'lucide-react'
-import { UnifiedNewspaperSchema, type UnifiedNewspaperData, type ArticleData, type MoreArticleData } from '../lib/types'
-import { getCategoryStyle, getEventStyle } from './ui/helpers'
-import { ContributorAvatar, prefetchAvatars } from './ContributorAvatar'
+import { useCallback,useEffect,useRef,useState,useTransition } from 'react'
+import { createPortal } from 'react-dom'
+import { UnifiedNewspaperSchema,type ArticleData,type MoreArticleData,type UnifiedNewspaperData } from '../lib/types'
 import { useAvatarContext } from './AvatarContext'
+import { ContributorAvatar,prefetchAvatars } from './ContributorAvatar'
+import { getCategoryStyle,getEventStyle } from './ui/helpers'
 
 function generateSlug(headline: string): string {
   return headline
@@ -264,7 +264,7 @@ export function NewspaperContent({
   const [cachedData, setCachedData] = useState<UnifiedNewspaperData | null>(null)
   const [isCacheLoading, setIsCacheLoading] = useState(false)
   const [cacheError, setCacheError] = useState<string | null>(null)
-  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
+  const [, setCacheInfo] = useState<CacheInfo | null>(null)
   
   const { 
     object: newspaperData, 
@@ -469,7 +469,7 @@ export function NewspaperContent({
             <div className="relative pl-5 py-3 border-l-2 border-primary/40 mb-5 bg-primary/5 rounded-r-sm">
               <Quote className="absolute -left-3 top-3 w-6 h-6 text-primary/30" />
               <p className="text-sm sm:text-base text-muted-foreground italic">
-                „{data.featuredArticle.quote.text}" 
+                „{data.featuredArticle.quote.text}“ 
                 <span className="font-semibold not-italic text-primary/80 ml-2">
                   — @{data.featuredArticle.quote.from}
                 </span>
@@ -559,7 +559,7 @@ export function NewspaperContent({
           {data?.secondaryArticle?.quote && (
             <div className="pl-4 py-2 border-l-2 border-primary/30 mb-4">
               <p className="text-sm text-muted-foreground italic">
-                „{data.secondaryArticle.quote.text}" 
+                „{data.secondaryArticle.quote.text}“ 
                 <span className="font-semibold not-italic text-primary/70 ml-1">
                   — @{data.secondaryArticle.quote.from}
                 </span>

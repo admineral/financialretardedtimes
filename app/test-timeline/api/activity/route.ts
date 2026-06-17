@@ -98,7 +98,7 @@ function getIntervalMs(interval: string): number {
   }
 }
 
-function formatBucketLabel(timestamp: Date, mode: string, interval: string): string {
+function formatBucketLabel(timestamp: Date, mode: string): string {
   const hour = timestamp.toLocaleTimeString('de-DE', { 
     hour: '2-digit', 
     minute: '2-digit',
@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
       const timestamp = new Date(ts)
       buckets.push({
         timestamp: timestamp.toISOString(),
-        label: formatBucketLabel(timestamp, mode, interval),
+        label: formatBucketLabel(timestamp, mode),
         count: bucket.count,
         uniqueUsers: bucket.users.size,
         intensity: maxCount > 0 ? bucket.count / maxCount : 0
@@ -258,8 +258,8 @@ export async function GET(request: NextRequest) {
       totalUsers: allUsers.size,
       avgPerBucket: Math.round(avgCount * 10) / 10,
       maxPerBucket: maxCount,
-      peakTime: peakTs ? formatBucketLabel(new Date(peakTs), mode, interval) : '',
-      quietTime: quietTs ? formatBucketLabel(new Date(quietTs), mode, interval) : '',
+      peakTime: peakTs ? formatBucketLabel(new Date(peakTs), mode) : '',
+      quietTime: quietTs ? formatBucketLabel(new Date(quietTs), mode) : '',
       mode,
       interval,
       startDate: startDate.toISOString(),

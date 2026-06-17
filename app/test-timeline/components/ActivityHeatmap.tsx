@@ -53,7 +53,7 @@ function getBarColor(intensity: number): string {
   return 'hsl(24 95% 53% / 0.9)'
 }
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label: string; count: number; uniqueUsers: number } }> }) {
   if (active && payload && payload.length) {
     const data = payload[0].payload
     return (
@@ -68,14 +68,16 @@ function CustomTooltip({ active, payload }: any) {
   return null
 }
 
-function CustomXAxisTick({ x, y, payload, mode }: any) {
+function CustomXAxisTick({ x, y, payload, mode }: { x: string | number; y: string | number; payload: { value: string }; mode: string }) {
+  const xPos = Number(x)
+  const yPos = Number(y)
   const label = payload.value as string
   
   // For 24h mode, just show time
   if (mode === '24h') {
     const time = label.split(' ').pop()?.replace(':00', '') || label
     return (
-      <text x={x} y={y + 10} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={8} fontFamily="monospace">
+      <text x={xPos} y={yPos + 10} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={8} fontFamily="monospace">
         {time}
       </text>
     )
@@ -90,16 +92,16 @@ function CustomXAxisTick({ x, y, payload, mode }: any) {
   if (time === '00' || time === '0') {
     return (
       <g>
-        <text x={x} y={y + 10} textAnchor="middle" fill="hsl(var(--foreground))" fontSize={9} fontWeight="600" fontFamily="monospace">
+        <text x={xPos} y={yPos + 10} textAnchor="middle" fill="hsl(var(--foreground))" fontSize={9} fontWeight="600" fontFamily="monospace">
           {date}
         </text>
-        <line x1={x} y1={y - 5} x2={x} y2={y + 2} stroke="hsl(var(--border))" strokeWidth={1} strokeDasharray="2,2" />
+        <line x1={xPos} y1={yPos - 5} x2={xPos} y2={yPos + 2} stroke="hsl(var(--border))" strokeWidth={1} strokeDasharray="2,2" />
       </g>
     )
   }
   
   return (
-    <text x={x} y={y + 10} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={7} fontFamily="monospace">
+    <text x={xPos} y={yPos + 10} textAnchor="middle" fill="hsl(var(--muted-foreground))" fontSize={7} fontFamily="monospace">
       {time}
     </text>
   )

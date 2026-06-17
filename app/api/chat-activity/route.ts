@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
-import * as cheerio from 'cheerio'
-import { format, subDays, isToday, parseISO } from 'date-fns'
-import { 
-  getCachedActivityForDates, 
-  getMissingActivityDates, 
-  cacheActivityData,
-  isActivityStale,
-  DBActivityMessage
+import {
+cacheActivityData,
+DBActivityMessage,
+getCachedActivityForDates,
+getMissingActivityDates,
+isActivityStale
 } from '@/app/Test/lib/db-cache'
+import * as cheerio from 'cheerio'
+import { format,subDays } from 'date-fns'
+import { NextRequest,NextResponse } from 'next/server'
 
 // Progress bar helper for terminal logging
 function createProgressBar(current: number, total: number, width: number = 30): string {
@@ -341,7 +341,7 @@ export async function POST(request: NextRequest) {
         
         // For today's date, check if it's stale (> 15 minutes old)
         const staleDates: string[] = []
-        for (const [date, data] of cached) {
+        for (const [date] of cached) {
           if (date === todayStr) {
             const stale = await isActivityStale(room, username, date, 15)
             if (stale) {
@@ -425,7 +425,7 @@ export async function POST(request: NextRequest) {
                   count: allMessages.length,
                   messages: allMessages // Store ALL messages
                 }])
-              } catch (e) { /* ignore cache errors */ }
+              } catch { /* ignore cache errors */ }
             }
             break
           }
@@ -475,7 +475,7 @@ export async function POST(request: NextRequest) {
               count: 0,
               messages: []
             }])
-          } catch (e) { /* ignore */ }
+          } catch { /* ignore */ }
           
           // Add empty activity for errors
           activities.push({

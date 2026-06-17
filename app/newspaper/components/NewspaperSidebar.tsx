@@ -12,15 +12,14 @@
 
 'use client'
 
-import { useMemo, useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from './ui/Skeleton'
 import { UserHoverCard } from '@/app/Test/components/UserHoverCard'
+import { Avatar,AvatarFallback,AvatarImage } from '@/components/ui/avatar'
+import { ChevronDown,Crown,Hash,TrendingUp,Users } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useCallback,useEffect,useMemo,useState } from 'react'
+import type { ActiveChatter,UnifiedNewspaperData } from '../lib/types'
 import { useAvatarContext } from './AvatarContext'
-import { TrendingUp, Users, Hash, Crown, ChevronDown } from 'lucide-react'
-import type { UnifiedNewspaperData, ActiveChatter } from '../lib/types'
+import { Skeleton } from './ui/Skeleton'
 
 interface NewspaperSidebarProps {
   data: Partial<UnifiedNewspaperData> | undefined
@@ -31,7 +30,7 @@ interface NewspaperSidebarProps {
 
 const INITIAL_CHATTERS_COUNT = 5
 
-export function NewspaperSidebar({ data, isLoading, selectedDate, selectedDates }: NewspaperSidebarProps) {
+export function NewspaperSidebar({ data, selectedDate, selectedDates }: NewspaperSidebarProps) {
   const router = useRouter()
   const { addAvatars } = useAvatarContext()
   

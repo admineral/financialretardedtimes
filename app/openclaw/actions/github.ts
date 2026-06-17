@@ -8,6 +8,7 @@
 'use server'
 
 import { CONFIG } from '../lib/config'
+import { assertGitHubResponseOk, getGitHubHeaders } from '../lib/github-api'
 import type { 
   GitHubCommit, 
   RepoInfo, 
@@ -38,30 +39,25 @@ interface GitHubRepoResponse {
   name: string
 }
 
-/**
- * Fetch commits from the configured repository
- */
-export async function fetchCommits(count: number = CONFIG.newspaper.defaultCommitCount): Promise<GitHubCommit[]> {
-  const { owner, name } = CONFIG.repo
-  const perPage = Math.min(count, CONFIG.newspaper.maxCommitCount)
-  
-  const apiUrl = `https://api.github.com/repos/${owner}/${name}/commits?per_page=${perPage}`
-  
-  const response = await fetch(apiUrl, {
-    headers: {
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'OpenClawToday-Newspaper',
-    },
-    next: { revalidate: CONFIG.cache.commits },
-  })
+function isOpenClawDebugEnabled(): boolean {
+  return process.env.OPENCLAW_DEBUG_LOGS === 'true'
+}
 
-  if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.status}`)
+function logOpenClawGitHub(message: string, details?: Record<string, unknown>, debugOnly: boolean = false): void {
+  if (debugOnly && !isOpenClawDebugEnabled()) {
+    return
   }
 
-  const commits: GitHubCommitResponse[] = await response.json()
+  if (details) {
+    console.log(`[OPENCLAW GITHUB] ${message}`, details)
+    return
+  }
 
-  return commits.map((commit) => ({
+  console.log(`[OPENCLAW GITHUB] ${message}`)
+}
+
+function mapGitHubCommit(commit: GitHubCommitResponse): GitHubCommit {
+  return {
     sha: commit.sha,
     shortSha: commit.sha.substring(0, 7),
     message: commit.commit.message,
@@ -75,7 +71,87 @@ export async function fetchCommits(count: number = CONFIG.newspaper.defaultCommi
     date: commit.commit.author.date,
     url: commit.html_url,
     isMerge: commit.parents.length > 1,
-  }))
+  }
+}
+
+/**
+ * Fetch commits from the configured repository
+ */
+export async function fetchCommits(count: number = CONFIG.newspaper.defaultCommitCount): Promise<GitHubCommit[]> {
+  const { owner, name } = CONFIG.repo
+  const perPage = Math.min(count, CONFIG.newspaper.maxCommitCount)
+  
+  const apiUrl = `https://api.github.com/repos/${owner}/${name}/commits?per_page=${perPage}`
+  
+  const response = await fetch(apiUrl, {
+    headers: getGitHubHeaders(),
+    next: { revalidate: CONFIG.cache.commits },
+  })
+
+  await assertGitHubResponseOk(response, `fetching commits for ${CONFIG.repo.fullName}`)
+
+  const commits: GitHubCommitResponse[] = await response.json()
+
+  return commits.map(mapGitHubCommit)
+}
+
+/**
+ * Fetch commits for a specific date range from the configured repository.
+ */
+export async function fetchCommitsForDateRange(
+  startDate: string,
+  endDate: string,
+  maxCommits: number = CONFIG.newspaper.maxCommitCount
+): Promise<GitHubCommit[]> {
+  const { owner, name } = CONFIG.repo
+  const perPage = Math.min(maxCommits, CONFIG.newspaper.maxCommitCount)
+  const since = `${startDate}T00:00:00Z`
+  const until = `${endDate}T23:59:59Z`
+  const apiUrl = `https://api.github.com/repos/${owner}/${name}/commits?per_page=${perPage}&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`
+
+  logOpenClawGitHub('Fetching commits for selected date range', {
+    repo: `${owner}/${name}`,
+    startDate,
+    endDate,
+    maxCommits,
+    perPage,
+    since,
+    until,
+  }, true)
+  logOpenClawGitHub('Fetching selected date range', {
+    startDate,
+    endDate,
+    maxCommits,
+  })
+
+  const response = await fetch(apiUrl, {
+    headers: getGitHubHeaders(),
+    cache: 'no-store',
+  })
+
+  logOpenClawGitHub('Date range commits response', {
+    status: response.status,
+    ok: response.ok,
+    rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
+    rateLimitReset: response.headers.get('x-ratelimit-reset'),
+  }, true)
+
+  await assertGitHubResponseOk(
+    response,
+    `fetching commits for ${CONFIG.repo.fullName} from ${startDate} to ${endDate}`
+  )
+
+  const commits: GitHubCommitResponse[] = await response.json()
+  logOpenClawGitHub('Date range commits parsed', {
+    fetched: commits.length,
+    newestSha: commits[0]?.sha?.substring(0, 7) || null,
+    oldestSha: commits[commits.length - 1]?.sha?.substring(0, 7) || null,
+  }, true)
+  logOpenClawGitHub('Selected date range loaded', {
+    fetched: commits.length,
+  })
+
+  return commits.map(mapGitHubCommit)
 }
 
 /**
@@ -86,16 +162,11 @@ export async function fetchRepoInfo(): Promise<RepoInfo> {
   const apiUrl = `https://api.github.com/repos/${owner}/${name}`
   
   const response = await fetch(apiUrl, {
-    headers: {
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'OpenClawToday-Newspaper',
-    },
+    headers: getGitHubHeaders(),
     next: { revalidate: CONFIG.cache.repoInfo },
   })
 
-  if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.status}`)
-  }
+  await assertGitHubResponseOk(response, `fetching repository info for ${CONFIG.repo.fullName}`)
 
   const repo: GitHubRepoResponse = await response.json()
 
@@ -275,11 +346,7 @@ export async function fetchAllIssues(
     const apiUrl = `https://api.github.com/repos/${owner}/${name}/issues?state=${state}&per_page=${perPage}&page=${page}`
     
     const response = await fetch(apiUrl, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'OpenClawToday-Newspaper',
-        ...(process.env.GITHUB_TOKEN && { 'Authorization': `token ${process.env.GITHUB_TOKEN}` }),
-      },
+      headers: getGitHubHeaders(),
       cache: 'no-store',
     })
 
@@ -356,11 +423,7 @@ export async function fetchAllPullRequests(
     const apiUrl = `https://api.github.com/repos/${owner}/${name}/pulls?state=${state}&per_page=${perPage}&page=${page}`
     
     const response = await fetch(apiUrl, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'OpenClawToday-Newspaper',
-        ...(process.env.GITHUB_TOKEN && { 'Authorization': `token ${process.env.GITHUB_TOKEN}` }),
-      },
+      headers: getGitHubHeaders(),
       cache: 'no-store',
     })
 

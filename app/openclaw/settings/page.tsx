@@ -346,7 +346,7 @@ export default function OpenClawSettingsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dailyStats.slice(0, 14).map((day, idx) => {
+                      {dailyStats.slice(0, 14).map((day) => {
                         const date = new Date(day.date + 'T12:00:00')
                         const isToday = day.date === new Date().toISOString().split('T')[0]
                         const maxCommits = Math.max(...dailyStats.map(d => d.commitCount))
@@ -529,7 +529,7 @@ export default function OpenClawSettingsPage() {
                   ))}
                 </div>
                 <p className="text-xs text-amber-500/80 mt-2">
-                  Note: OpenClaw has ~500 commits/day. Use "∞ All" to fetch everything with pagination.
+                  Note: OpenClaw has ~500 commits/day. Use &quot;∞ All&quot; to fetch everything with pagination.
                 </p>
               </div>
 
@@ -689,7 +689,7 @@ export default function OpenClawSettingsPage() {
             
             <div className="space-y-3 text-sm text-muted-foreground">
               <p>
-                <strong className="text-foreground">Incremental Sync:</strong> When you click "Sync New Commits", 
+                <strong className="text-foreground">Incremental Sync:</strong> When you click &quot;Sync New Commits&quot;, 
                 only commits newer than your most recent cached commit are fetched from GitHub. Uses pagination to fetch all new commits.
               </p>
               <p>

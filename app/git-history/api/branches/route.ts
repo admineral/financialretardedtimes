@@ -30,7 +30,7 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
 /**
  * Generate a unique color for each branch using HSL
  */
-function generateBranchColor(index: number, total: number): string {
+function generateBranchColor(index: number): string {
   if (index === 0) return '#10b981' // Green for default branch
   
   // Generate distinct colors using golden ratio
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
           name: branch.name,
           sha: branch.commit.sha,
           lane: sortOrder,
-          color: generateBranchColor(sortOrder, branches.length),
+          color: generateBranchColor(sortOrder),
           isDefault: branch.name === defaultBranch,
           isProtected: branch.protected,
           aheadBy,

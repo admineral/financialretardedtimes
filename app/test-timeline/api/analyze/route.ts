@@ -144,7 +144,7 @@ interface ChatMessage {
 function getDateRange(mode: string): { startDate: Date; endDate: Date } {
   const now = new Date()
   const endDate = now
-  let startDate = new Date()
+  const startDate = new Date()
   
   switch (mode) {
     case '24h':

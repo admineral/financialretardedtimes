@@ -14,9 +14,9 @@
 
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { AlertTriangle,ChevronLeft,ChevronRight,Loader2,MessageSquare,RefreshCw,Sparkles,TrendingUp,Users,Zap } from 'lucide-react'
+import { useCallback,useEffect,useRef,useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeft, ChevronRight, Loader2, MessageSquare, TrendingUp, TrendingDown, Zap, Users, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react'
 
 // Event types for chat moments
 type ChatEventType = 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
@@ -129,7 +129,7 @@ function renderQuoteContent(quote: string, quoteAuthor: string, style: { border:
         <div className="space-y-1">
           <div className="text-[9px] text-blue-600 dark:text-blue-400">
             <span className="font-medium">@{parsed.quotedUser}:</span>{' '}
-            <span className="italic text-muted-foreground">„{parsed.quotedText.slice(0, 50)}{parsed.quotedText.length > 50 ? '...' : ''}"</span>
+            <span className="italic text-muted-foreground">„{parsed.quotedText.slice(0, 50)}{parsed.quotedText.length > 50 ? '...' : ''}“</span>
           </div>
           {parsed.responseText && (
             <p className="text-[10px] text-foreground/80">
@@ -152,7 +152,7 @@ function renderQuoteContent(quote: string, quoteAuthor: string, style: { border:
             </span>
           </div>
           <p className="text-sm text-gray-600 dark:text-muted-foreground italic">
-            „{parsed.quotedText}"
+            „{parsed.quotedText}“
           </p>
         </div>
         {/* Response */}
@@ -169,14 +169,14 @@ function renderQuoteContent(quote: string, quoteAuthor: string, style: { border:
   if (compact) {
     return (
       <p className="text-[10px] italic text-foreground/80 leading-snug">
-        „{quote}"
+        „{quote}“
       </p>
     )
   }
   
   return (
     <p className="text-sm text-gray-700 dark:text-inherit italic">
-      „{quote}"
+      „{quote}“
     </p>
   )
 }
@@ -257,7 +257,7 @@ function renderTextWithQuotes(text: string, compact = false) {
             return (
               <span key={index} className="text-muted-foreground/70">
                 <span className="text-blue-600 dark:text-blue-400 font-medium">@{part.username}:</span>{' '}
-                <span className="italic">„{part.content}"</span>{' '}
+                <span className="italic">„{part.content}“</span>{' '}
               </span>
             )
           }
@@ -281,7 +281,7 @@ function renderTextWithQuotes(text: string, compact = false) {
                 </span>
               </div>
               <p className="text-sm text-gray-600 dark:text-muted-foreground italic">
-                „{part.content}"
+                „{part.content}“
               </p>
             </div>
           )
@@ -413,143 +413,6 @@ function TimelineCard({
         {/* Dot on timeline */}
         <div className={`absolute ${position === 'top' ? '-bottom-6' : '-top-6'} left-1/2 -translate-x-1/2 
           w-3 h-3 rounded-full ${style.bg} border-2 ${style.border} z-10`} />
-      </div>
-      
-      {/* Modal overlay - rendered via portal to escape stacking context */}
-      {isExpanded && typeof document !== 'undefined' && createPortal(
-        <div 
-          className="fixed inset-0 bg-black/60 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-          style={{ zIndex: 99999 }}
-          onClick={() => setIsExpanded(false)}
-        >
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className={`relative w-full max-w-md p-5 rounded-xl border-2 
-              bg-white dark:bg-card ${style.border} shadow-2xl
-              animate-in fade-in zoom-in-95 duration-200`}
-          >
-            {/* Close button */}
-            <button 
-              onClick={() => setIsExpanded(false)}
-              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full 
-                bg-gray-100 dark:bg-background/50 hover:bg-gray-200 dark:hover:bg-background/80 transition-colors text-gray-500 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground"
-            >
-              ✕
-            </button>
-            
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-3">
-              <span className={`text-sm font-black tracking-wide px-2 py-1 rounded ${style.bg} ${style.text} border ${style.border}`}>
-                {displayLabel}
-              </span>
-              <Icon className={`w-5 h-5 ${style.text}`} />
-              <span className="text-sm font-mono text-gray-500 dark:text-muted-foreground ml-auto">
-                {formatDate(event.date)} • {event.time}
-              </span>
-            </div>
-            
-            {/* Title */}
-            <h3 className={`text-lg font-bold leading-tight mb-3 ${style.text}`}>
-              {event.title}
-            </h3>
-            
-            {/* Quote if exists */}
-            {event.quote && (
-              <div className={`border-l-4 ${style.border} pl-3 mb-3`}>
-                {renderQuoteContent(event.quote, event.quoteAuthor || '', style, false)}
-                {event.quoteAuthor && (
-                  <span className="block text-xs text-gray-500 dark:text-muted-foreground mt-2">— @{event.quoteAuthor}</span>
-                )}
-              </div>
-            )}
-            
-            {/* Full description */}
-            {event.description && (
-              <div className="text-sm leading-relaxed mb-4">
-                {renderTextWithQuotes(event.description, false)}
-              </div>
-            )}
-            
-            {/* Participants */}
-            {event.participants.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200 dark:border-border/50">
-                <span className="text-xs text-gray-500 dark:text-muted-foreground">Beteiligt:</span>
-                {event.participants.map((p, i) => (
-                  <span key={i} className={`text-xs px-2 py-1 rounded ${style.bg} ${style.text}`}>
-                    @{p}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
-    </>
-  )
-}
-
-/**
- * Compact event card for mini timeline - inline display with hover expand
- * Click to open full modal view
- */
-function CompactTimelineCard({ event }: { event: ChatEvent }) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const style = getEventStyle(event.type)
-  const Icon = style.icon
-  
-  // Use AI label or fall back to style label
-  const displayLabel = event.label || style.label
-  
-  // Format date for display
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr + 'T12:00:00')
-    return d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })
-  }
-  
-  return (
-    <>
-      <div className="group relative flex items-center">
-        {/* Dot on timeline */}
-        <div className={`absolute -bottom-[17px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${style.bg} border ${style.border} z-10
-          transition-transform duration-200 delay-300 group-hover:delay-0 group-hover:scale-125`} />
-        
-        {/* Card - compact, expands on hover, click for modal */}
-        <div 
-          onClick={() => setIsExpanded(true)}
-          className={`px-2.5 py-2 rounded-lg border ${style.bg} ${style.border} backdrop-blur-sm 
-          cursor-pointer select-none
-          min-w-[160px] max-w-[200px] group-hover:min-w-[240px] group-hover:max-w-[280px]
-          group-hover:shadow-lg group-hover:z-20
-          transition-all duration-200 ease-out
-          delay-500 group-hover:delay-0
-          active:scale-95`}
-        >
-          {/* Label badge + timestamp top right */}
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <span className={`text-[9px] font-black tracking-wide px-1.5 py-0.5 rounded ${style.bg} ${style.text} border ${style.border}`}>
-              {displayLabel}
-            </span>
-            <span className="text-[9px] font-mono text-muted-foreground/70 mt-0.5">
-              {event.time}
-            </span>
-          </div>
-          
-          {/* Title - full visibility */}
-          <p className={`text-[11px] font-semibold leading-snug ${style.text}`}>
-            {event.title}
-          </p>
-          
-          {/* Description preview on hover */}
-          <div className="max-h-0 overflow-hidden opacity-0 
-            group-hover:max-h-12 group-hover:opacity-100 
-            transition-all duration-200 ease-out
-            delay-500 group-hover:delay-0">
-            <p className="text-[10px] text-muted-foreground leading-snug mt-1.5 line-clamp-2">
-              {event.description?.slice(0, 80)}...
-            </p>
-          </div>
-        </div>
       </div>
       
       {/* Modal overlay - rendered via portal to escape stacking context */}
@@ -948,52 +811,6 @@ function InlineEventCard({
         document.body
       )}
     </>
-  )
-}
-
-/**
- * Compact date marker for mini timeline
- */
-function CompactDateMarker({ date, messageCount }: { date: string; messageCount?: number }) {
-  const d = new Date(date + 'T12:00:00')
-  const today = new Date()
-  today.setHours(12, 0, 0, 0)
-  
-  const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
-  
-  const day = d.getDate()
-  const month = d.toLocaleDateString('de-DE', { month: 'short' })
-  
-  let relativeLabel = ''
-  if (diffDays === 0) relativeLabel = 'HEUTE'
-  else if (diffDays === 1) relativeLabel = 'GESTERN'
-  
-  const isToday = diffDays === 0
-  
-  return (
-    <div className="flex flex-col items-center mx-2 min-w-[50px]">
-      <div className={`px-2 py-1 rounded text-center ${
-        isToday ? 'bg-primary/20 border border-primary/40' : 'bg-muted/50'
-      }`}>
-        {relativeLabel ? (
-          <div className={`text-[8px] font-bold uppercase tracking-wider ${
-            isToday ? 'text-primary' : 'text-muted-foreground'
-          }`}>
-            {relativeLabel}
-          </div>
-        ) : null}
-        <div className={`text-sm font-bold font-mono leading-none ${
-          isToday ? 'text-primary' : 'text-foreground'
-        }`}>
-          {day} {month}
-        </div>
-        {messageCount && (
-          <div className="text-[8px] text-foreground/60 dark:text-foreground/70">
-            {messageCount} msgs
-          </div>
-        )}
-      </div>
-    </div>
   )
 }
 
@@ -1635,8 +1452,6 @@ export function ChatHistoryTimeline({
                   style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 >
                   {(() => {
-                    const eventCount = events.length
-                    
                     // Mini mode: use smaller sizes, expand on hover
                     const cardHeight = miniCardHeight
                     const cardWidth = miniCardWidth
@@ -1987,8 +1802,6 @@ export function ChatHistoryTimeline({
                   {(() => {
                     // Calculate dynamic sizing based on event count and mode
                     const eventCount = events.length
-                    const is24hMode = mode === '24h'
-                    
                     // Scale card size based on event count
                     const isCompact = eventCount > 10
                     const isTiny = eventCount > 14

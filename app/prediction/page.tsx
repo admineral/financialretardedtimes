@@ -182,13 +182,13 @@ function PredictionModal({ event, prediction, onClose }: {
         <div className="p-5 space-y-4">
           {/* Prediction text */}
           <h3 className="text-xl font-bold leading-snug">
-            „{event.title}"
+            „{event.title}“
           </h3>
 
           {/* Full original quote */}
           <div className="p-4 rounded-lg bg-white/5 border border-white/10">
             <p className="text-sm italic leading-relaxed text-zinc-400">
-              „{event.fullQuote}"
+              „{event.fullQuote}“
             </p>
           </div>
 

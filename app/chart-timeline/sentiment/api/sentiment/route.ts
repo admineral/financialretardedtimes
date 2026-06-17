@@ -10,7 +10,7 @@
  * - POST /chart-timeline/sentiment/api/sentiment?force=true → force fresh (bypass cache)
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
@@ -243,7 +243,7 @@ export async function GET() {
 
 // ------- POST: stream fresh AI analysis -------
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   const supabase = await createClient()
 
   const [{ messages, from, to }, ohlcData] = await Promise.all([

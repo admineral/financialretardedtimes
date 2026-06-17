@@ -373,7 +373,7 @@ export async function POST(request: NextRequest) {
       : 'KEINE CHARTS VERFÜGBAR - keine Bilder verwenden!'
     
     // Build context string
-    let articleContext = `
+    const articleContext = `
 ═══════════════════════════════════════════════════════════════════════
 ARTIKEL ZUM ERWEITERN
 ═══════════════════════════════════════════════════════════════════════

@@ -128,11 +128,14 @@ export function CommitNode({ commit, color, laneWidth, rowHeight, maxLanes = 8 }
                 <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1">
                     {commit.author.avatar ? (
-                      <img
-                        src={commit.author.avatar}
-                        alt={commit.author.name}
-                        className="w-4 h-4 rounded-full"
-                      />
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- GitHub avatar URLs are dynamic and not covered by the image config. */}
+                        <img
+                          src={commit.author.avatar}
+                          alt={commit.author.name}
+                          className="w-4 h-4 rounded-full"
+                        />
+                      </>
                     ) : (
                       <User className="w-3 h-3" />
                     )}
@@ -178,11 +181,14 @@ export function CommitNode({ commit, color, laneWidth, rowHeight, maxLanes = 8 }
                 <div className="border-t pt-2 space-y-2">
                   <div className="flex items-center gap-2">
                     {commit.author.avatar && (
-                      <img
-                        src={commit.author.avatar}
-                        alt={commit.author.name}
-                        className="w-6 h-6 rounded-full"
-                      />
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- GitHub avatar URLs are dynamic and not covered by the image config. */}
+                        <img
+                          src={commit.author.avatar}
+                          alt={commit.author.name}
+                          className="w-6 h-6 rounded-full"
+                        />
+                      </>
                     )}
                     <div>
                       <div className="text-sm font-medium">{commit.author.name}</div>

@@ -9,6 +9,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { CONFIG } from '../lib/config'
+import { assertGitHubResponseOk, getGitHubHeaders } from '../lib/github-api'
 import type { GitHubCommit, CommitStats } from '../lib/types'
 
 export interface DailyStats {
@@ -85,6 +86,36 @@ interface GitHubCommitResponse {
 interface PaginationInfo {
   hasNextPage: boolean
   nextUrl: string | null
+}
+
+const DEFAULT_INCREMENTAL_MAX_PAGES = 3
+const DEFAULT_INCREMENTAL_MAX_COMMITS = 300
+const COMMIT_UPSERT_CHUNK_SIZE = 500
+
+function isOpenClawDebugEnabled(): boolean {
+  return process.env.OPENCLAW_DEBUG_LOGS === 'true'
+}
+
+function logSync(message: string, details?: Record<string, unknown>, debugOnly: boolean = false): void {
+  if (debugOnly && !isOpenClawDebugEnabled()) {
+    return
+  }
+
+  if (details) {
+    console.log(`[OPENCLAW SYNC] ${message}`, details)
+    return
+  }
+
+  console.log(`[OPENCLAW SYNC] ${message}`)
+}
+
+function getSafeGitHubUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.pathname}${parsed.search}`
+  } catch {
+    return url
+  }
 }
 
 function parseLinkHeader(linkHeader: string | null): PaginationInfo {
@@ -186,20 +217,34 @@ async function getMostRecentCachedCommitSha(): Promise<string | null> {
  * Fetch commits from GitHub API (single page)
  */
 async function fetchGitHubCommitsPage(url: string): Promise<{ commits: GitHubCommitResponse[], pagination: PaginationInfo }> {
+  const startedAt = Date.now()
+  logSync('Fetching GitHub commits page', {
+    url: getSafeGitHubUrl(url),
+  }, true)
+
   const response = await fetch(url, {
-    headers: {
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'OpenClawToday-Newspaper',
-    },
+    headers: getGitHubHeaders(),
     cache: 'no-store',
   })
 
-  if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.status}`)
-  }
+  logSync('GitHub commits page responded', {
+    url: getSafeGitHubUrl(url),
+    status: response.status,
+    ok: response.ok,
+    rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
+    rateLimitReset: response.headers.get('x-ratelimit-reset'),
+    durationMs: Date.now() - startedAt,
+  }, true)
+
+  await assertGitHubResponseOk(response, `fetching commits for ${CONFIG.repo.fullName}`)
 
   const commits: GitHubCommitResponse[] = await response.json()
   const pagination = parseLinkHeader(response.headers.get('Link'))
+  logSync('Parsed GitHub commits page', {
+    fetched: commits.length,
+    hasNextPage: pagination.hasNextPage,
+    nextUrl: pagination.nextUrl ? getSafeGitHubUrl(pagination.nextUrl) : null,
+  }, true)
   
   return { commits, pagination }
 }
@@ -208,40 +253,78 @@ async function fetchGitHubCommitsPage(url: string): Promise<{ commits: GitHubCom
  * Fetch commits from GitHub API with pagination support
  * @param options.perPage - Number of commits per page (max 100)
  * @param options.since - ISO date string to fetch commits since
+ * @param options.until - ISO date string to fetch commits until
  * @param options.maxPages - Maximum number of pages to fetch (default: unlimited)
  * @param options.maxCommits - Stop after fetching this many commits
  */
 async function fetchGitHubCommits(options: {
   perPage?: number
   since?: string
+  until?: string
   maxPages?: number
   maxCommits?: number
 } = {}): Promise<GitHubCommitResponse[]> {
   const { owner, name } = CONFIG.repo
   const perPage = Math.min(options.perPage || 100, 100)
+  const startedAt = Date.now()
   
   let url = `https://api.github.com/repos/${owner}/${name}/commits?per_page=${perPage}`
   if (options.since) {
     url += `&since=${options.since}`
   }
+  if (options.until) {
+    url += `&until=${options.until}`
+  }
+  logSync('Starting paginated GitHub commit fetch', {
+    repo: `${owner}/${name}`,
+    perPage,
+    since: options.since || null,
+    until: options.until || null,
+    maxPages: options.maxPages || null,
+    maxCommits: options.maxCommits || null,
+    firstUrl: getSafeGitHubUrl(url),
+  })
   
   const allCommits: GitHubCommitResponse[] = []
   let page = 1
   
   while (true) {
+    logSync('Fetching commit page', {
+      page,
+      accumulatedCommits: allCommits.length,
+    }, true)
     const { commits, pagination } = await fetchGitHubCommitsPage(url)
     allCommits.push(...commits)
+    logSync('Commit page accumulated', {
+      page,
+      pageCommits: commits.length,
+      accumulatedCommits: allCommits.length,
+    }, true)
     
     // Check stop conditions
     if (options.maxCommits && allCommits.length >= options.maxCommits) {
+      logSync('Stopping commit fetch at maxCommits', {
+        maxCommits: options.maxCommits,
+        fetched: allCommits.length,
+        durationMs: Date.now() - startedAt,
+      })
       return allCommits.slice(0, options.maxCommits)
     }
     
     if (options.maxPages && page >= options.maxPages) {
+      logSync('Stopping commit fetch at maxPages', {
+        maxPages: options.maxPages,
+        fetched: allCommits.length,
+        durationMs: Date.now() - startedAt,
+      })
       break
     }
     
     if (!pagination.hasNextPage || !pagination.nextUrl) {
+      logSync('Stopping commit fetch because there is no next page', {
+        fetched: allCommits.length,
+        durationMs: Date.now() - startedAt,
+      })
       break
     }
     
@@ -253,6 +336,11 @@ async function fetchGitHubCommits(options: {
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   
+  logSync('Finished paginated GitHub commit fetch', {
+    fetched: allCommits.length,
+    pagesFetched: page,
+    durationMs: Date.now() - startedAt,
+  })
   return allCommits
 }
 
@@ -260,11 +348,33 @@ async function fetchGitHubCommits(options: {
  * Store commits in the cache
  */
 async function storeCommits(commits: GitHubCommitResponse[]): Promise<number> {
-  if (commits.length === 0) return 0
+  if (commits.length === 0) {
+    logSync('Skipping commit store because no commits were fetched')
+    return 0
+  }
+
+  const uniqueCommits = Array.from(
+    commits.reduce((acc, commit) => {
+      if (!acc.has(commit.sha)) {
+        acc.set(commit.sha, commit)
+      }
+      return acc
+    }, new Map<string, GitHubCommitResponse>()).values()
+  )
+
+  const duplicateCount = commits.length - uniqueCommits.length
   
   const supabase = await createClient()
+  logSync('Upserting commits into Supabase cache', {
+    fetchedCount: commits.length,
+    uniqueCount: uniqueCommits.length,
+    duplicateCount,
+    chunkSize: COMMIT_UPSERT_CHUNK_SIZE,
+    newestSha: uniqueCommits[0]?.sha?.substring(0, 7) || null,
+    oldestSha: uniqueCommits[uniqueCommits.length - 1]?.sha?.substring(0, 7) || null,
+  })
   
-  const rows = commits.map(commit => ({
+  const rows = uniqueCommits.map(commit => ({
     sha: commit.sha,
     short_sha: commit.sha.substring(0, 7),
     message: commit.commit.message,
@@ -281,15 +391,31 @@ async function storeCommits(commits: GitHubCommitResponse[]): Promise<number> {
     repo_name: CONFIG.repo.name,
   }))
   
-  const { error } = await supabase
-    .from('openclaw_commits_cache')
-    .upsert(rows, { onConflict: 'sha' })
-  
-  if (error) {
-    console.error('Error storing commits:', error)
-    throw new Error(`Failed to store commits: ${error.message}`)
+  for (let i = 0; i < rows.length; i += COMMIT_UPSERT_CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + COMMIT_UPSERT_CHUNK_SIZE)
+    const chunkNumber = Math.floor(i / COMMIT_UPSERT_CHUNK_SIZE) + 1
+    const chunkCount = Math.ceil(rows.length / COMMIT_UPSERT_CHUNK_SIZE)
+
+    logSync('Upserting commit cache chunk', {
+      chunkNumber,
+      chunkCount,
+      chunkSize: chunk.length,
+    }, true)
+
+    const { error } = await supabase
+      .from('openclaw_commits_cache')
+      .upsert(chunk, { onConflict: 'sha' })
+    
+    if (error) {
+      console.error('Error storing commits:', error)
+      throw new Error(`Failed to store commits chunk ${chunkNumber}/${chunkCount}: ${error.message}`)
+    }
   }
   
+  logSync('Finished Supabase commit cache upsert', {
+    count: rows.length,
+    duplicateCount,
+  })
   return rows.length
 }
 
@@ -380,11 +506,40 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
 }> {
   const startTime = Date.now()
   const syncType = forceFullSync ? 'full' : 'incremental'
+  logSync('Starting commit sync', {
+    syncType,
+    triggeredBy,
+  })
   const logId = await createSyncLog(syncType, triggeredBy)
+  logSync('Created sync log row', {
+    syncType,
+    triggeredBy,
+    logId,
+  })
   
   try {
     const settings = await getSettings()
     const supabase = await createClient()
+    const hasConfiguredSyncLimit = settings.maxCommitsPerSync > 0
+    const configuredMaxCommits = hasConfiguredSyncLimit
+      ? settings.maxCommitsPerSync
+      : DEFAULT_INCREMENTAL_MAX_COMMITS
+    const syncMaxCommits = forceFullSync
+      ? configuredMaxCommits
+      : Math.min(configuredMaxCommits, DEFAULT_INCREMENTAL_MAX_COMMITS)
+    const syncMaxPages = hasConfiguredSyncLimit
+      ? Math.max(1, Math.ceil(syncMaxCommits / 100))
+      : DEFAULT_INCREMENTAL_MAX_PAGES
+    logSync('Loaded sync settings', {
+      defaultDays: settings.defaultDays,
+      maxCommitsPerSync: settings.maxCommitsPerSync,
+      configuredMaxCommits,
+      effectiveMaxCommits: syncMaxCommits,
+      effectiveMaxPages: syncMaxPages,
+      cappedForIncrementalSync: !forceFullSync && configuredMaxCommits > syncMaxCommits,
+      lastSyncAt: settings.lastSyncAt,
+      lastSyncCommitCount: settings.lastSyncCommitCount,
+    })
     
     let commits: GitHubCommitResponse[]
     
@@ -392,14 +547,24 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
       // Full sync: fetch all commits from the last N days
       const sinceDate = new Date()
       sinceDate.setDate(sinceDate.getDate() - settings.defaultDays)
+      logSync('Full sync will fetch commits since configured window', {
+        since: sinceDate.toISOString(),
+        defaultDays: settings.defaultDays,
+        maxCommits: syncMaxCommits,
+        maxPages: syncMaxPages,
+      })
       
       commits = await fetchGitHubCommits({
         since: sinceDate.toISOString(),
-        maxCommits: settings.maxCommitsPerSync > 0 ? settings.maxCommitsPerSync : undefined,
+        maxCommits: syncMaxCommits,
+        maxPages: syncMaxPages,
       })
     } else {
       // Incremental sync: only fetch commits since last cached commit
       const mostRecentSha = await getMostRecentCachedCommitSha()
+      logSync('Incremental sync inspected most recent cached commit', {
+        mostRecentSha: mostRecentSha ? mostRecentSha.substring(0, 7) : null,
+      })
       
       if (mostRecentSha) {
         const { data: mostRecent } = await supabase
@@ -409,25 +574,56 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
           .single()
         
         if (mostRecent) {
+          logSync('Incremental sync will fetch commits since cached commit date', {
+            mostRecentSha: mostRecentSha.substring(0, 7),
+            since: mostRecent.committed_at,
+            maxCommits: syncMaxCommits,
+            maxPages: syncMaxPages,
+          })
           commits = await fetchGitHubCommits({
             since: mostRecent.committed_at,
+            maxCommits: syncMaxCommits,
+            maxPages: syncMaxPages,
           })
           // Filter out the commit we already have
           commits = commits.filter(c => c.sha !== mostRecentSha)
+          logSync('Filtered already-cached boundary commit from incremental result', {
+            remainingCommits: commits.length,
+          })
         } else {
           // Fallback to fetching recent commits
+          logSync('Most recent SHA was missing its row; falling back to one recent GitHub page')
           commits = await fetchGitHubCommits({ maxPages: 1 })
         }
       } else {
         // No cached commits - initialize with default days
         const sinceDate = new Date()
         sinceDate.setDate(sinceDate.getDate() - settings.defaultDays)
-        commits = await fetchGitHubCommits({ since: sinceDate.toISOString() })
+        logSync('No cached commits found; incremental sync will initialize window', {
+          since: sinceDate.toISOString(),
+          defaultDays: settings.defaultDays,
+          maxCommits: syncMaxCommits,
+          maxPages: syncMaxPages,
+        })
+        commits = await fetchGitHubCommits({
+          since: sinceDate.toISOString(),
+          maxCommits: syncMaxCommits,
+          maxPages: syncMaxPages,
+        })
       }
     }
+    logSync('GitHub fetch finished for sync', {
+      syncType,
+      fetchedCommits: commits.length,
+      newestFetchedSha: commits[0]?.sha?.substring(0, 7) || null,
+      oldestFetchedSha: commits[commits.length - 1]?.sha?.substring(0, 7) || null,
+    })
     
     const newCommits = await storeCommits(commits)
     await updateSyncInfo(newCommits)
+    logSync('Updated OpenClaw sync settings', {
+      lastSyncCommitCount: newCommits,
+    })
     
     const { count } = await supabase
       .from('openclaw_commits_cache')
@@ -439,6 +635,15 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
       commitsNew: newCommits,
       durationMs,
     })
+    logSync('Commit sync completed successfully', {
+      syncType,
+      triggeredBy,
+      fetchedCommits: commits.length,
+      storedCommits: newCommits,
+      totalCached: count || 0,
+      durationMs,
+      logId,
+    })
     
     return {
       success: true,
@@ -449,6 +654,13 @@ export async function syncCommits(forceFullSync: boolean = false, triggeredBy: '
     const durationMs = Date.now() - startTime
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     await updateSyncLog(logId, 'error', { errorMessage, durationMs })
+    console.error('[OPENCLAW SYNC] Commit sync failed', {
+      syncType,
+      triggeredBy,
+      durationMs,
+      logId,
+      error: errorMessage,
+    })
     
     return {
       success: false,

@@ -9,7 +9,7 @@
  * - POST /chart-leader/api/leaderboard          → stream fresh AI analysis
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
@@ -441,7 +441,7 @@ export async function GET() {
 // POST — stream fresh AI analysis
 // ══════════════════════════════════════════════════════════════════════
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   const supabase = await createClient()
   const DAYS_BACK = 7
 

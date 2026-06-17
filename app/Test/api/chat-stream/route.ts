@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
         try {
           controller.enqueue(new TextEncoder().encode(data))
           return true
-        } catch (error) {
+        } catch {
           console.log('⚠️ [SSE] Failed to enqueue, stream likely closed')
           isClosed = true
           return false
