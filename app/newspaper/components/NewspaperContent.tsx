@@ -17,7 +17,7 @@ import { ChevronRight,Loader2,Quote,Sparkles,Zap } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useCallback,useEffect,useRef,useState,useTransition } from 'react'
 import { createPortal } from 'react-dom'
-import { UnifiedNewspaperSchema,type ArticleData,type MoreArticleData,type UnifiedNewspaperData } from '../lib/types'
+import { NewspaperAISchema,type ArticleData,type MoreArticleData,type UnifiedNewspaperData } from '../lib/types'
 import { useAvatarContext } from './AvatarContext'
 import { ContributorAvatar,prefetchAvatars } from './ContributorAvatar'
 import { getCategoryStyle,getEventStyle } from './ui/helpers'
@@ -273,7 +273,7 @@ export function NewspaperContent({
     error: aiError
   } = useObject({
     api: '/newspaper/api/summarize',
-    schema: UnifiedNewspaperSchema,
+    schema: NewspaperAISchema,
   })
 
   const [showingCache, setShowingCache] = useState(true)

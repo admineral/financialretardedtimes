@@ -18,7 +18,9 @@
 
 // Re-export types for convenience
 export {
+NewspaperAISchema,
 UnifiedNewspaperSchema,
+type NewspaperAIData,
 type UnifiedNewspaperData
 } from './types'
 

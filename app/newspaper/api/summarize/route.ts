@@ -8,14 +8,14 @@
  * Automatically caches completed responses in Supabase for future requests.
  * 
  * GLOBAL: Primary API endpoint for the newspaper feature. Called by NewspaperContent
- * component via useObject hook. Returns streaming JSON matching UnifiedNewspaperSchema.
+ * component via useObject hook. Returns streaming JSON matching NewspaperAISchema.
  * 
  * ENDPOINT: POST /newspaper/api/summarize
  * 
  * REQUEST BODY:
  * - selectedDates?: string[] - Array of dates to fetch messages for (YYYY-MM-DD)
  * 
- * RESPONSE: Streaming JSON object matching UnifiedNewspaperSchema
+ * RESPONSE: Streaming JSON object matching NewspaperAISchema
  * 
  * ERRORS:
  * - 500: OpenAI API key not configured
@@ -28,8 +28,39 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
-import { UnifiedNewspaperSchema, UNIFIED_PROMPT, type BTCContext } from '../../lib/schemas'
-import type { UnifiedNewspaperData } from '../../lib/types'
+import { NewspaperAISchema, UNIFIED_PROMPT, type BTCContext } from '../../lib/schemas'
+import type { ArticleData, NewspaperAIData, UnifiedNewspaperData } from '../../lib/types'
+
+function normalizeAIArticle(article: NewspaperAIData['featuredArticle']): ArticleData {
+  return {
+    ...article,
+    quote: article.quote ?? undefined,
+    chartImage: article.chartImage
+      ? {
+          url: article.chartImage.url,
+          caption: article.chartImage.caption ?? undefined,
+          author: article.chartImage.author ?? undefined
+        }
+      : undefined
+  }
+}
+
+function normalizeAIData(
+  object: NewspaperAIData,
+  userAvatarMap: Map<string, string>,
+  activeChatters: UnifiedNewspaperData['activeChatters']
+): UnifiedNewspaperData {
+  return {
+    ...object,
+    topContributors: object.topContributors.map(contributor => ({
+      ...contributor,
+      avatar: userAvatarMap.get(contributor.username) || undefined
+    })),
+    featuredArticle: normalizeAIArticle(object.featuredArticle),
+    secondaryArticle: normalizeAIArticle(object.secondaryArticle),
+    activeChatters
+  }
+}
 
 /**
  * Save generated newspaper content to cache.
@@ -402,7 +433,7 @@ ${chartUrls.map(c => `• ${c.url} (von @${c.author} um ${c.time})`).join('\n')}
     // Stream AI response using GPT-5.2
     const result = streamObject({
       model: openai('gpt-5.2'),
-      schema: UnifiedNewspaperSchema,
+      schema: NewspaperAISchema,
       system: UNIFIED_PROMPT,
       providerOptions: { openai: { reasoning: { effort: 'high' } } },
       prompt: `Analysiere den folgenden Chat und erstelle eine übersichtliche Zusammenfassung.
@@ -414,15 +445,8 @@ Chat-Protokoll (${messages.length} Nachrichten von ${uniqueUsers} Usern):
 ${formattedChat}`,
       onFinish: async ({ object, error: finishError }) => {
         if (object) {
-          // Enrich topContributors with avatars and add activeChatters
-          const enrichedData = {
-            ...object,
-            topContributors: (object as UnifiedNewspaperData).topContributors.map(contributor => ({
-              ...contributor,
-              avatar: userAvatarMap.get(contributor.username) || undefined
-            })),
-            activeChatters
-          } as UnifiedNewspaperData
+          // Enrich app-owned fields before caching the final newspaper payload.
+          const enrichedData = normalizeAIData(object, userAvatarMap, activeChatters)
           
           await saveToCache(cacheDate, effectiveDayRange, enrichedData, messages.length, uniqueUsers)
         } else if (finishError) {

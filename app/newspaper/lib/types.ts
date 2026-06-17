@@ -36,6 +36,8 @@ export const QuoteSchema = z.object({
   text: z.string()
 })
 
+const NullableQuoteSchema = QuoteSchema.nullable()
+
 /**
  * Chart image schema.
  * References TradingView chart screenshots shared in chat.
@@ -44,6 +46,12 @@ export const ChartImageSchema = z.object({
   url: z.string(), // TradingView chart URL (e.g., https://www.tradingview.com/x/ABC123/)
   caption: z.string().optional(), // Description of the chart
   author: z.string().optional() // Who shared it
+})
+
+const AIChartImageSchema = z.object({
+  url: z.string(), // TradingView chart URL (e.g., https://www.tradingview.com/x/ABC123/)
+  caption: z.string().nullable(), // Description of the chart
+  author: z.string().nullable() // Who shared it
 })
 
 /**
@@ -69,6 +77,16 @@ export const ArticleSchema = z.object({
   quote: QuoteSchema.optional(),
   contributors: z.array(z.string()).min(1).max(4),
   chartImage: ChartImageSchema.optional() // Featured chart for this article
+})
+
+const AIArticleSchema = z.object({
+  author: z.string(),
+  category: z.enum(['DISKUSSION', 'ANALYSE', 'MEINUNG', 'HIGHLIGHT', 'COMMUNITY']),
+  headline: z.string(),
+  summary: z.string(),
+  quote: NullableQuoteSchema,
+  contributors: z.array(z.string()).min(1).max(4),
+  chartImage: AIChartImageSchema.nullable() // Featured chart for this article
 })
 
 /**
@@ -100,15 +118,33 @@ export const ActiveChatterSchema = z.object({
   messageCount: z.number()
 })
 
+const TopContributorSchema = z.object({
+  username: z.string(),
+  initial: z.string().max(1)
+})
+
+export const NewspaperAISchema = z.object({
+  topContributors: z.array(TopContributorSchema).length(3),
+  
+  trendingTopics: z.array(z.string()).min(3).max(5),
+  
+  featuredArticle: AIArticleSchema,
+  secondaryArticle: AIArticleSchema,
+  
+  events: z.array(EventSchema).min(1).max(3),
+  
+  shortNews: z.array(ShortNewsSchema).length(3),
+  
+  moreArticles: z.array(MoreArticleSchema).min(3).max(4)
+})
+
 /**
  * Unified newspaper schema.
  * Complete structure for AI-generated newspaper content.
  * Used by the summarize API and NewspaperContent component.
  */
 export const UnifiedNewspaperSchema = z.object({
-  topContributors: z.array(z.object({
-    username: z.string(),
-    initial: z.string().max(1),
+  topContributors: z.array(TopContributorSchema.extend({
     avatar: z.string().optional()
   })).length(3),
   
@@ -128,6 +164,7 @@ export const UnifiedNewspaperSchema = z.object({
 })
 
 // Inferred TypeScript types from Zod schemas
+export type NewspaperAIData = z.infer<typeof NewspaperAISchema>
 export type UnifiedNewspaperData = z.infer<typeof UnifiedNewspaperSchema>
 export type ArticleData = z.infer<typeof ArticleSchema>
 export type EventData = z.infer<typeof EventSchema>
