@@ -58,7 +58,11 @@ export async function GET() {
       },
       body: JSON.stringify({
         selectedDates: [today],
-        dayRange: 1
+        dayRange: 1,
+        timelineMode: '24h',
+        includeTicker: true,
+        includeTimeline: true,
+        includeFearGreed: true
       }),
     })
     
@@ -82,7 +86,8 @@ export async function GET() {
     
     return NextResponse.json({
       success: true,
-      date: today
+      date: today,
+      unifiedDailyAI: true
     })
     
   } catch (error) {

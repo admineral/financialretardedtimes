@@ -138,6 +138,74 @@ export const NewspaperAISchema = z.object({
   moreArticles: z.array(MoreArticleSchema).min(3).max(4)
 })
 
+const DailyTickerEventSchema = z.object({
+  date: z.string(),
+  time: z.string(),
+  username: z.string(),
+  text: z.string(),
+  type: z.enum(['bullish', 'bearish', 'funny', 'drama', 'insight', 'call', 'fail']),
+  emoji: z.string().nullable(),
+  label: z.string().nullable(),
+  headline: z.string().nullable(),
+  quote: z.string().nullable(),
+  quoteAuthor: z.string().nullable()
+})
+
+const DailyTimelineEventSchema = z.object({
+  timestamp: z.string().nullable(),
+  time: z.string(),
+  date: z.string(),
+  label: z.string().max(12),
+  title: z.string().max(50),
+  quote: z.string().nullable(),
+  quoteAuthor: z.string().nullable(),
+  description: z.string().nullable(),
+  type: z.enum(['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor']),
+  participants: z.array(z.string()),
+  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).nullable()
+})
+
+const DailyPeriodSentimentSchema = z.object({
+  index: z.number().min(0).max(100),
+  classification: z.enum(['Extreme Fear', 'Fear', 'Neutral', 'Greed', 'Extreme Greed']),
+  classificationDE: z.enum(['Extreme Angst', 'Angst', 'Neutral', 'Gier', 'Extreme Gier'])
+})
+
+const DailyFearGreedSchema = z.object({
+  today: DailyPeriodSentimentSchema,
+  last3Days: DailyPeriodSentimentSchema,
+  last7Days: DailyPeriodSentimentSchema,
+  trend: z.enum(['rising', 'falling', 'stable']),
+  insight: z.string(),
+  topDrivers: z.array(z.string()).min(2).max(3)
+})
+
+export const DailyAIResponseSchema = z.object({
+  newspaper: z.object({
+    requested: z.boolean(),
+    reason: z.string().nullable(),
+    data: NewspaperAISchema.nullable()
+  }),
+  ticker: z.object({
+    requested: z.boolean(),
+    reason: z.string().nullable(),
+    events: z.array(DailyTickerEventSchema)
+  }),
+  timeline: z.object({
+    requested: z.boolean(),
+    reason: z.string().nullable(),
+    events: z.array(DailyTimelineEventSchema),
+    summary: z.string().nullable(),
+    activityLevel: z.enum(['low', 'medium', 'high']).nullable(),
+    dominantSentiment: z.enum(['bullish', 'bearish', 'neutral', 'mixed']).nullable()
+  }),
+  fearGreed: z.object({
+    requested: z.boolean(),
+    reason: z.string().nullable(),
+    data: DailyFearGreedSchema.nullable()
+  })
+})
+
 /**
  * Unified newspaper schema.
  * Complete structure for AI-generated newspaper content.
@@ -164,6 +232,10 @@ export const UnifiedNewspaperSchema = z.object({
 })
 
 // Inferred TypeScript types from Zod schemas
+export type DailyAIResponseData = z.infer<typeof DailyAIResponseSchema>
+export type DailyTickerEventData = z.infer<typeof DailyTickerEventSchema>
+export type DailyTimelineEventData = z.infer<typeof DailyTimelineEventSchema>
+export type DailyFearGreedData = z.infer<typeof DailyFearGreedSchema>
 export type NewspaperAIData = z.infer<typeof NewspaperAISchema>
 export type UnifiedNewspaperData = z.infer<typeof UnifiedNewspaperSchema>
 export type ArticleData = z.infer<typeof ArticleSchema>

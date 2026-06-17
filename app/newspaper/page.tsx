@@ -14,7 +14,7 @@
 
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon, ExternalLink } from 'lucide-react'
 import { track } from '@vercel/analytics'
@@ -48,6 +48,14 @@ interface BTCData {
   ath: number
   cachedAt: number
 }
+
+interface CachedDateBootstrap {
+  date: string
+  messageCount: number
+  uniqueUsers: number
+}
+
+const LAST_NEWSPAPER_DATE_KEY = 'newspaper:lastSelectedDate'
 
 function CurrentDate({ cacheUpdatedAt }: { cacheUpdatedAt?: string }) {
   const [date, setDate] = useState<string>('')
@@ -167,12 +175,28 @@ export default function NewspaperPage() {
   const [btcData, setBtcData] = useState<BTCData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [postGenerationRefreshKey, setPostGenerationRefreshKey] = useState(0)
   const [newspaperData, setNewspaperData] = useState<Partial<UnifiedNewspaperData> | undefined>(undefined)
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
+  const wasGeneratingRef = useRef(false)
 
   useEffect(() => {
     track('newspaper_page_view', { source: 'direct' })
   }, [])
+
+  useEffect(() => {
+    const storedDate = window.localStorage.getItem(LAST_NEWSPAPER_DATE_KEY)
+    if (!storedDate) return
+
+    setSelectedDate(prev => prev || storedDate)
+    setSelectedDates(prev => prev.length > 0 ? prev : [storedDate])
+  }, [])
+
+  useEffect(() => {
+    if (selectedDate) {
+      window.localStorage.setItem(LAST_NEWSPAPER_DATE_KEY, selectedDate)
+    }
+  }, [selectedDate])
 
   useEffect(() => {
     const fetchBTC = async () => {
@@ -192,6 +216,33 @@ export default function NewspaperPage() {
   }, [])
 
   useEffect(() => {
+    const bootstrapLatestCachedDate = async () => {
+      try {
+        const response = await fetch('/newspaper/api/cache-list?dayRange=1&limit=1', {
+          cache: 'no-store'
+        })
+        if (!response.ok) return
+
+        const data: { dates?: CachedDateBootstrap[] } = await response.json()
+        const latest = data.dates?.[0]
+        if (!latest) return
+
+        setAvailableDates(prev => prev.length > 0 ? prev : [{
+          date: latest.date,
+          messageCount: latest.messageCount,
+          uniqueUsers: latest.uniqueUsers
+        }])
+        setSelectedDate(prev => prev || latest.date)
+        setSelectedDates(prev => prev.length > 0 ? prev : [latest.date])
+      } catch (err) {
+        console.error('Failed to bootstrap latest cached newspaper:', err)
+      }
+    }
+
+    bootstrapLatestCachedDate()
+  }, [])
+
+  useEffect(() => {
     const fetchDates = async () => {
       try {
         const response = await fetch('/newspaper/api/available-dates')
@@ -199,7 +250,10 @@ export default function NewspaperPage() {
           const data = await response.json()
           setAvailableDates(data.dates || [])
           if (data.cumulativeUsers) setCumulativeUsers(data.cumulativeUsers)
-          if (data.dates && data.dates.length > 0) setSelectedDate(data.dates[0].date)
+          if (data.dates && data.dates.length > 0) {
+            setSelectedDate(prev => prev || data.dates[0].date)
+            setSelectedDates(prev => prev.length > 0 ? prev : [data.dates[0].date])
+          }
         }
       } catch (err) {
         console.error('Failed to fetch available dates:', err)
@@ -222,7 +276,15 @@ export default function NewspaperPage() {
     track('newspaper_day_range_change', { dayRange: days, datesCount: dates.length })
   }, [])
 
-  const handleLoadingChange = useCallback((loading: boolean) => setIsLoading(loading), [])
+  const handleLoadingChange = useCallback((loading: boolean) => {
+    setIsLoading(loading)
+    if (!loading && wasGeneratingRef.current) {
+      wasGeneratingRef.current = false
+      // Unified generation writes widget caches on stream completion. Give the
+      // server a short beat, then ask cache-backed widgets to re-read.
+      window.setTimeout(() => setPostGenerationRefreshKey(k => k + 1), 750)
+    }
+  }, [])
   const handleDataChange = useCallback((data: Partial<UnifiedNewspaperData> | undefined) => setNewspaperData(data), [])
   
   const handleRefresh = useCallback(() => {
@@ -230,11 +292,14 @@ export default function NewspaperPage() {
     track('newspaper_refresh', { selectedDate: selectedDate || 'none', dayRange })
   }, [selectedDate, dayRange])
   
-  const handleCacheInfoChange = useCallback((info: CacheInfo | null) => setCacheInfo(info), [])
+  const handleCacheInfoChange = useCallback((info: CacheInfo | null) => {
+    if (info && !info.isFromCache) wasGeneratingRef.current = true
+    setCacheInfo(info)
+  }, [])
 
   return (
     <AvatarProvider>
-      <FearGreedProvider autoStart>
+      <FearGreedProvider autoStart cacheRefreshKey={postGenerationRefreshKey}>
       <main className="min-h-screen bg-background relative">
         {/* Subtle gradient background - z-0 to stay behind content */}
         <div className="fixed inset-0 bg-gradient-to-br from-background via-background to-primary/5 pointer-events-none z-0" />
@@ -345,7 +410,12 @@ export default function NewspaperPage() {
         {/* Live Chat Ticker - Breaking News Style */}
         {dayRange === 1 && (
           <div className="w-full border-b border-primary/20 bg-gradient-to-r from-card via-card/95 to-card relative z-10">
-            <ChatTicker speed="normal" autoStart className="newspaper-ticker" />
+            <ChatTicker
+              speed="normal"
+              autoStart
+              className="newspaper-ticker"
+              cacheRefreshKey={postGenerationRefreshKey}
+            />
           </div>
         )}
 
@@ -355,7 +425,12 @@ export default function NewspaperPage() {
             <div className="flex items-stretch">
               {/* Timeline - takes most of the width, mini mode with hover expand */}
               <div className="flex-1 min-w-0">
-                <ChatHistoryTimeline autoStart mini />
+                <ChatHistoryTimeline
+                  autoStart
+                  mini
+                  defaultMode="24h"
+                  cacheRefreshKey={postGenerationRefreshKey}
+                />
               </div>
               
               {/* Fear & Greed Widget - compact version on the right */}

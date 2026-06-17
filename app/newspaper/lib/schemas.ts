@@ -18,8 +18,10 @@
 
 // Re-export types for convenience
 export {
+DailyAIResponseSchema,
 NewspaperAISchema,
 UnifiedNewspaperSchema,
+type DailyAIResponseData,
 type NewspaperAIData,
 type UnifiedNewspaperData
 } from './types'

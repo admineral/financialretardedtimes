@@ -476,7 +476,7 @@ export async function POST() {
   const uniqueUsers = new Set(messages.map((m) => m.username)).size
 
   const result = streamObject({
-    model: openai('gpt-5.2'),
+      model: openai('gpt-5.4'),
     schema: LeaderboardResponseSchema,
     system: LEADERBOARD_PROMPT,
     providerOptions: { openai: { reasoning: { effort: 'high' } } },

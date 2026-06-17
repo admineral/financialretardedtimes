@@ -149,6 +149,19 @@ export async function GET(request: NextRequest) {
           cacheAge: Date.now() - new Date(cachedData.updated_at).getTime()
         })
       }
+
+      if (!cacheError && cachedData) {
+        log.debug('Stale cache hit for available dates')
+        return Response.json({
+          dates: cachedData.dates,
+          totalDays: cachedData.total_days,
+          totalMessages: cachedData.total_messages,
+          cumulativeUsers: cachedData.cumulative_users,
+          isFromCache: true,
+          stale: true,
+          cacheAge: Date.now() - new Date(cachedData.updated_at).getTime()
+        })
+      }
     }
     
     log.debug('Fetching fresh available dates')

@@ -61,6 +61,7 @@ interface ChatHistoryTimelineProps {
   compact?: boolean // Minimal version for top placement
   mini?: boolean // Ultra-minimal one-liner, expands on hover
   defaultMode?: TimelineMode // Default: '3d'
+  cacheRefreshKey?: number
 }
 
 interface ActivityBucket {
@@ -932,7 +933,8 @@ export function ChatHistoryTimeline({
   showRefreshButton = true,
   compact = false,
   mini = false,
-  defaultMode = '3d'
+  defaultMode = '3d',
+  cacheRefreshKey = 0
 }: ChatHistoryTimelineProps) {
   const [events, setEvents] = useState<ChatEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -1199,10 +1201,11 @@ export function ChatHistoryTimeline({
   }, [isRefreshing, mode])
 
   // Load timeline from cache (with automatic refresh if expired/stale)
-  const loadTimeline = useCallback(async () => {
+  const loadTimeline = useCallback(async (options: { allowGenerate?: boolean; showLoading?: boolean } = {}) => {
+    const { allowGenerate = true, showLoading = true } = options
     if (isLoading || isRefreshing) return // Prevent duplicate calls
     
-    setIsLoading(true)
+    if (showLoading) setIsLoading(true)
     setError(null)
     
     try {
@@ -1236,34 +1239,34 @@ export function ChatHistoryTimeline({
           if (cacheData.expired) {
             // Cache too old (>4h) - must refresh
             console.log('[ChatTimeline] ⚠️ Cache expired (>4h), auto-refreshing...')
-            setIsLoading(false)
-            setTimeout(() => refreshTimeline(), 100)
+            if (showLoading) setIsLoading(false)
+            if (allowGenerate) setTimeout(() => refreshTimeline(), 100)
             return
           } else if (cacheData.stale) {
             // Cache stale (>30min) - refresh in background
             console.log('[ChatTimeline] 📊 Cache stale, background refresh...')
-            setIsLoading(false)
-            setTimeout(() => refreshTimeline(), 500)
+            if (showLoading) setIsLoading(false)
+            if (allowGenerate) setTimeout(() => refreshTimeline(), 500)
             return
           } else if (mode === '24h' && !isCacheFromToday) {
             // 24h mode but cache is not from today - refresh
             console.log('[ChatTimeline] 📅 24h cache not from today, auto-refreshing...')
-            setIsLoading(false)
-            setTimeout(() => refreshTimeline(), 100)
+            if (showLoading) setIsLoading(false)
+            if (allowGenerate) setTimeout(() => refreshTimeline(), 100)
             return
           }
         } else {
           // No cache or empty, generate new
           console.log('[ChatTimeline] No cache found, generating...')
-          setIsLoading(false)
-          await refreshTimeline()
+          if (showLoading) setIsLoading(false)
+          if (allowGenerate) await refreshTimeline()
           return
         }
       } else if (cacheRes.status === 404) {
         // No cache, generate new
         console.log('[ChatTimeline] No cache found (404), generating...')
-        setIsLoading(false)
-        await refreshTimeline()
+        if (showLoading) setIsLoading(false)
+        if (allowGenerate) await refreshTimeline()
         return
       } else {
         throw new Error('Failed to load cache')
@@ -1274,7 +1277,7 @@ export function ChatHistoryTimeline({
       setError(err instanceof Error ? err.message : 'Fehler beim Laden')
       setHasLoaded(true)
     } finally {
-      setIsLoading(false)
+      if (showLoading) setIsLoading(false)
     }
   }, [isLoading, isRefreshing, mode, refreshTimeline])
 
@@ -1287,6 +1290,13 @@ export function ChatHistoryTimeline({
       loadActivity()
     }
   }, [autoStart, hasLoaded, loadTimeline, loadActivity])
+
+  useEffect(() => {
+    if (cacheRefreshKey <= 0) return
+    console.log('[ChatTimeline] 🔁 Cache refresh signal received')
+    loadTimeline({ allowGenerate: false, showLoading: false })
+    loadActivity()
+  }, [cacheRefreshKey, loadTimeline, loadActivity])
   
   // Reload when mode changes
   const handleModeChange = useCallback((newMode: TimelineMode) => {
@@ -2140,7 +2150,7 @@ export function ChatHistoryTimeline({
           
           {!hasLoaded && !isLoading && (
             <button
-              onClick={loadTimeline}
+              onClick={() => loadTimeline()}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
             >
               📜 Timeline laden
@@ -2178,7 +2188,7 @@ export function ChatHistoryTimeline({
           <AlertTriangle className="w-8 h-8 text-red-400 mb-3" />
           <p className="text-sm text-muted-foreground">{error}</p>
           <button
-            onClick={loadTimeline}
+            onClick={() => loadTimeline()}
             className="mt-3 text-sm text-primary hover:underline"
           >
             Erneut versuchen

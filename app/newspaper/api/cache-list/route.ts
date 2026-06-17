@@ -49,6 +49,59 @@ export async function GET(request: NextRequest) {
   
   try {
     const supabase = await createClient()
+
+    // Hot path for page bootstrapping: only the newest cached date is needed,
+    // so avoid the extra count query.
+    if (limit === 1 && offset === 0) {
+      const { data: cacheData, error } = await supabase
+        .from('newspaper_cache')
+        .select('cache_date, message_count, unique_users, updated_at, day_range')
+        .eq('day_range', dayRange)
+        .order('cache_date', { ascending: false })
+        .limit(1)
+
+      if (error) {
+        if (error.code === '42703' || error.message?.includes('day_range')) {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('newspaper_cache')
+            .select('cache_date, message_count, unique_users, updated_at')
+            .order('cache_date', { ascending: false })
+            .limit(1)
+
+          if (fallbackError) throw fallbackError
+
+          const dates: CachedDate[] = (fallbackData || []).map(row => ({
+            date: row.cache_date,
+            messageCount: row.message_count,
+            uniqueUsers: row.unique_users,
+            updatedAt: row.updated_at,
+            dayRange: 1
+          }))
+
+          return NextResponse.json({
+            dates,
+            total: dates.length,
+            hasMore: false
+          })
+        }
+
+        throw error
+      }
+
+      const dates: CachedDate[] = (cacheData || []).map(row => ({
+        date: row.cache_date,
+        messageCount: row.message_count,
+        uniqueUsers: row.unique_users,
+        updatedAt: row.updated_at,
+        dayRange: row.day_range || 1
+      }))
+
+      return NextResponse.json({
+        dates,
+        total: dates.length,
+        hasMore: false
+      })
+    }
     
     // Count total cached entries
     const { count, error: countError } = await supabase

@@ -98,12 +98,14 @@ interface FearGreedProviderProps {
   children: ReactNode
   /** Auto-start analysis on mount (checks cache first) */
   autoStart?: boolean
+  /** Re-read cache after another endpoint has refreshed Fear & Greed data */
+  cacheRefreshKey?: number
 }
 
 /**
  * Fear & Greed Provider - Shared state for all FearGreed widgets
  */
-export function FearGreedProvider({ children, autoStart = true }: FearGreedProviderProps) {
+export function FearGreedProvider({ children, autoStart = true, cacheRefreshKey = 0 }: FearGreedProviderProps) {
   const [cachedData, setCachedData] = useState<FearGreedData | null>(null)
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
   const [isLoadingCache, setIsLoadingCache] = useState(false)
@@ -210,6 +212,12 @@ export function FearGreedProvider({ children, autoStart = true }: FearGreedProvi
       })
     }
   }, [autoStart, hasFetched, isLoading, checkCache, refresh])
+
+  useEffect(() => {
+    if (cacheRefreshKey <= 0) return
+    console.log('[FearGreedProvider] Cache refresh signal received')
+    checkCache()
+  }, [cacheRefreshKey, checkCache])
 
   const value: FearGreedContextValue = {
     data,

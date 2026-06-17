@@ -41,6 +41,7 @@ interface ChatTickerProps {
   speed?: 'slow' | 'normal' | 'fast'
   autoStart?: boolean
   autoRefreshMinutes?: number // Optional: auto-refresh interval in minutes (default: 240 = 4h)
+  cacheRefreshKey?: number
 }
 
 // Style config for event types - enhanced with labels
@@ -553,7 +554,8 @@ export function ChatTicker({
   className = '', 
   speed = 'normal',
   autoStart = true,
-  autoRefreshMinutes = 60 // Default: 1 hour
+  autoRefreshMinutes = 60, // Default: 1 hour
+  cacheRefreshKey = 0
 }: ChatTickerProps) {
   const [events, setEvents] = useState<TickerEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -822,6 +824,12 @@ export function ChatTicker({
       fetchEvents()
     }
   }, [autoStart, fetchEvents])
+
+  useEffect(() => {
+    if (cacheRefreshKey <= 0) return
+    console.log('[Ticker] 🔁 Cache refresh signal received')
+    fetchEvents(false)
+  }, [cacheRefreshKey, fetchEvents])
   
   // Periodic auto-refresh (for users who stay on the page a long time)
   useEffect(() => {

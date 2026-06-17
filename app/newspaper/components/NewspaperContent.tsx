@@ -17,7 +17,7 @@ import { ChevronRight,Loader2,Quote,Sparkles,Zap } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useCallback,useEffect,useRef,useState,useTransition } from 'react'
 import { createPortal } from 'react-dom'
-import { NewspaperAISchema,type ArticleData,type MoreArticleData,type UnifiedNewspaperData } from '../lib/types'
+import { DailyAIResponseSchema,type ArticleData,type DailyAIResponseData,type MoreArticleData,type UnifiedNewspaperData } from '../lib/types'
 import { useAvatarContext } from './AvatarContext'
 import { ContributorAvatar,prefetchAvatars } from './ContributorAvatar'
 import { getCategoryStyle,getEventStyle } from './ui/helpers'
@@ -72,6 +72,36 @@ interface CacheResponse {
   uniqueUsers: number
   updatedAt: string
   dayRange: number
+}
+
+interface LocalNewspaperSnapshot {
+  data: UnifiedNewspaperData
+  info: CacheInfo
+}
+
+const LOCAL_NEWSPAPER_CACHE_PREFIX = 'newspaper:cache:'
+
+function getLocalCacheKey(date: string, range: number): string {
+  return `${LOCAL_NEWSPAPER_CACHE_PREFIX}${date}:${range}`
+}
+
+function readLocalSnapshot(date: string, range: number): LocalNewspaperSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(getLocalCacheKey(date, range))
+    return raw ? JSON.parse(raw) as LocalNewspaperSnapshot : null
+  } catch {
+    return null
+  }
+}
+
+function writeLocalSnapshot(date: string, range: number, snapshot: LocalNewspaperSnapshot): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(getLocalCacheKey(date, range), JSON.stringify(snapshot))
+  } catch {
+    // Ignore quota/privacy errors; Supabase cache remains source of truth.
+  }
 }
 
 export interface CacheInfo {
@@ -273,11 +303,12 @@ export function NewspaperContent({
     error: aiError
   } = useObject({
     api: '/newspaper/api/summarize',
-    schema: NewspaperAISchema,
+    schema: DailyAIResponseSchema,
   })
 
   const [showingCache, setShowingCache] = useState(true)
-  const streamingData = newspaperData as Partial<UnifiedNewspaperData> | undefined
+  const streamingDailyData = newspaperData as Partial<DailyAIResponseData> | undefined
+  const streamingData = streamingDailyData?.newspaper?.data as Partial<UnifiedNewspaperData> | undefined
   const data = showingCache 
     ? (cachedData as Partial<UnifiedNewspaperData> | undefined)
     : (streamingData || cachedData as Partial<UnifiedNewspaperData> | undefined)
@@ -311,6 +342,10 @@ export function NewspaperContent({
         }
         setCacheInfo(info)
         onCacheInfoChange?.(info)
+        writeLocalSnapshot(date, range, {
+          data: cacheResponse.data,
+          info
+        })
         return { hit: true, needsRefresh: tooOld }
       } else if (response.status === 404) {
         setCacheInfo(null)
@@ -330,9 +365,9 @@ export function NewspaperContent({
     }
   }, [onCacheInfoChange, isCacheTooOld])
 
-  const generateContent = useCallback((dates: string[], range: number) => {
+  const generateContent = useCallback((dates: string[], range: number, options: { preserveCache?: boolean } = {}) => {
     setShowingCache(false)
-    setCachedData(null)
+    if (!options.preserveCache) setCachedData(null)
     const info: CacheInfo = {
       updatedAt: new Date().toISOString(),
       dayRange: range,
@@ -371,28 +406,37 @@ export function NewspaperContent({
     const isNewDates = datesKey !== lastDatesKey
     const isDayRangeChanged = effectiveDayRange !== lastDayRangeRef.current
     const isRefreshTriggered = forceRefresh > lastRefreshKeyRef.current
+    const localSnapshot = readLocalSnapshot(selectedDate, effectiveDayRange)
     
     if (isNewDates || isDayRangeChanged) {
       lastLoadedDateRef.current = selectedDate
       lastLoadedDatesRef.current = datesToUse
       lastDayRangeRef.current = effectiveDayRange
       lastRefreshKeyRef.current = forceRefresh
+      if (localSnapshot) {
+        setCachedData(localSnapshot.data)
+        setShowingCache(true)
+        setCacheInfo(localSnapshot.info)
+        onCacheInfoChange?.(localSnapshot.info)
+      } else {
+        setCachedData(null)
+      }
       
       fetchFromCache(selectedDate, effectiveDayRange).then(({ hit, needsRefresh }) => {
         if (!hit) generateContent(datesToUse, effectiveDayRange)
-        else if (needsRefresh) generateContent(datesToUse, effectiveDayRange)
+        else if (needsRefresh) generateContent(datesToUse, effectiveDayRange, { preserveCache: true })
       })
     } else if (isRefreshTriggered) {
       lastRefreshKeyRef.current = forceRefresh
-      generateContent(datesToUse, effectiveDayRange)
+      generateContent(datesToUse, effectiveDayRange, { preserveCache: true })
     }
-  }, [selectedDate, selectedDates, dayRange, forceRefresh, fetchFromCache, generateContent])
+  }, [selectedDate, selectedDates, dayRange, forceRefresh, fetchFromCache, generateContent, onCacheInfoChange])
 
   const handleRegenerate = () => {
     if (selectedDate) {
       const datesToUse = selectedDates && selectedDates.length > 0 ? selectedDates : [selectedDate]
       const effectiveDayRange = dayRange || 1
-      generateContent(datesToUse, effectiveDayRange)
+      generateContent(datesToUse, effectiveDayRange, { preserveCache: true })
     }
   }
 

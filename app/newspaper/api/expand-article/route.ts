@@ -39,7 +39,7 @@ import { z } from 'zod'
 const ChartImageSchema = z.object({
   url: z.string().describe('Die vollständige URL zum Chart/Bild (TradingView S3 oder Snapshot URL)'),
   caption: z.string().describe('Kurze Beschreibung was der Chart zeigt'),
-  author: z.string().optional().describe('Username der den Chart geteilt hat')
+  author: z.string().nullable().describe('Username der den Chart geteilt hat, oder null falls unbekannt')
 })
 
 /**
@@ -48,8 +48,8 @@ const ChartImageSchema = z.object({
 const StyledQuoteSchema = z.object({
   text: z.string().describe('Der Zitattext'),
   from: z.string().describe('Username des Zitierten'),
-  context: z.string().optional().describe('Kurzer Kontext zum Zitat, z.B. "zur Frage ob BTC 100K erreicht"'),
-  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'humor']).optional().describe('Stimmung des Zitats')
+  context: z.string().nullable().describe('Kurzer Kontext zum Zitat, z.B. "zur Frage ob BTC 100K erreicht", oder null'),
+  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'humor']).nullable().describe('Stimmung des Zitats, oder null')
 })
 
 /**
@@ -60,18 +60,18 @@ const ExpandedArticleSchema = z.object({
   subtitle: z.string().describe('Ein Satz Untertitel'),
   
   // Header/Hero Image
-  headerImage: ChartImageSchema.optional().describe('Hauptbild - nur wenn Chart im Chat geteilt wurde'),
+  headerImage: ChartImageSchema.nullable().describe('Hauptbild - nur wenn Chart im Chat geteilt wurde, sonst null'),
   
   introduction: z.string().describe('KURZ! Max 2 Sätze Einleitung'),
   
   // Featured quote at the top
-  featuredQuote: StyledQuoteSchema.optional().describe('Das beste Zitat - wird prominent angezeigt'),
+  featuredQuote: StyledQuoteSchema.nullable().describe('Das beste Zitat - wird prominent angezeigt, sonst null'),
   
   sections: z.array(z.object({
     heading: z.string().describe('Kurze Überschrift'),
     content: z.string().describe('KURZ! Max 3-4 Sätze pro Abschnitt'),
-    quote: StyledQuoteSchema.optional().describe('Ein gutes Zitat'),
-    inlineImage: ChartImageSchema.optional().describe('Chart falls relevant')
+    quote: StyledQuoteSchema.nullable().describe('Ein gutes Zitat, sonst null'),
+    inlineImage: ChartImageSchema.nullable().describe('Chart falls relevant, sonst null')
   })).min(2).max(3).describe('2-3 kurze Abschnitte'),
   
   keyTakeaways: z.array(z.string()).min(2).max(3).describe('2-3 kurze Bullet Points'),
@@ -88,7 +88,7 @@ const ExpandedArticleSchema = z.object({
   })).min(1).max(4).describe('Beteiligte User'),
   
   // Additional images gallery
-  chartGallery: z.array(ChartImageSchema).max(2).optional().describe('Max 2 weitere Charts')
+  chartGallery: z.array(ChartImageSchema).max(2).nullable().describe('Max 2 weitere Charts, sonst null')
 })
 
 export type ExpandedArticleData = z.infer<typeof ExpandedArticleSchema>
@@ -145,7 +145,8 @@ ZITATE - WICHTIG!
 ═══════════════════════════════════════════════════════════════════════
 
 • Nutze echte Zitate aus dem Chat - NICHT erfinden!
-• Jedes Zitat hat: text, from (username), optional context und sentiment
+• Jedes Zitat hat: text, from (username), context und sentiment
+• Wenn context oder sentiment nicht passt: null setzen
 • sentiment: "bullish" | "bearish" | "neutral" | "humor"
 • Das featuredQuote ist das beste Zitat - wird groß und prominent angezeigt
 • Zitate in sections ergänzen den Inhalt, nicht nur füllen
@@ -173,7 +174,7 @@ Dann schreibst du:
 ❌ NIEMALS URLs abkürzen oder zusammenbauen!
 ✅ NUR Copy-Paste der EXAKTEN URL aus der Liste!
 
-Wenn keine Charts in der Liste sind → headerImage, inlineImage, chartGallery weglassen!
+Wenn keine Charts in der Liste sind → headerImage, inlineImage, chartGallery auf null setzen!
 
 COMMUNITY-FOKUS:
 • Erwähne die beteiligten User und ihre Rollen
@@ -425,7 +426,7 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
     
     // Stream AI response
     const result = streamObject({
-      model: openai('gpt-5.2'),
+      model: openai('gpt-5.4'),
       schema: ExpandedArticleSchema,
       system: EXPAND_ARTICLE_PROMPT,
       prompt: articleContext,

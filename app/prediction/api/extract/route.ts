@@ -274,7 +274,7 @@ export async function POST() {
     .join('\n')
 
   const result = streamObject({
-    model: openai('gpt-5.2'),
+    model: openai('gpt-5.4'),
     schema: ExtractResponseSchema,
     system: EXTRACTION_PROMPT,
     providerOptions: { openai: { reasoning: { effort: 'high' } } },

@@ -19,6 +19,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
+import { generateDailyAIObject, toLegacyTickerResponse } from '@/app/newspaper/lib/daily-ai'
 
 // Simple Supabase client for background operations (no cookies needed)
 function createBackgroundClient() {
@@ -356,6 +357,21 @@ export async function POST() {
   }
   
   try {
+    if (process.env.UNIFIED_DAILY_AI_DELEGATE === 'true') {
+      const { object } = await generateDailyAIObject({
+        includeNewspaper: false,
+        includeTicker: true,
+        includeTimeline: false,
+        includeFearGreed: false,
+        source: 'ticker'
+      })
+      const legacy = toLegacyTickerResponse(object)
+      return new Response(
+        JSON.stringify(legacy),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
     const supabase = await createClient()
     
     console.log(`[TICKER POST] ════════════════════════════════════════════`)
@@ -374,7 +390,7 @@ export async function POST() {
     
     // Stream AI response
     const result = streamObject({
-      model: openai('gpt-5.2'),
+      model: openai('gpt-5.4'),
       schema: AITickerResponseSchema,
       system: TICKER_PROMPT,
       providerOptions: { openai: { reasoning: { effort: 'high' } } },
@@ -390,7 +406,7 @@ ${chatContext}
 5. Verwende das exakte Datum (YYYY-MM-DD) aus den Nachrichten!
 
 Erstelle 15-25 Events. Priorisiere: Lustige Headlines, Drama, krasse Calls, Fails.`,
-      // Note: temperature not supported for reasoning models like gpt-5.2
+      // Note: temperature not supported for reasoning models like gpt-5.4
     })
     
     // CRITICAL: Register after() BEFORE returning the response

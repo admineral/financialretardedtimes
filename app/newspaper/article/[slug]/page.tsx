@@ -41,7 +41,7 @@ import { ContributorAvatar } from '../../components/ContributorAvatar'
 const ChartImageSchema = z.object({
   url: z.string(),
   caption: z.string(),
-  author: z.string().optional()
+  author: z.string().nullable()
 })
 
 /**
@@ -50,8 +50,8 @@ const ChartImageSchema = z.object({
 const StyledQuoteSchema = z.object({
   text: z.string(),
   from: z.string(),
-  context: z.string().optional(),
-  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'humor']).optional()
+  context: z.string().nullable(),
+  sentiment: z.enum(['bullish', 'bearish', 'neutral', 'humor']).nullable()
 })
 
 /**
@@ -60,14 +60,14 @@ const StyledQuoteSchema = z.object({
 const ExpandedArticleSchema = z.object({
   title: z.string(),
   subtitle: z.string(),
-  headerImage: ChartImageSchema.optional(),
+  headerImage: ChartImageSchema.nullable(),
   introduction: z.string(),
-  featuredQuote: StyledQuoteSchema.optional(),
+  featuredQuote: StyledQuoteSchema.nullable(),
   sections: z.array(z.object({
     heading: z.string(),
     content: z.string(),
-    quote: StyledQuoteSchema.optional(),
-    inlineImage: ChartImageSchema.optional()
+    quote: StyledQuoteSchema.nullable(),
+    inlineImage: ChartImageSchema.nullable()
   })).min(2).max(3),
   keyTakeaways: z.array(z.string()).min(2).max(3),
   conclusion: z.string(),
@@ -77,7 +77,7 @@ const ExpandedArticleSchema = z.object({
     username: z.string(),
     role: z.string()
   })).min(1).max(4),
-  chartGallery: z.array(ChartImageSchema).max(2).optional()
+  chartGallery: z.array(ChartImageSchema).max(2).nullable()
 })
 
 type ExpandedArticleData = z.infer<typeof ExpandedArticleSchema>
@@ -401,7 +401,7 @@ const StyledQuoteDisplay = React.memo(function StyledQuoteDisplay({
   // Don't render if quote is missing essential data
   if (!quote?.text || !quote?.from) return null
   
-  const style = getQuoteSentimentStyle(quote.sentiment)
+  const style = getQuoteSentimentStyle(quote.sentiment ?? undefined)
   
   if (size === 'featured') {
     return (

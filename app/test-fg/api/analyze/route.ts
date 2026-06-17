@@ -28,6 +28,7 @@ import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
+import { generateDailyAIObject, toLegacyFearGreedResponse } from '@/app/newspaper/lib/daily-ai'
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
@@ -354,15 +355,29 @@ export async function POST(request: NextRequest) {
   }
   
   try {
+    // Parse request body (no params needed, but consume the body)
+    await request.json().catch(() => ({}))
+
+    if (process.env.UNIFIED_DAILY_AI_DELEGATE === 'true') {
+      const { object } = await generateDailyAIObject({
+        includeNewspaper: false,
+        includeTicker: false,
+        includeTimeline: false,
+        includeFearGreed: true,
+        source: 'fear-greed'
+      })
+      return new Response(
+        JSON.stringify(toLegacyFearGreedResponse(object)),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Initialize Supabase client early for parallel fetches
     const supabase = await createClient()
     
     // Fetch BTC data and previous F&G in parallel with request parsing
     const btcPromise = fetchBTCContext()
     const prevFGPromise = fetchPreviousFearGreed(supabase)
-    
-    // Parse request body (no params needed, but consume the body)
-    await request.json().catch(() => ({}))
     
     // Calculate date range (last 7 days)
     const endDate = new Date()
@@ -516,7 +531,7 @@ export async function POST(request: NextRequest) {
     
     // Stream AI response using GPT-5.2
     const result = streamObject({
-      model: openai('gpt-5.2'),
+      model: openai('gpt-5.4'),
       schema: FearGreedSchema,
       system: FEAR_GREED_PROMPT,
       providerOptions: { openai: { reasoning: { effort: 'high' } } },

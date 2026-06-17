@@ -19,6 +19,7 @@ import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
+import { generateDailyAIObject, toLegacyTimelineResponse } from '@/app/newspaper/lib/daily-ai'
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
@@ -318,9 +319,24 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json().catch(() => ({}))
-    const mode = body.mode || '24h'
+    const mode = (['24h', '3d', '7d'].includes(body.mode) ? body.mode : '24h') as '24h' | '3d' | '7d'
     const activityBuckets: ActivityBucket[] = body.activityBuckets || []
     const activityStats: ActivityStats | null = body.activityStats || null
+    
+    if (process.env.UNIFIED_DAILY_AI_DELEGATE === 'true') {
+      const { object } = await generateDailyAIObject({
+        includeNewspaper: false,
+        includeTicker: false,
+        includeTimeline: true,
+        includeFearGreed: false,
+        timelineMode: mode,
+        source: 'timeline'
+      })
+      return new Response(
+        JSON.stringify(toLegacyTimelineResponse(object)),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
     
     console.log(`[TIMELINE-AI POST] ════════════════════════════════════════════`)
     console.log(`[TIMELINE-AI POST] 🚀 Starting AI generation for mode: ${mode}`)
@@ -431,7 +447,7 @@ ${chatContext}`
     
     // Use streamObject for real-time event streaming
     const result = streamObject({
-      model: openai('gpt-5.2'),
+      model: openai('gpt-5.4'),
       schema: TimelineResponseSchema,
       system: TIMELINE_PROMPT,
       prompt: aiPrompt,

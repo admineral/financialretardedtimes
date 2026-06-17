@@ -756,9 +756,9 @@ export async function POST(request: NextRequest) {
     }
     
     // Use streamObject for streaming response
-    // Note: gpt-5.2 is a reasoning model and doesn't support temperature
+    // Note: gpt-5.4 is a reasoning model and doesn't support temperature
     const result = streamObject({
-      model: openai('gpt-5.2'),
+      model: openai('gpt-5.4'),
       schema: AnalysisResponseSchema,
       system: ANALYSIS_PROMPT,
       prompt: fullContext,
