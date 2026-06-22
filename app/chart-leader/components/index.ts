@@ -1,2 +1,2 @@
-export { LeaderboardWidget } from './LeaderboardWidget'
+export { LeaderboardWidget, TraderLeaderboardView } from './LeaderboardWidget'
 export { UserAvatar } from './UserAvatar'

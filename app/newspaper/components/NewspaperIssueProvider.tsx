@@ -44,6 +44,11 @@ interface IssueRequestSnapshot {
   issueKey: string
 }
 
+interface StreamTargetSnapshot extends IssueRequestSnapshot {
+  mode: 'issue' | 'module'
+  moduleId?: string
+}
+
 interface GenerateIssuePayload {
   includeNewspaper?: boolean
   selectedDates: string[]
@@ -52,9 +57,12 @@ interface GenerateIssuePayload {
   includeTicker: boolean
   includeTimeline: boolean
   includeFearGreed: boolean
+  includeTraderLeaderboard: boolean
 }
 
 type IssueSubmit = (payload: GenerateIssuePayload) => void
+type IssueClear = () => void
+type LoadIssue = (options?: { quiet?: boolean; acceptStreamingCache?: boolean }) => Promise<void>
 
 const NewspaperIssueContext = createContext<NewspaperIssueState | null>(null)
 const TIMELINE_EVENT_TYPES = ['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor'] as const
@@ -177,12 +185,18 @@ function emptyIssue(params: {
         data: params.previous?.modules.fearGreed.data ?? null,
         dateRange: params.previous?.modules.fearGreed.dateRange ?? null
       },
+      traderLeaderboard: {
+        data: params.previous?.modules.traderLeaderboard?.data ?? null,
+        updatedAt: params.previous?.modules.traderLeaderboard?.updatedAt ?? null,
+        range: params.previous?.modules.traderLeaderboard?.range ?? null
+      },
       activeChatters: { users: params.previous?.modules.activeChatters.users ?? [] },
       sidebarHighlights: {
         topContributors: params.previous?.modules.sidebarHighlights.topContributors ?? [],
         trendingTopics: params.previous?.modules.sidebarHighlights.trendingTopics ?? [],
         shortNews: params.previous?.modules.sidebarHighlights.shortNews ?? []
-      }
+      },
+      custom: params.previous?.modules.custom ?? {}
     },
     resources: params.previous?.resources ?? {
       counts: {
@@ -190,12 +204,15 @@ function emptyIssue(params: {
         tickerMessages: 0,
         timelineMessages: 0,
         fearGreedMessages: 0,
+        traderLeaderboardMessages: 0,
         newspaperUsers: 0,
         tickerUsers: 0,
         timelineUsers: 0,
-        fearGreedUsers: 0
+        fearGreedUsers: 0,
+        traderLeaderboardUsers: 0
       },
-      ranges: {}
+      ranges: {},
+      aiUsage: null
     }
   }
 }
@@ -251,6 +268,14 @@ function mergeStreamingObject(
     }
   }
 
+  if (object?.traderLeaderboard?.data) {
+    issue.modules.traderLeaderboard = {
+      ...issue.modules.traderLeaderboard,
+      data: object.traderLeaderboard.data,
+      updatedAt: new Date().toISOString()
+    }
+  }
+
   return issue
 }
 
@@ -297,49 +322,143 @@ export function NewspaperIssueProvider({
   dayRange,
   children
 }: NewspaperIssueProviderProps) {
-  const [issue, setIssue] = useState<NewspaperIssue | null>(null)
+  const [serverIssue, setServerIssue] = useState<NewspaperIssue | null>(null)
   const [cacheInfo, setCacheInfo] = useState<IssueCacheInfo | null>(null)
   const [isLoadingCache, setIsLoadingCache] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [refreshingModule, setRefreshingModule] = useState<string | null>(null)
-  const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false)
   const [cacheError, setCacheError] = useState<Error | null>(null)
   const datesKey = selectedDates.join(',')
   const issueKey = buildIssueKey(selectedDate, dayRange, datesKey)
+  const backgroundGenerationKeysRef = useRef<Set<string>>(new Set())
+  const serverIssueRef = useRef<NewspaperIssue | null>(null)
+  const paramsRef = useRef<IssueRequestSnapshot>({ selectedDate, selectedDates, dayRange, datesKey, issueKey })
+  const submitRef = useRef<IssueSubmit | null>(null)
+  const clearRef = useRef<IssueClear | null>(null)
+  const loadIssueRef = useRef<LoadIssue | null>(null)
+  const activeGenerationKeyRef = useRef<string | null>(null)
+  const streamTargetRef = useRef<StreamTargetSnapshot | null>(null)
 
   const {
     object,
     submit,
     isLoading: isGenerating,
-    error: generationError
+    error: generationError,
+    clear
   } = useObject({
     api: '/newspaper/api/summarize',
-    schema: DailyAIResponseSchema
+    schema: DailyAIResponseSchema,
+    onFinish: async ({ object: finishedObject, error }) => {
+      const target = streamTargetRef.current
+      const completedKey = target?.mode === 'issue'
+        ? target.issueKey
+        : (!target ? activeGenerationKeyRef.current : null)
+
+      if (error) {
+        setCacheError(error)
+      } else if (target?.selectedDate) {
+        const targetDate = target.selectedDate
+        const finalObject = finishedObject as Partial<DailyAIResponseData> | undefined
+
+        if (finalObject) {
+          setServerIssue(previous => mergeStreamingObject(
+            issueMatchesSelection(previous, targetDate, target.dayRange) ? previous : null,
+            finalObject,
+            {
+              selectedDate: targetDate,
+              selectedDates: target.selectedDates,
+              dayRange: target.dayRange
+            }
+          ))
+        }
+
+        if (target.mode === 'module' && target.moduleId) {
+          try {
+            const response = await fetch(`/newspaper/api/module/${encodeURIComponent(target.moduleId)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              body: JSON.stringify({
+                date: target.selectedDate,
+                dayRange: target.dayRange,
+                useLatestCache: true
+              })
+            })
+            const result = await response.json().catch(() => ({}))
+            if (!response.ok) {
+              throw new Error(result.error || `Failed to patch ${target.moduleId}`)
+            }
+            if (result.issue) {
+              setServerIssue(result.issue as NewspaperIssue)
+              serverIssueRef.current = result.issue as NewspaperIssue
+            }
+            if (result.cacheInfo) {
+              setCacheInfo(previous => sameCacheInfo(previous, result.cacheInfo) ? previous : result.cacheInfo)
+            }
+          } catch (patchError) {
+            setCacheError(patchError instanceof Error ? patchError : new Error(`Failed to patch ${target.moduleId}`))
+          }
+        } else {
+          await loadIssueRef.current?.({ quiet: true, acceptStreamingCache: true })
+        }
+      }
+
+      if (completedKey) {
+        backgroundGenerationKeysRef.current.delete(completedKey)
+        if (activeGenerationKeyRef.current === completedKey) {
+          activeGenerationKeyRef.current = null
+        }
+      }
+      streamTargetRef.current = null
+      setIsRefreshing(false)
+      setRefreshingModule(null)
+    },
+    onError: (error) => {
+      const target = streamTargetRef.current
+      const completedKey = target?.mode === 'issue'
+        ? target.issueKey
+        : (!target ? activeGenerationKeyRef.current : null)
+      setCacheError(error)
+      if (completedKey) {
+        backgroundGenerationKeysRef.current.delete(completedKey)
+        if (activeGenerationKeyRef.current === completedKey) {
+          activeGenerationKeyRef.current = null
+        }
+      }
+      streamTargetRef.current = null
+      setIsRefreshing(false)
+      setRefreshingModule(null)
+    }
   })
 
-  const backgroundGenerationKeysRef = useRef<Set<string>>(new Set())
-  const issueRef = useRef<NewspaperIssue | null>(null)
-  const paramsRef = useRef<IssueRequestSnapshot>({ selectedDate, selectedDates, dayRange, datesKey, issueKey })
-  const submitRef = useRef<IssueSubmit | null>(null)
-  const activeGenerationKeyRef = useRef<string | null>(null)
-  const generationSeenLoadingRef = useRef(false)
-  const streamTargetRef = useRef<IssueRequestSnapshot | null>(null)
-  const activeStreamModeRef = useRef<'issue' | 'module' | null>(null)
-  const activeStreamingModuleRef = useRef<string | null>(null)
-  const lastStreamingSignatureRef = useRef<string>('')
-
   useEffect(() => {
-    issueRef.current = issue
-  }, [issue])
+    serverIssueRef.current = serverIssue
+  }, [serverIssue])
 
   useEffect(() => {
     paramsRef.current = { selectedDate, selectedDates, dayRange, datesKey, issueKey }
-    lastStreamingSignatureRef.current = ''
   }, [datesKey, dayRange, issueKey, selectedDate, selectedDates])
 
   useEffect(() => {
     submitRef.current = submit as IssueSubmit
-  }, [submit])
+    clearRef.current = clear
+  }, [clear, submit])
+
+  const issue = useMemo(() => {
+    const target = streamTargetRef.current
+    if (isGenerating && object && target?.selectedDate) {
+      return mergeStreamingObject(
+        issueMatchesSelection(serverIssue, target.selectedDate, target.dayRange) ? serverIssue : null,
+        object as Partial<DailyAIResponseData>,
+        {
+          selectedDate: target.selectedDate,
+          selectedDates: target.selectedDates,
+          dayRange: target.dayRange
+        }
+      )
+    }
+    return serverIssue
+  }, [isGenerating, object, serverIssue])
 
   const generateIssue = useCallback(async (force = false) => {
     const snapshot = paramsRef.current
@@ -354,17 +473,14 @@ export function NewspaperIssueProvider({
     if (!force && backgroundGenerationKeysRef.current.has(key)) return
 
     activeGenerationKeyRef.current = key
-    generationSeenLoadingRef.current = false
-    streamTargetRef.current = snapshot
-    activeStreamModeRef.current = 'issue'
-    activeStreamingModuleRef.current = null
-    lastStreamingSignatureRef.current = ''
+    streamTargetRef.current = { ...snapshot, mode: 'issue' }
+    clearRef.current?.()
     if (force) {
       backgroundGenerationKeysRef.current.delete(key)
       setIsRefreshing(true)
+      setCacheInfo(null)
     } else {
       backgroundGenerationKeysRef.current.add(key)
-      setIsBackgroundRefreshing(true)
     }
 
     setCacheError(null)
@@ -382,11 +498,12 @@ export function NewspaperIssueProvider({
       timelineMode: '24h',
       includeTicker: dayRange === 1,
       includeTimeline: dayRange === 1,
-      includeFearGreed: dayRange === 1
+      includeFearGreed: dayRange === 1,
+      includeTraderLeaderboard: dayRange === 1
     })
   }, [])
 
-  const loadIssue = useCallback(async (options: { quiet?: boolean } = {}) => {
+  const loadIssue = useCallback(async (options: { quiet?: boolean; acceptStreamingCache?: boolean } = {}) => {
     const { selectedDate, dayRange, datesKey } = paramsRef.current
     if (!selectedDate) return
 
@@ -400,7 +517,7 @@ export function NewspaperIssueProvider({
       if (response.ok) {
         const result = await response.json()
         const incomingIssue = result.issue as NewspaperIssue
-        const currentIssue = issueRef.current
+        const currentIssue = serverIssueRef.current
         const currentKey = currentIssue
           ? buildIssueKey(currentIssue.meta.issueDate, currentIssue.meta.dayRange as DayRange, currentIssue.meta.selectedDates.join(','))
           : null
@@ -410,11 +527,11 @@ export function NewspaperIssueProvider({
           ? new Date(incomingIssue.meta.updatedAt).getTime() < new Date(currentIssue.meta.updatedAt).getTime()
           : false
 
-        if (currentIsStreaming && incomingIsOlder) {
+        if (currentIsStreaming && incomingIsOlder && !options.acceptStreamingCache) {
           return
         }
 
-        setIssue(previous => {
+        setServerIssue(previous => {
           const previousKey = previous
             ? buildIssueKey(previous.meta.issueDate, previous.meta.dayRange as DayRange, previous.meta.selectedDates.join(','))
             : null
@@ -449,6 +566,10 @@ export function NewspaperIssueProvider({
     }
   }, [generateIssue])
 
+  useEffect(() => {
+    loadIssueRef.current = loadIssue
+  }, [loadIssue])
+
   const refreshModule = useCallback(async (moduleId: string) => {
     const snapshot = paramsRef.current
     const { selectedDate, selectedDates, dayRange } = snapshot
@@ -458,17 +579,14 @@ export function NewspaperIssueProvider({
     setRefreshingModule(moduleId)
     setCacheError(null)
 
-    if (moduleId !== 'sentiment.fearGreed') {
+    if (!['sentiment.fearGreed', 'trading.traderLeaderboard'].includes(moduleId)) {
       setCacheError(new Error(`Streaming module refresh is not implemented for ${moduleId}`))
       setRefreshingModule(null)
       return
     }
 
-    generationSeenLoadingRef.current = false
-    streamTargetRef.current = snapshot
-    activeStreamModeRef.current = 'module'
-    activeStreamingModuleRef.current = moduleId
-    lastStreamingSignatureRef.current = ''
+    streamTargetRef.current = { ...snapshot, mode: 'module', moduleId }
+    clearRef.current?.()
 
     submitRef.current({
       includeNewspaper: false,
@@ -477,110 +595,14 @@ export function NewspaperIssueProvider({
       timelineMode: '24h',
       includeTicker: false,
       includeTimeline: false,
-      includeFearGreed: true
+      includeFearGreed: moduleId === 'sentiment.fearGreed',
+      includeTraderLeaderboard: moduleId === 'trading.traderLeaderboard'
     })
   }, [refreshingModule])
 
   useEffect(() => {
     loadIssue()
   }, [issueKey, loadIssue])
-
-  useEffect(() => {
-    if (!object) return
-    const streamTarget = streamTargetRef.current ?? paramsRef.current
-    const streamTargetDate = streamTarget.selectedDate
-    if (!streamTargetDate) return
-    const streamingSignature = `${streamTarget.issueKey}:${JSON.stringify(object)}`
-    if (streamingSignature === lastStreamingSignatureRef.current) return
-    lastStreamingSignatureRef.current = streamingSignature
-
-    setIssue(previous => mergeStreamingObject(
-      issueMatchesSelection(previous, streamTargetDate, streamTarget.dayRange) ? previous : null,
-      object as Partial<DailyAIResponseData>,
-      {
-        selectedDate: streamTargetDate,
-        selectedDates: streamTarget.selectedDates,
-        dayRange: streamTarget.dayRange
-      }
-    ))
-  }, [object])
-
-  useEffect(() => {
-    if (isGenerating) {
-      generationSeenLoadingRef.current = true
-    }
-  }, [isGenerating])
-
-  useEffect(() => {
-    if (isGenerating) return
-    if (refreshingModule && activeStreamModeRef.current === 'module') {
-      if (!generationSeenLoadingRef.current) return
-      const completedModuleId = activeStreamingModuleRef.current
-      const { selectedDate, dayRange } = paramsRef.current
-
-      if (!completedModuleId || !selectedDate) {
-        setRefreshingModule(null)
-        activeStreamModeRef.current = null
-        activeStreamingModuleRef.current = null
-        generationSeenLoadingRef.current = false
-        return
-      }
-
-      const timeout = window.setTimeout(async () => {
-        try {
-          const response = await fetch(`/newspaper/api/module/${encodeURIComponent(completedModuleId)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store',
-            body: JSON.stringify({ date: selectedDate, dayRange, useLatestCache: true })
-          })
-          const result = await response.json().catch(() => ({}))
-          if (!response.ok) {
-            throw new Error(result.error || `Failed to patch ${completedModuleId}`)
-          }
-          if (result.issue) {
-            setIssue(result.issue as NewspaperIssue)
-            issueRef.current = result.issue as NewspaperIssue
-          }
-          if (result.cacheInfo) {
-            setCacheInfo(previous => sameCacheInfo(previous, result.cacheInfo) ? previous : result.cacheInfo)
-          }
-        } catch (error) {
-          setCacheError(error instanceof Error ? error : new Error(`Failed to patch ${completedModuleId}`))
-        } finally {
-          setRefreshingModule(null)
-          activeStreamModeRef.current = null
-          activeStreamingModuleRef.current = null
-          generationSeenLoadingRef.current = false
-        }
-      }, 750)
-
-      return () => window.clearTimeout(timeout)
-    }
-  }, [isGenerating, refreshingModule])
-
-  useEffect(() => {
-    if (isGenerating) return
-    if (!isRefreshing && !isBackgroundRefreshing) return
-    if (!generationSeenLoadingRef.current) return
-    const completedGenerationKey = activeGenerationKeyRef.current
-    const timeout = window.setTimeout(() => {
-      loadIssue({ quiet: true }).finally(() => {
-        if (activeGenerationKeyRef.current === completedGenerationKey) {
-          activeGenerationKeyRef.current = null
-        }
-        if (completedGenerationKey) {
-          backgroundGenerationKeysRef.current.delete(completedGenerationKey)
-        }
-        activeStreamModeRef.current = null
-        activeStreamingModuleRef.current = null
-        generationSeenLoadingRef.current = false
-        setIsRefreshing(false)
-        setIsBackgroundRefreshing(false)
-      })
-    }, 750)
-    return () => window.clearTimeout(timeout)
-  }, [isBackgroundRefreshing, isGenerating, isRefreshing, loadIssue])
 
   const state = useMemo<NewspaperIssueState>(() => {
     const visibleIssue = issueMatchesSelection(issue, selectedDate, dayRange) ? issue : null

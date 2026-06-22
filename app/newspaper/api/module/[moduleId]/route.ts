@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { generateDailyAIObject } from '../../../lib/daily-ai'
+import { generateDailyAIObject, getDailyAIErrorResponse } from '../../../lib/daily-ai'
 import { getNewspaperDateKey } from '../../../lib/timezone'
 import { DailyFearGreedSchema } from '../../../lib/types'
+import { LeaderboardResponseSchema, type LeaderboardResponse } from '@/app/chart-leader/lib/schema'
+import { fearGreedModule, traderLeaderboardModule } from '../../../modules'
 import {
   getIssueExpiresAt,
   isIssueFresh,
   isNewspaperIssue,
   issueCacheTag,
   moduleCacheTag,
+  readLatestNewspaperModuleCache,
+  revalidateModuleCacheTags,
   type NewspaperIssue
 } from '../../../engine'
 
@@ -84,7 +88,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const dayRange = Number(body.dayRange || 1)
   const useLatestCache = Boolean(body.useLatestCache)
 
-  if (moduleId !== 'sentiment.fearGreed') {
+  if (!['sentiment.fearGreed', 'trading.traderLeaderboard'].includes(moduleId)) {
     return NextResponse.json(
       { error: `Module refresh is not implemented for ${moduleId}` },
       { status: 400 }
@@ -125,28 +129,107 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    const generated = useLatestCache
-      ? null
-      : await generateDailyAIObject({
-          includeNewspaper: false,
-          includeTicker: false,
-          includeTimeline: false,
-          includeFearGreed: true,
-          source: 'manual'
+    const generated = useLatestCache ? null : await generateDailyAIObject({
+      selectedDates: body.selectedDates?.length ? body.selectedDates : [date],
+      dayRange,
+      includeNewspaper: false,
+      includeTicker: false,
+      includeTimeline: false,
+      includeFearGreed: moduleId === fearGreedModule.id,
+      includeTraderLeaderboard: moduleId === traderLeaderboardModule.id,
+      source: 'manual'
+    })
+
+    const latestFearGreedCache = moduleId === fearGreedModule.id && useLatestCache
+      ? await readLatestFearGreedCache(supabase)
+      : null
+    const latestTraderCache = moduleId === traderLeaderboardModule.id && useLatestCache
+      ? await readLatestNewspaperModuleCache<{
+          data: LeaderboardResponse | null
+          range: { startDate: string; endDate: string; cacheKey: string } | null
+        }>(supabase, {
+          moduleId: traderLeaderboardModule.id,
+          cacheDate: date,
+          dayRange,
+          moduleVersion: traderLeaderboardModule.version
         })
-
-    const latestCache = useLatestCache ? await readLatestFearGreedCache(supabase) : null
-    const fearGreedData = latestCache?.data ?? generated?.object.fearGreed.data
-    const fearGreedDateRange = latestCache?.dateRange ?? generated?.context.fearGreedDateRangeInfo ?? null
-    const fearGreedMessages = latestCache?.messageCount ?? generated?.context.counts.fearGreedMessages ?? 0
-    const fearGreedUsers = latestCache?.uniqueUsers ?? generated?.context.counts.fearGreedUsers ?? 0
-    const fearGreedRange = generated?.context.ranges.fearGreed
-
-    if (!fearGreedData) {
-      return NextResponse.json({ error: 'Fear & Greed refresh returned no data' }, { status: 502 })
-    }
+      : null
 
     const now = new Date().toISOString()
+    const nextCounts = { ...cachedIssueRow.data.resources.counts }
+    const nextRanges = { ...cachedIssueRow.data.resources.ranges }
+    const nextAIUsage = generated?.aiUsage ?? cachedIssueRow.data.resources.aiUsage ?? null
+    const nextModules: NewspaperIssue['modules'] = {
+      ...cachedIssueRow.data.modules,
+      custom: cachedIssueRow.data.modules.custom ?? {}
+    }
+
+    if (moduleId === fearGreedModule.id) {
+      const fearGreedData = latestFearGreedCache?.data ?? generated?.object.fearGreed.data
+      const fearGreedDateRange = latestFearGreedCache?.dateRange ?? generated?.context.fearGreedDateRangeInfo ?? null
+      const fearGreedMessages = latestFearGreedCache?.messageCount ?? generated?.context.counts.fearGreedMessages ?? 0
+      const fearGreedUsers = latestFearGreedCache?.uniqueUsers ?? generated?.context.counts.fearGreedUsers ?? 0
+      const fearGreedRange = generated?.context.ranges.fearGreed
+
+      if (!fearGreedData) {
+        return NextResponse.json({ error: 'Fear & Greed refresh returned no data' }, { status: 502 })
+      }
+
+      nextModules.fearGreed = {
+        data: fearGreedData,
+        dateRange: fearGreedDateRange
+      }
+      nextCounts.fearGreedMessages = fearGreedMessages
+      nextCounts.fearGreedUsers = fearGreedUsers
+      nextRanges.fearGreed = fearGreedRange
+        ? {
+            startDate: fearGreedRange.startDate.toISOString(),
+            endDate: fearGreedRange.endDate.toISOString(),
+            cacheKey: fearGreedRange.cacheKey
+          }
+        : cachedIssueRow.data.resources.ranges.fearGreed ?? null
+    }
+
+    if (moduleId === traderLeaderboardModule.id) {
+      if (useLatestCache && !latestTraderCache) {
+        return NextResponse.json({
+          success: true,
+          moduleId,
+          pending: true,
+          cacheInfo: cacheInfoForIssue(cachedIssueRow, cachedIssueRow.data)
+        })
+      }
+
+      const traderLeaderboardData = latestTraderCache?.data.data ?? generated?.object.traderLeaderboard.data
+      const parsed = LeaderboardResponseSchema.safeParse(traderLeaderboardData)
+      const traderRange = latestTraderCache?.data.range ?? (
+        generated?.context.ranges.traderLeaderboard
+          ? {
+              startDate: generated.context.ranges.traderLeaderboard.startDate.toISOString(),
+              endDate: generated.context.ranges.traderLeaderboard.endDate.toISOString(),
+              cacheKey: generated.context.ranges.traderLeaderboard.cacheKey
+            }
+          : cachedIssueRow.data.modules.traderLeaderboard?.range ?? null
+      )
+
+      if (!parsed.success) {
+        return NextResponse.json({ error: 'Trader Leaderboard refresh returned no valid data' }, { status: 502 })
+      }
+
+      nextModules.traderLeaderboard = {
+        data: parsed.data,
+        updatedAt: latestTraderCache?.updatedAt ?? now,
+        range: traderRange
+      }
+      nextCounts.traderLeaderboardMessages = latestTraderCache?.messageCount ?? generated?.context.counts.traderLeaderboardMessages ?? 0
+      nextCounts.traderLeaderboardUsers = latestTraderCache?.uniqueUsers ?? generated?.context.counts.traderLeaderboardUsers ?? 0
+      nextRanges.traderLeaderboard = traderRange
+
+      if (!useLatestCache && generated?.context.ranges.traderLeaderboard) {
+        await revalidateModuleCacheTags(traderLeaderboardModule.id, date, dayRange, traderLeaderboardModule.cache)
+      }
+    }
+
     const patchedIssue: NewspaperIssue = {
       ...cachedIssueRow.data,
       meta: {
@@ -156,30 +239,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
         isFresh: isIssueFresh(now),
         source: 'generated'
       },
-      modules: {
-        ...cachedIssueRow.data.modules,
-        fearGreed: {
-          data: fearGreedData,
-          dateRange: fearGreedDateRange
-        }
-      },
+      modules: nextModules,
       resources: {
         ...cachedIssueRow.data.resources,
-        counts: {
-          ...cachedIssueRow.data.resources.counts,
-          fearGreedMessages,
-          fearGreedUsers
-        },
-        ranges: {
-          ...cachedIssueRow.data.resources.ranges,
-          fearGreed: fearGreedRange
-            ? {
-                startDate: fearGreedRange.startDate.toISOString(),
-                endDate: fearGreedRange.endDate.toISOString(),
-                cacheKey: fearGreedRange.cacheKey
-              }
-            : cachedIssueRow.data.resources.ranges.fearGreed ?? null
-        }
+        counts: nextCounts,
+        ranges: nextRanges,
+        aiUsage: nextAIUsage
       }
     }
 
@@ -199,7 +264,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const issue = isNewspaperIssue(updatedRow.data) ? updatedRow.data : patchedIssue
     revalidateTag(issueCacheTag(date, dayRange), { expire: 0 })
     revalidateTag(moduleCacheTag(moduleId, date, dayRange), { expire: 0 })
-    revalidateTag('newspaper:module:sentiment.fearGreed', { expire: 0 })
+    revalidateModuleCacheTags(
+      moduleId,
+      date,
+      dayRange,
+      moduleId === traderLeaderboardModule.id ? traderLeaderboardModule.cache : fearGreedModule.cache
+    )
 
     return NextResponse.json({
       success: true,
@@ -208,10 +278,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       cacheInfo: cacheInfoForIssue(updatedRow, issue)
     })
   } catch (error) {
-    console.error('[NEWSPAPER MODULE] Fear & Greed refresh failed:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    console.error('[NEWSPAPER MODULE] Module refresh failed:', moduleId, error)
+    const response = getDailyAIErrorResponse(error)
+    return NextResponse.json(response.body, { status: response.status })
   }
 }

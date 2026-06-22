@@ -6,9 +6,13 @@ export { createPromptProgram, PromptProgram } from './prompt'
 export { avatar, cache, chat, market } from './resources'
 export {
   getIssueExpiresAt,
+  buildModuleResourceFingerprint,
   isIssueFresh,
   issueCacheTag,
   moduleCacheTag,
+  readLatestNewspaperModuleCache,
+  revalidateModuleCacheTags,
+  writeNewspaperModuleCache,
   writeNewspaperIssueCache
 } from './cache'
 export { createNewspaperIssue, isNewspaperIssue } from './issue'
@@ -16,6 +20,7 @@ export type {
   Connector,
   ModuleCachePolicy,
   ModulePromptBuilder,
+  NewspaperAIUsage,
   NewspaperIssue,
   NewspaperIssueActivityBucket,
   NewspaperIssueActivityStats,

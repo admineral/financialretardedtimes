@@ -203,6 +203,11 @@ export const DailyAIResponseSchema = z.object({
     requested: z.boolean(),
     reason: z.string().nullable(),
     data: DailyFearGreedSchema.nullable()
+  }),
+  traderLeaderboard: z.object({
+    requested: z.boolean(),
+    reason: z.string().nullable(),
+    data: z.null()
   })
 })
 

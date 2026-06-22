@@ -1,5 +1,6 @@
 import type React from 'react'
 import { z } from 'zod'
+import { LeaderboardResponseSchema } from '@/app/chart-leader/lib/schema'
 import {
   ActiveChatterSchema,
   DailyFearGreedSchema,
@@ -46,6 +47,16 @@ export interface NewspaperIssue {
   resources: NewspaperIssueResources
 }
 
+export interface NewspaperAIUsage {
+  inputTokens: number | null
+  outputTokens: number | null
+  totalTokens: number | null
+  cachedInputTokens: number | null
+  cacheWriteInputTokens: number | null
+  reasoningTokens: number | null
+  modelId: string | null
+}
+
 export interface NewspaperIssueMeta {
   issueDate: string
   selectedDates: string[]
@@ -70,8 +81,11 @@ export interface NewspaperIssueResources {
     tickerUsers: number
     timelineUsers: number
     fearGreedUsers: number
+    traderLeaderboardMessages: number
+    traderLeaderboardUsers: number
   }
   ranges: Record<string, { startDate: string; endDate: string; cacheKey: string } | null>
+  aiUsage?: NewspaperAIUsage | null
 }
 
 const IssueTickerEventSchema = DailyTickerEventSchema.extend({
@@ -103,6 +117,16 @@ const IssueActivityStatsSchema = z.object({
   interval: z.string().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional()
+})
+
+const NewspaperAIUsageSchema = z.object({
+  inputTokens: z.number().nullable(),
+  outputTokens: z.number().nullable(),
+  totalTokens: z.number().nullable(),
+  cachedInputTokens: z.number().nullable(),
+  cacheWriteInputTokens: z.number().nullable(),
+  reasoningTokens: z.number().nullable(),
+  modelId: z.string().nullable()
 })
 
 export const NewspaperIssueSchema = z.object({
@@ -142,6 +166,15 @@ export const NewspaperIssueSchema = z.object({
         todayMessageCount: z.number()
       }).nullable()
     }),
+    traderLeaderboard: z.object({
+      data: LeaderboardResponseSchema.nullable(),
+      updatedAt: z.string().nullable(),
+      range: z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+        cacheKey: z.string()
+      }).nullable()
+    }),
     activeChatters: z.object({
       users: z.array(ActiveChatterSchema)
     }),
@@ -153,7 +186,8 @@ export const NewspaperIssueSchema = z.object({
       })),
       trendingTopics: z.array(z.string()),
       shortNews: z.array(ShortNewsSchema)
-    })
+    }),
+    custom: z.record(z.string(), z.unknown())
   }),
   resources: z.object({
     counts: z.object({
@@ -164,13 +198,16 @@ export const NewspaperIssueSchema = z.object({
       newspaperUsers: z.number(),
       tickerUsers: z.number(),
       timelineUsers: z.number(),
-      fearGreedUsers: z.number()
+      fearGreedUsers: z.number(),
+      traderLeaderboardMessages: z.number(),
+      traderLeaderboardUsers: z.number()
     }),
     ranges: z.record(z.string(), z.object({
       startDate: z.string(),
       endDate: z.string(),
       cacheKey: z.string()
-    }).nullable())
+    }).nullable()),
+    aiUsage: NewspaperAIUsageSchema.nullable().optional()
   })
 })
 
@@ -195,12 +232,18 @@ export type NewspaperIssueModules = {
     data: z.infer<typeof DailyFearGreedSchema> | null
     dateRange: { oldestDate: string; newestDate: string; todayMessageCount: number } | null
   }
+  traderLeaderboard: {
+    data: z.infer<typeof LeaderboardResponseSchema> | null
+    updatedAt: string | null
+    range: { startDate: string; endDate: string; cacheKey: string } | null
+  }
   activeChatters: { users: z.infer<typeof ActiveChatterSchema>[] }
   sidebarHighlights: {
     topContributors: Array<{ username: string; initial: string; avatar?: string }>
     trendingTopics: string[]
     shortNews: z.infer<typeof ShortNewsSchema>[]
   }
+  custom: Record<string, unknown>
 }
 
 export interface NewspaperModuleDefinition<TOutput = unknown> {

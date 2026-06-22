@@ -16,7 +16,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon, ExternalLink, Clock3, MessageSquare, Users } from 'lucide-react'
+import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon, ExternalLink, Clock3, MessageSquare, Users, Layers } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
@@ -37,6 +37,7 @@ import { LeaderboardWidget } from '@/app/chart-leader/components'
 import { ChatTicker } from '@/app/components/ChatTicker'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats } from './lib/types'
+import type { NewspaperAIUsage } from './engine'
 
 interface BTCData {
   price: number
@@ -138,10 +139,15 @@ function formatIssueDateRange(selectedDates: string[]): string {
   return `${formatDate(sortedDates[0])} - ${formatDate(sortedDates[sortedDates.length - 1])}`
 }
 
+function formatTokenCount(value: number | null | undefined): string {
+  return typeof value === 'number' ? value.toLocaleString('de-DE') : 'n/a'
+}
+
 function IssueMetaStrip({
   cacheInfo,
   dayRange,
-  selectedDates
+  selectedDates,
+  aiUsage
 }: {
   cacheInfo: {
     updatedAt: string
@@ -150,12 +156,14 @@ function IssueMetaStrip({
   } | null
   dayRange: DayRange
   selectedDates: string[]
+  aiUsage?: NewspaperAIUsage | null
 }) {
-  if (!cacheInfo || dayRange === 1) return null
+  if (!cacheInfo && !aiUsage) return null
+  if (dayRange === 1 && !aiUsage) return null
 
   const issueLabel = selectedDates.length && selectedDates.length !== dayRange
     ? `${selectedDates.length}/${dayRange}D-Ausgabe`
-    : `${dayRange}D-Ausgabe`
+    : dayRange === 1 ? 'AI Usage' : `${dayRange}D-Ausgabe`
 
   return (
     <div className="mb-8 flex flex-col gap-3 border-y border-primary/10 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -164,26 +172,53 @@ function IssueMetaStrip({
           {issueLabel}
         </span>
         <span className="hidden h-px w-12 bg-gradient-to-r from-primary/40 to-transparent sm:block" />
-        <span className="truncate text-xs text-muted-foreground">
-          {formatIssueDateRange(selectedDates)}
-        </span>
+        {dayRange !== 1 && (
+          <span className="truncate text-xs text-muted-foreground">
+            {formatIssueDateRange(selectedDates)}
+          </span>
+        )}
+        {aiUsage?.modelId && (
+          <span className="truncate text-xs font-mono text-muted-foreground/70">
+            {aiUsage.modelId}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
-          <Clock3 className="h-3.5 w-3.5 text-primary/70" />
-          {formatIssueTimestamp(cacheInfo.updatedAt)}
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
-          <MessageSquare className="h-3.5 w-3.5 text-primary/70" />
-          {cacheInfo.messageCount.toLocaleString('de-DE')}
-          <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">Msgs</span>
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
-          <Users className="h-3.5 w-3.5 text-primary/70" />
-          {cacheInfo.uniqueUsers.toLocaleString('de-DE')}
-          <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">User</span>
-        </span>
+        {cacheInfo && (
+          <>
+            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+              <Clock3 className="h-3.5 w-3.5 text-primary/70" />
+              {formatIssueTimestamp(cacheInfo.updatedAt)}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+              <MessageSquare className="h-3.5 w-3.5 text-primary/70" />
+              {cacheInfo.messageCount.toLocaleString('de-DE')}
+              <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">Msgs</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+              <Users className="h-3.5 w-3.5 text-primary/70" />
+              {cacheInfo.uniqueUsers.toLocaleString('de-DE')}
+              <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">User</span>
+            </span>
+          </>
+        )}
+        {aiUsage && (
+          <>
+            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+              {formatTokenCount(aiUsage.inputTokens)}
+              <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">In</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+              {formatTokenCount(aiUsage.outputTokens)}
+              <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">Out</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-primary">
+              {formatTokenCount(aiUsage.totalTokens)}
+              <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">Total</span>
+            </span>
+          </>
+        )}
       </div>
     </div>
   )
@@ -346,8 +381,10 @@ export default function NewspaperPage() {
         const isIssueStreaming = issueState.isRefreshing
         const isIssueBusy = isIssueInitialLoading || isIssueStreaming
         const isFearGreedRefreshing = issueState.refreshingModule === 'sentiment.fearGreed'
+        const isTraderLeaderboardRefreshing = issueState.refreshingModule === 'trading.traderLeaderboard'
         const newspaperData = issue?.modules.articleDigest.data ?? undefined
-        const issueCacheInfo = issueState.cacheInfo
+        const issueCacheInfo = issueState.isRefreshing ? null : issueState.cacheInfo
+        const issueAIUsage = issueState.isRefreshing ? null : issue?.resources.aiUsage ?? null
         const fearGreedCacheInfo = issue
           ? {
               updatedAt: issue.meta.updatedAt,
@@ -368,6 +405,14 @@ export default function NewspaperPage() {
             dayRange
           })
         }
+        const handleTraderLeaderboardRefresh = () => {
+          void issueState.refreshModule('trading.traderLeaderboard')
+          track('newspaper_module_refresh', {
+            moduleId: 'trading.traderLeaderboard',
+            selectedDate: selectedDate || 'none',
+            dayRange
+          })
+        }
 
         return (
       <main className="min-h-screen bg-background relative">
@@ -383,6 +428,13 @@ export default function NewspaperPage() {
                 <CurrentDate cacheUpdatedAt={issueCacheInfo?.updatedAt} />
               </div>
               <div className="flex items-center gap-3">
+                <Link
+                  href="/newspaper/prompt-inspector"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Prompt</span>
+                </Link>
                 <Link
                   href="/openclaw"
                   onClick={() => track('newspaper_openclaw_click', { location: 'topbar' })}
@@ -562,6 +614,7 @@ export default function NewspaperPage() {
                 cacheInfo={issueCacheInfo}
                 dayRange={dayRange}
                 selectedDates={selectedDates}
+                aiUsage={issueAIUsage}
               />
 
               {/* AI-Generated Content */}
@@ -574,8 +627,15 @@ export default function NewspaperPage() {
                 disableAutoFetch
               />
 
-              {dayRange === 1 && !isIssueInitialLoading && (
-                <LeaderboardWidget embedded />
+              {!isIssueInitialLoading && (
+                <LeaderboardWidget
+                  embedded
+                  dataOverride={issue?.modules.traderLeaderboard?.data ?? null}
+                  isLoadingOverride={issue?.modules.traderLeaderboard?.data ? isTraderLeaderboardRefreshing : undefined}
+                  disableAutoFetch={Boolean(issue?.modules.traderLeaderboard?.data)}
+                  refresh={issue?.modules.traderLeaderboard?.data ? handleTraderLeaderboardRefresh : undefined}
+                  isRefreshing={isTraderLeaderboardRefreshing}
+                />
               )}
             </main>
 

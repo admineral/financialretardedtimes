@@ -8,7 +8,7 @@
 
 import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
-import { createDailyAIStream } from '../../lib/daily-ai'
+import { createDailyAIStream, getDailyAIErrorResponse } from '../../lib/daily-ai'
 
 export const maxDuration = 60
 
@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
       includeNewspaper = true,
       includeTicker,
       includeTimeline,
-      includeFearGreed
+      includeFearGreed,
+      includeTraderLeaderboard
     }: {
       selectedDates?: string[]
       dayRange?: number
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
       includeTicker?: boolean
       includeTimeline?: boolean
       includeFearGreed?: boolean
+      includeTraderLeaderboard?: boolean
     } = body
 
     const { result } = await createDailyAIStream({
@@ -50,15 +52,17 @@ export async function POST(request: NextRequest) {
       includeTicker,
       includeTimeline,
       includeFearGreed,
+      includeTraderLeaderboard,
       source: 'newspaper'
     })
 
     return result.toTextStreamResponse()
   } catch (error) {
     console.error('[SUMMARIZE API] Error:', error)
+    const response = getDailyAIErrorResponse(error)
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify(response.body),
+      { status: response.status, headers: { 'Content-Type': 'application/json' } }
     )
   }
 }

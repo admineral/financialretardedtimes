@@ -88,6 +88,11 @@ interface LeaderboardData {
 
 interface LeaderboardWidgetProps {
   embedded?: boolean
+  dataOverride?: LeaderboardData | null
+  isLoadingOverride?: boolean
+  disableAutoFetch?: boolean
+  refresh?: () => void
+  isRefreshing?: boolean
 }
 
 const BADGE_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
@@ -258,14 +263,26 @@ function ExpandableRow({
   )
 }
 
-export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps = {}) {
+export function TraderLeaderboardView(props: LeaderboardWidgetProps = {}) {
+  return <LeaderboardWidget {...props} disableAutoFetch />
+}
+
+export function LeaderboardWidget({
+  embedded = false,
+  dataOverride,
+  isLoadingOverride,
+  disableAutoFetch = false,
+  refresh,
+  isRefreshing = false
+}: LeaderboardWidgetProps = {}) {
   const [data, setData] = useState<LeaderboardData | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingLocal, setIsLoadingLocal] = useState(true)
   const [showAll, setShowAll] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
-    setIsLoading(true)
+    if (disableAutoFetch) return
+    setIsLoadingLocal(true)
     try {
       const res = await fetch('/chart-leader/api/leaderboard')
       if (res.ok) {
@@ -275,28 +292,33 @@ export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps =
         }
       }
     } catch { /* ignore */ }
-    finally { setIsLoading(false) }
-  }, [])
+    finally { setIsLoadingLocal(false) }
+  }, [disableAutoFetch])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    if (!disableAutoFetch) loadData()
+  }, [disableAutoFetch, loadData])
+
+  const activeData = dataOverride ?? data
+  const isLoading = isLoadingOverride ?? (disableAutoFetch ? false : isLoadingLocal)
 
   const entries = useMemo(() => {
-    if (!data?.leaderboard) return []
-    return data.leaderboard.filter(
+    if (!activeData?.leaderboard) return []
+    return activeData.leaderboard.filter(
       (e): e is LeaderboardEntry =>
         e !== undefined &&
         typeof e.rank === 'number' &&
         typeof e.username === 'string' &&
         typeof e.score === 'number'
     )
-  }, [data])
+  }, [activeData])
 
   const visibleEntries = showAll ? entries : entries.slice(0, 5)
-  const weekSummary = data?.weekSummary
+  const weekSummary = activeData?.weekSummary
   const trendUp = (weekSummary?.changePercent ?? 0) >= 0
 
-  const timeAgo = data?.fetchedAt ? (() => {
-    const diffMs = Date.now() - new Date(data.fetchedAt!).getTime()
+  const timeAgo = activeData?.fetchedAt ? (() => {
+    const diffMs = Date.now() - new Date(activeData.fetchedAt!).getTime()
     const diffMins = Math.floor(diffMs / 60000)
     const diffHours = Math.floor(diffMs / 3600000)
     if (diffMins < 1) return 'gerade eben'
@@ -331,7 +353,37 @@ export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps =
     )
   }
 
-  if (entries.length === 0) return null
+  if (entries.length === 0) {
+    return (
+      <section className={shellClassName}>
+        <div className={innerClassName}>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <Trophy className="w-5 h-5 text-amber-400" />
+              <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">Trader Leaderboard</h2>
+              <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
+            </div>
+            {refresh && (
+              <button
+                onClick={refresh}
+                disabled={isRefreshing}
+                className="p-1.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+                aria-label="Trader Leaderboard aktualisieren"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+          </div>
+          <div className="rounded-sm border border-amber-500/15 bg-amber-500/5 px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">Noch kein Leaderboard fuer diese Ausgabe</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Wird als einzelnes Modul generiert und danach in der Ausgabe gespeichert.
+            </p>
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className={shellClassName}>
@@ -346,9 +398,9 @@ export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps =
               </h2>
             </div>
             <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
-            {data?.dataRange && (
+            {activeData?.dataRange && (
               <span className="text-xs text-muted-foreground/60 hidden sm:block">
-                {data.dataRange.uniqueTraders} Trader · {data.dataRange.totalMessages?.toLocaleString()} Nachrichten
+                {activeData.dataRange.uniqueTraders} Trader · {activeData.dataRange.totalMessages?.toLocaleString()} Nachrichten
               </span>
             )}
           </div>
@@ -359,6 +411,16 @@ export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps =
                 <Sparkles className="w-3 h-3 inline mr-1 text-amber-400" />
                 {timeAgo}
               </span>
+            )}
+            {refresh && (
+              <button
+                onClick={refresh}
+                disabled={isRefreshing}
+                className="p-1.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+                aria-label="Trader Leaderboard aktualisieren"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
             )}
             <Link
               href="/chart-leader"
@@ -508,14 +570,14 @@ export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps =
         )}
 
         {/* Hall of Shame teaser */}
-        {data?.hallOfShame && data.hallOfShame.length > 0 && (
+        {activeData?.hallOfShame && activeData.hallOfShame.length > 0 && (
           <div className="mt-5 pt-4 border-t border-primary/10">
             <div className="flex items-center gap-2 mb-3">
               <Skull className="w-4 h-4 text-red-400" />
               <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Hall of Shame</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {data.hallOfShame.filter(e => e !== undefined).slice(0, 3).map((entry, i) => (
+              {activeData.hallOfShame.filter(e => e !== undefined).slice(0, 3).map((entry, i) => (
                 <div key={i} className="p-2.5 rounded-lg border border-red-500/20 bg-red-500/5">
                   <div className="flex items-center gap-2 mb-1.5">
                     <UserAvatar

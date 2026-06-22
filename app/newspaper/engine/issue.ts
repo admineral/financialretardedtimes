@@ -3,6 +3,7 @@ import type { DailyAIResponseData, UnifiedNewspaperData } from '../lib/types'
 import { getIssueExpiresAt, isIssueFresh } from './cache'
 import type {
   NewspaperIssue,
+  NewspaperAIUsage,
   NewspaperIssueActivityBucket,
   NewspaperIssueActivityStats,
   NewspaperIssueTimelineEvent
@@ -58,6 +59,7 @@ export function createNewspaperIssue(params: {
   object: DailyAIResponseData
   context: DailyAIContext
   newspaperData: UnifiedNewspaperData | null
+  aiUsage?: NewspaperAIUsage | null
   updatedAt?: string
   source?: NewspaperIssue['meta']['source']
 }): NewspaperIssue {
@@ -99,6 +101,11 @@ export function createNewspaperIssue(params: {
         data: params.object.fearGreed.data,
         dateRange: params.context.fearGreedDateRangeInfo
       },
+      traderLeaderboard: {
+        data: params.object.traderLeaderboard?.data ?? null,
+        updatedAt: params.object.traderLeaderboard?.data ? updatedAt : null,
+        range: serializeRange(params.context.ranges.traderLeaderboard)
+      },
       activeChatters: {
         users: params.context.activeChatters ?? []
       },
@@ -106,7 +113,8 @@ export function createNewspaperIssue(params: {
         topContributors: params.newspaperData?.topContributors ?? [],
         trendingTopics: params.newspaperData?.trendingTopics ?? [],
         shortNews: params.newspaperData?.shortNews ?? []
-      }
+      },
+      custom: {}
     },
     resources: {
       counts: params.context.counts,
@@ -114,8 +122,10 @@ export function createNewspaperIssue(params: {
         newspaper: serializeRange(params.context.ranges.newspaper),
         ticker: serializeRange(params.context.ranges.ticker),
         timeline: serializeRange(params.context.ranges.timeline),
-        fearGreed: serializeRange(params.context.ranges.fearGreed)
-      }
+        fearGreed: serializeRange(params.context.ranges.fearGreed),
+        traderLeaderboard: serializeRange(params.context.ranges.traderLeaderboard)
+      },
+      aiUsage: params.aiUsage ?? null
     }
   }
 

@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { getIssueExpiresAt, isIssueFresh, isNewspaperIssue, issueCacheTag, moduleCacheTag } from '../../engine'
+import {
+  getIssueExpiresAt,
+  isIssueFresh,
+  isNewspaperIssue,
+  issueCacheTag,
+  moduleCacheTag,
+  readLatestNewspaperModuleCache
+} from '../../engine'
 import { getNewspaperDateKey } from '../../lib/timezone'
 import type { NewspaperIssue } from '../../engine'
-import { firstPartyNewspaperModules } from '../../modules'
+import { firstPartyNewspaperModules, traderLeaderboardModule } from '../../modules'
+import { LeaderboardResponseSchema, type LeaderboardResponse } from '@/app/chart-leader/lib/schema'
 
 function markIssueForResponse(issue: NewspaperIssue, updatedAt: string, source: NewspaperIssue['meta']['source']): NewspaperIssue {
   return {
@@ -15,6 +23,51 @@ function markIssueForResponse(issue: NewspaperIssue, updatedAt: string, source: 
       expiresAt: getIssueExpiresAt(updatedAt),
       isFresh: isIssueFresh(updatedAt),
       source
+    }
+  }
+}
+
+async function hydrateIssueModulesFromCache(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  issue: NewspaperIssue
+): Promise<NewspaperIssue> {
+  if (issue.modules.traderLeaderboard?.data) return issue
+
+  const cached = await readLatestNewspaperModuleCache<{
+    data: LeaderboardResponse | null
+    range: { startDate: string; endDate: string; cacheKey: string } | null
+  }>(supabase, {
+    moduleId: traderLeaderboardModule.id,
+    cacheDate: issue.meta.issueDate,
+    dayRange: issue.meta.dayRange,
+    moduleVersion: traderLeaderboardModule.version
+  })
+
+  const parsed = cached?.data.data ? LeaderboardResponseSchema.safeParse(cached.data.data) : null
+  if (!cached || !parsed?.success) return issue
+
+  return {
+    ...issue,
+    modules: {
+      ...issue.modules,
+      traderLeaderboard: {
+        data: parsed.data,
+        updatedAt: cached.updatedAt,
+        range: cached.data.range
+      },
+      custom: issue.modules.custom ?? {}
+    },
+    resources: {
+      ...issue.resources,
+      counts: {
+        ...issue.resources.counts,
+        traderLeaderboardMessages: cached.messageCount,
+        traderLeaderboardUsers: cached.uniqueUsers
+      },
+      ranges: {
+        ...issue.resources.ranges,
+        traderLeaderboard: cached.data.range
+      }
     }
   }
 }
@@ -51,7 +104,10 @@ export async function GET(request: NextRequest) {
       }, { status: 404 })
     }
 
-    const issue = markIssueForResponse(data.data, data.updated_at, 'cache')
+    const issue = await hydrateIssueModulesFromCache(
+      supabase,
+      markIssueForResponse(data.data, data.updated_at, 'cache')
+    )
     return NextResponse.json({
       cached: true,
       issue,

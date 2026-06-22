@@ -15,7 +15,7 @@
 'use client'
 
 import { AlertTriangle,ChevronLeft,ChevronRight,Loader2,MessageSquare,RefreshCw,Sparkles,TrendingUp,Users,Zap } from 'lucide-react'
-import { useCallback,useEffect,useRef,useState } from 'react'
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react'
 import { createPortal } from 'react-dom'
 
 const CHAT_EVENT_TYPES = ['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor'] as const
@@ -979,44 +979,21 @@ export function ChatHistoryTimeline({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(true)
-  const controlledSignatureRef = useRef<string>('')
-
-  useEffect(() => {
-    if (controlledEvents === undefined) return
-    const controlledSignature = JSON.stringify({
-      events: controlledEvents.map(event => [
-        event.id,
-        event.date,
-        event.time,
-        event.type,
-        event.title,
-        event.description,
-        event.quote ?? '',
-        event.quoteAuthor ?? ''
-      ]),
-      activityBuckets: (controlledActivityBuckets ?? []).map(bucket => [
-        bucket.timestamp,
-        bucket.label,
-        bucket.count,
-        bucket.uniqueUsers,
-        bucket.intensity
-      ]),
-      activityStats: controlledActivityStats,
-      cacheInfo: controlledCacheInfo
-    })
-    if (controlledSignature === controlledSignatureRef.current) return
-    controlledSignatureRef.current = controlledSignature
-
-    setEvents(controlledEvents.map(event => ({
-      ...event,
-      type: normalizeChatEventType(event.type)
-    })))
-    setActivityBuckets(controlledActivityBuckets ?? [])
-    setActivityStats(controlledActivityStats ?? null)
-    setCacheInfo(controlledCacheInfo ?? null)
-    setHasLoaded(true)
-    setError(null)
-  }, [controlledActivityBuckets, controlledActivityStats, controlledCacheInfo, controlledEvents])
+  const isControlled = controlledEvents !== undefined
+  const displayEvents = useMemo(
+    () => isControlled
+      ? controlledEvents.map(event => ({
+          ...event,
+          type: normalizeChatEventType(event.type)
+        }))
+      : events,
+    [controlledEvents, events, isControlled]
+  )
+  const displayActivityBuckets = isControlled ? controlledActivityBuckets ?? [] : activityBuckets
+  const displayActivityStats = isControlled ? controlledActivityStats ?? null : activityStats
+  const displayCacheInfo = isControlled ? controlledCacheInfo ?? null : cacheInfo
+  const displayHasLoaded = isControlled ? true : hasLoaded
+  const displayError = isControlled ? null : error
 
   // Check scroll position
   const checkScroll = useCallback(() => {
@@ -1035,11 +1012,11 @@ export function ChatHistoryTimeline({
       ref?.removeEventListener('scroll', checkScroll)
       window.removeEventListener('resize', checkScroll)
     }
-  }, [checkScroll, events])
+  }, [checkScroll, displayEvents])
   
   // Auto-scroll to the right (newest events) after loading
   useEffect(() => {
-    if (hasLoaded && events.length > 0 && scrollRef.current && compact) {
+    if (displayHasLoaded && displayEvents.length > 0 && scrollRef.current && compact) {
       // Small delay to ensure rendering is complete
       setTimeout(() => {
         if (scrollRef.current) {
@@ -1047,7 +1024,7 @@ export function ChatHistoryTimeline({
         }
       }, 100)
     }
-  }, [hasLoaded, events.length, compact])
+  }, [displayHasLoaded, displayEvents.length, compact])
   
   // Scroll handlers
   const scroll = (direction: 'left' | 'right') => {
@@ -1349,12 +1326,12 @@ export function ChatHistoryTimeline({
   const hasStartedRef = useRef(false)
   useEffect(() => {
     if (disableAutoFetch) return
-    if (autoStart && !hasStartedRef.current && !hasLoaded) {
+    if (autoStart && !hasStartedRef.current && !displayHasLoaded) {
       hasStartedRef.current = true
       loadTimeline()
       loadActivity()
     }
-  }, [autoStart, hasLoaded, loadTimeline, loadActivity, disableAutoFetch])
+  }, [autoStart, displayHasLoaded, loadTimeline, loadActivity, disableAutoFetch])
 
   useEffect(() => {
     if (disableAutoFetch) return
@@ -1376,14 +1353,14 @@ export function ChatHistoryTimeline({
   
   // Reload when mode changes after initial load
   useEffect(() => {
-    if (hasStartedRef.current && !hasLoaded && !isLoading && !isRefreshing) {
+    if (hasStartedRef.current && !displayHasLoaded && !isLoading && !isRefreshing) {
       loadTimeline()
       loadActivity()
     }
-  }, [mode, hasLoaded, isLoading, isRefreshing, loadTimeline, loadActivity])
+  }, [mode, displayHasLoaded, isLoading, isRefreshing, loadTimeline, loadActivity])
 
   // Group events by date for display
-  const eventsByDate = events.reduce((acc, event) => {
+  const eventsByDate = displayEvents.reduce((acc, event) => {
     if (!acc[event.date]) acc[event.date] = []
     acc[event.date].push(event)
     return acc
@@ -1395,12 +1372,12 @@ export function ChatHistoryTimeline({
   )
   
   // Match events to activity buckets for positioning
-  const eventsWithBuckets = events.map(event => {
+  const eventsWithBuckets = displayEvents.map(event => {
     const eventDateTime = new Date(`${event.date}T${event.time}:00`)
-    let closestBucket = activityBuckets[0]
+    let closestBucket = displayActivityBuckets[0]
     let minDiff = Infinity
     
-    for (const bucket of activityBuckets) {
+    for (const bucket of displayActivityBuckets) {
       const bucketTime = new Date(bucket.timestamp)
       const diff = Math.abs(eventDateTime.getTime() - bucketTime.getTime())
       if (diff < minDiff) {
@@ -1470,9 +1447,9 @@ export function ChatHistoryTimeline({
             
             {/* Cache age */}
             <div className="flex items-center">
-              {cacheInfo && !isLoading && !isRefreshing && (
+              {displayCacheInfo && !isLoading && !isRefreshing && (
                 <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
-                  {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+                  {formatDetailedTimeAgo(displayCacheInfo.updatedAt)}
                 </span>
               )}
               {(isLoading || isRefreshing) && (
@@ -1486,14 +1463,14 @@ export function ChatHistoryTimeline({
           {/* Timeline content */}
           <div className="w-full relative">
             {/* Loading */}
-            {isLoading && !hasLoaded && (
+            {isLoading && !displayHasLoaded && (
               <div className="flex items-center justify-center py-1">
                 <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
               </div>
             )}
 
             {/* Timeline with integrated activity bars */}
-            {hasLoaded && events.length > 0 && activityBuckets.length > 0 && !isLoading && (
+            {displayHasLoaded && displayEvents.length > 0 && displayActivityBuckets.length > 0 && !isLoading && (
               <div className="relative">
                 {/* Gradient overlays */}
                 {canScrollLeft && (
@@ -1557,7 +1534,7 @@ export function ChatHistoryTimeline({
                     const eventPositions: EventPosition[] = []
                     
                     eventsWithBuckets.forEach((event) => {
-                      const bucketIdx = activityBuckets.findIndex(b => b.timestamp === event.bucket?.timestamp)
+                      const bucketIdx = displayActivityBuckets.findIndex(b => b.timestamp === event.bucket?.timestamp)
                       if (bucketIdx === -1) return
                       
                       const xCenter = bucketIdx * bucketWidth
@@ -1616,7 +1593,7 @@ export function ChatHistoryTimeline({
                     // Find bucket indices where day changes
                     const dayBoundaries: { idx: number; label: string; isToday: boolean }[] = []
                     let lastDateStr = ''
-                    activityBuckets.forEach((bucket, idx) => {
+                    displayActivityBuckets.forEach((bucket, idx) => {
                       const bucketDate = new Date(bucket.timestamp)
                       const dateStr = bucketDate.toDateString()
                       if (dateStr !== lastDateStr) {
@@ -1671,8 +1648,8 @@ export function ChatHistoryTimeline({
                             paddingRight: `${leftPadding}px` 
                           }}
                         >
-                          {activityBuckets.map((bucket, idx) => {
-                            const maxCount = activityStats?.maxPerBucket || Math.max(...activityBuckets.map(b => b.count), 1)
+                          {displayActivityBuckets.map((bucket, idx) => {
+                            const maxCount = displayActivityStats?.maxPerBucket || Math.max(...displayActivityBuckets.map(b => b.count), 1)
                             const heightPercent = maxCount > 0 ? (bucket.count / maxCount) * 100 : 0
                             const barHeight = bucket.count > 0 
                               ? Math.max(2, (heightPercent / 100) * miniBarMaxHeight)
@@ -1739,9 +1716,9 @@ export function ChatHistoryTimeline({
                 <div className={`flex items-start gap-[2px] border-t border-foreground/5 overflow-x-auto transition-all duration-300 ${
                   isHovered ? 'py-1 opacity-100 max-h-8' : 'py-0 opacity-0 max-h-0'
                 }`} style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', paddingLeft: '70px', paddingRight: '70px' }}>
-                  {activityBuckets.map((bucket, idx) => {
+                  {displayActivityBuckets.map((bucket, idx) => {
                     const bucketDate = new Date(bucket.timestamp)
-                    const prevBucket = idx > 0 ? activityBuckets[idx - 1] : null
+                    const prevBucket = idx > 0 ? displayActivityBuckets[idx - 1] : null
                     const prevDate = prevBucket ? new Date(prevBucket.timestamp) : null
                     
                     const isNewDay = !prevDate || bucketDate.toDateString() !== prevDate.toDateString()
@@ -1771,7 +1748,7 @@ export function ChatHistoryTimeline({
             )}
 
             {/* Empty state */}
-            {hasLoaded && events.length === 0 && !isLoading && !error && (
+            {displayHasLoaded && displayEvents.length === 0 && !isLoading && !displayError && (
               <div className="flex items-center justify-center py-1 text-[8px] text-foreground/50">
                 Keine Events
               </div>
@@ -1818,9 +1795,9 @@ export function ChatHistoryTimeline({
           
           {/* Cache age */}
           <div className="flex items-center">
-            {cacheInfo && !isLoading && !isRefreshing && (
+            {displayCacheInfo && !isLoading && !isRefreshing && (
               <span className="text-[8px] text-foreground/60 dark:text-foreground/70 whitespace-nowrap leading-none">
-                {formatDetailedTimeAgo(cacheInfo.updatedAt)}
+                {formatDetailedTimeAgo(displayCacheInfo.updatedAt)}
               </span>
             )}
             {(isLoading || isRefreshing) && (
@@ -1834,14 +1811,14 @@ export function ChatHistoryTimeline({
         {/* Timeline content - full width */}
         <div className="w-full relative">
             {/* Compact: Loading */}
-            {isLoading && !hasLoaded && (
+            {isLoading && !displayHasLoaded && (
               <div className="flex items-center justify-center py-3">
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
             )}
 
             {/* Compact: Timeline with integrated activity bars */}
-            {hasLoaded && events.length > 0 && activityBuckets.length > 0 && !isLoading && (
+            {displayHasLoaded && displayEvents.length > 0 && displayActivityBuckets.length > 0 && !isLoading && (
               <div className="relative">
                 {/* Gradient overlays */}
                 {canScrollLeft && (
@@ -1877,7 +1854,7 @@ export function ChatHistoryTimeline({
                 >
                   {(() => {
                     // Calculate dynamic sizing based on event count and mode
-                    const eventCount = events.length
+                    const eventCount = displayEvents.length
                     // Scale card size based on event count
                     const isCompact = eventCount > 10
                     const isTiny = eventCount > 14
@@ -1918,7 +1895,7 @@ export function ChatHistoryTimeline({
                     // First pass: assign each event to a bucket index and find non-overlapping row
                     eventsWithBuckets.forEach((event) => {
                       // Find bucket index
-                      const bucketIdx = activityBuckets.findIndex(b => b.timestamp === event.bucket?.timestamp)
+                      const bucketIdx = displayActivityBuckets.findIndex(b => b.timestamp === event.bucket?.timestamp)
                       if (bucketIdx === -1) return
                       
                       // Calculate horizontal center position
@@ -1982,7 +1959,7 @@ export function ChatHistoryTimeline({
                     // Find bucket indices where day changes
                     const dayBoundaries: { idx: number; label: string; isToday: boolean }[] = []
                     let lastDateStr = ''
-                    activityBuckets.forEach((bucket, idx) => {
+                    displayActivityBuckets.forEach((bucket, idx) => {
                       const bucketDate = new Date(bucket.timestamp)
                       const dateStr = bucketDate.toDateString()
                       if (dateStr !== lastDateStr) {
@@ -2027,8 +2004,8 @@ export function ChatHistoryTimeline({
                         
                         {/* Activity bars and timeline scale */}
                         <div className="absolute bottom-8 left-0 right-0 flex items-end gap-[2px]" style={{ paddingLeft: `${leftPadding}px`, paddingRight: `${leftPadding}px` }}>
-                          {activityBuckets.map((bucket, idx) => {
-                            const maxCount = activityStats?.maxPerBucket || Math.max(...activityBuckets.map(b => b.count), 1)
+                          {displayActivityBuckets.map((bucket, idx) => {
+                            const maxCount = displayActivityStats?.maxPerBucket || Math.max(...displayActivityBuckets.map(b => b.count), 1)
                             const heightPercent = maxCount > 0 ? (bucket.count / maxCount) * 100 : 0
                             const barHeight = bucket.count > 0 
                               ? Math.max(4, (heightPercent / 100) * 50)
@@ -2090,9 +2067,9 @@ export function ChatHistoryTimeline({
                 
                 {/* Time scale - BELOW the scrollable area */}
                 <div className="flex items-start gap-[2px] py-1 border-t border-foreground/5 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', paddingLeft: '95px', paddingRight: '95px' }}>
-                  {activityBuckets.map((bucket, idx) => {
+                  {displayActivityBuckets.map((bucket, idx) => {
                     const bucketDate = new Date(bucket.timestamp)
-                    const prevBucket = idx > 0 ? activityBuckets[idx - 1] : null
+                    const prevBucket = idx > 0 ? displayActivityBuckets[idx - 1] : null
                     const prevDate = prevBucket ? new Date(prevBucket.timestamp) : null
                     
                     // Check if this is a new day
@@ -2126,7 +2103,7 @@ export function ChatHistoryTimeline({
             )}
 
           {/* Compact: Empty state - just show nothing or minimal text */}
-          {hasLoaded && events.length === 0 && !isLoading && !error && (
+          {displayHasLoaded && displayEvents.length === 0 && !isLoading && !displayError && (
             <div className="flex items-center justify-center py-3 text-[10px] text-foreground/50 dark:text-foreground/60">
               Keine Chat-Events
             </div>
@@ -2166,15 +2143,15 @@ export function ChatHistoryTimeline({
           </div>
           
           {/* Cache info */}
-          {cacheInfo && !isLoading && !isRefreshing && (
+          {displayCacheInfo && !isLoading && !isRefreshing && (
             <span className="text-[10px] text-foreground/60 dark:text-foreground/70">
-              {formatTimeAgo(cacheInfo.updatedAt)}
-              {cacheInfo.activityLevel && (
+              {formatTimeAgo(displayCacheInfo.updatedAt)}
+              {displayCacheInfo.activityLevel && (
                 <span className={`ml-2 ${
-                  cacheInfo.activityLevel === 'high' ? 'text-emerald-500' :
-                  cacheInfo.activityLevel === 'medium' ? 'text-amber-500' : 'text-muted-foreground'
+                  displayCacheInfo.activityLevel === 'high' ? 'text-emerald-500' :
+                  displayCacheInfo.activityLevel === 'medium' ? 'text-amber-500' : 'text-muted-foreground'
                 }`}>
-                  • {cacheInfo.activityLevel === 'high' ? '🔥' : cacheInfo.activityLevel === 'medium' ? '📊' : '😴'}
+                  • {displayCacheInfo.activityLevel === 'high' ? '🔥' : displayCacheInfo.activityLevel === 'medium' ? '📊' : '😴'}
                 </span>
               )}
             </span>
@@ -2183,7 +2160,7 @@ export function ChatHistoryTimeline({
         
         <div className="flex items-center gap-2">
           {/* Refresh button */}
-          {showRefreshButton && hasLoaded && (
+          {showRefreshButton && displayHasLoaded && (
             <button
               onClick={refreshTimeline}
               disabled={isRefreshing}
@@ -2195,7 +2172,7 @@ export function ChatHistoryTimeline({
           )}
           
           {/* Scroll buttons */}
-          {hasLoaded && events.length > 0 && (
+          {displayHasLoaded && displayEvents.length > 0 && (
             <>
               <button
                 onClick={() => scroll('left')}
@@ -2214,7 +2191,7 @@ export function ChatHistoryTimeline({
             </>
           )}
           
-          {!hasLoaded && !isLoading && (
+          {!displayHasLoaded && !isLoading && (
             <button
               onClick={() => loadTimeline()}
               className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
@@ -2226,7 +2203,7 @@ export function ChatHistoryTimeline({
       </div>
 
       {/* Legend */}
-      {hasLoaded && events.length > 0 && (
+      {displayHasLoaded && displayEvents.length > 0 && (
         <div className="flex flex-wrap gap-3 mb-4 text-[10px]">
           {(['insight', 'discussion', 'prediction', 'drama', 'humor'] as ChatEventType[]).map(type => {
             const style = getEventStyle(type)
@@ -2249,10 +2226,10 @@ export function ChatHistoryTimeline({
       )}
 
       {/* Error state */}
-      {error && !isLoading && (
+      {displayError && !isLoading && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <AlertTriangle className="w-8 h-8 text-red-400 mb-3" />
-          <p className="text-sm text-muted-foreground">{error}</p>
+          <p className="text-sm text-muted-foreground">{displayError}</p>
           <button
             onClick={() => loadTimeline()}
             className="mt-3 text-sm text-primary hover:underline"
@@ -2263,7 +2240,7 @@ export function ChatHistoryTimeline({
       )}
 
       {/* Empty state - not loaded yet */}
-      {!hasLoaded && !isLoading && !error && (
+      {!displayHasLoaded && !isLoading && !displayError && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <MessageSquare className="w-12 h-12 text-foreground/30 dark:text-foreground/40 mb-4" />
           <p className="text-foreground/70 dark:text-foreground/80 mb-2">Chat-Chronik</p>
@@ -2274,7 +2251,7 @@ export function ChatHistoryTimeline({
       )}
 
       {/* Timeline content */}
-      {hasLoaded && events.length > 0 && !isLoading && (
+      {displayHasLoaded && displayEvents.length > 0 && !isLoading && (
         <>
           <div className="relative">
             {/* Gradient overlays */}
@@ -2337,7 +2314,7 @@ export function ChatHistoryTimeline({
       )}
 
       {/* Empty loaded state */}
-      {hasLoaded && events.length === 0 && !isLoading && !error && (
+      {displayHasLoaded && displayEvents.length === 0 && !isLoading && !displayError && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <MessageSquare className="w-8 h-8 text-foreground/30 dark:text-foreground/40 mb-3" />
           <p className="text-sm text-foreground/70 dark:text-foreground/80">Keine Chat-Events gefunden</p>

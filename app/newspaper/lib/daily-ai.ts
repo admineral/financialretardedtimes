@@ -19,11 +19,199 @@ import {
   type TickerCacheEvent
 } from './cache-writers'
 import { addDaysToDateKey, getNewspaperDateKey, getNewspaperDayBounds, NEWSPAPER_TIME_ZONE } from './timezone'
-import { createPromptProgram, createNewspaperIssue, writeNewspaperIssueCache } from '../engine'
-import { firstPartyNewspaperModules } from '../modules'
+import {
+  buildModuleResourceFingerprint,
+  createPromptProgram,
+  createNewspaperIssue,
+  writeNewspaperIssueCache,
+  writeNewspaperModuleCache,
+  type NewspaperAIUsage
+} from '../engine'
+import { firstPartyNewspaperModules, fearGreedModule, traderLeaderboardModule } from '../modules'
+import {
+  buildLeaderboardUserPrompt,
+  fetchLeaderboardOHLC,
+  type OHLCData
+} from '@/app/chart-leader/lib/analysis'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 type TimelineMode = '24h' | '3d' | '7d'
+
+interface DailyAIErrorDetails {
+  name?: string
+  type?: string
+  code?: string
+  status?: number
+  message: string
+  userMessage: string
+}
+
+interface DailyAIUsageInput {
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  cachedInputTokens?: number
+  reasoningTokens?: number
+  inputTokenDetails?: {
+    cacheReadTokens?: number
+    cacheWriteTokens?: number
+  }
+  outputTokenDetails?: {
+    reasoningTokens?: number
+  }
+}
+
+interface DailyAIResponseMetadataInput {
+  modelId?: string
+}
+
+export class DailyAIProviderError extends Error {
+  details: DailyAIErrorDetails
+  code?: string
+  status?: number
+
+  constructor(details: DailyAIErrorDetails, cause?: unknown) {
+    super(details.userMessage)
+    this.name = 'DailyAIProviderError'
+    this.details = details
+    this.code = details.code
+    this.status = details.status
+    ;(this as Error & { cause?: unknown }).cause = cause
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value
+    : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined
+}
+
+function findProviderErrorRecord(value: unknown, seen = new Set<unknown>()): Record<string, unknown> | null {
+  const record = asRecord(value)
+  if (!record || seen.has(value)) return null
+  seen.add(value)
+
+  const nestedError = findProviderErrorRecord(record.error, seen)
+    ?? findProviderErrorRecord(record.cause, seen)
+  if (nestedError) return nestedError
+
+  if (
+    stringValue(record.code) ||
+    stringValue(record.type) ||
+    stringValue(record.message) ||
+    numberValue(record.status) ||
+    numberValue(record.statusCode)
+  ) {
+    return record
+  }
+
+  return null
+}
+
+function getDailyAIErrorDetails(error: unknown): DailyAIErrorDetails {
+  const record = findProviderErrorRecord(error)
+  const response = asRecord(record?.response)
+  const code = stringValue(record?.code)
+  const type = stringValue(record?.type)
+  const name = error instanceof Error ? error.name : stringValue(record?.name)
+  const status = numberValue(record?.status)
+    ?? numberValue(record?.statusCode)
+    ?? numberValue(response?.status)
+  const message = stringValue(record?.message)
+    ?? (error instanceof Error ? error.message : undefined)
+    ?? (typeof error === 'string' ? error : undefined)
+    ?? 'Daily AI generation failed'
+
+  if (code === 'insufficient_quota' || type === 'insufficient_quota') {
+    return {
+      name,
+      type,
+      code,
+      status: status ?? 429,
+      message,
+      userMessage: 'OpenAI quota exceeded. Check billing/plan limits or switch the API key before regenerating Daily AI.'
+    }
+  }
+
+  if (code === 'rate_limit_exceeded' || type === 'rate_limit_exceeded' || status === 429) {
+    return {
+      name,
+      type,
+      code,
+      status: 429,
+      message,
+      userMessage: 'OpenAI rate limit exceeded. Please retry the Daily AI generation shortly.'
+    }
+  }
+
+  return {
+    name,
+    type,
+    code,
+    status,
+    message,
+    userMessage: message
+  }
+}
+
+function createProviderError(details: DailyAIErrorDetails, cause: unknown): DailyAIProviderError | null {
+  if (!details.code && !details.type && !details.status) return null
+  return new DailyAIProviderError(details, cause)
+}
+
+function dailyAIErrorForLog(error: unknown): DailyAIErrorDetails {
+  return getDailyAIErrorDetails(error)
+}
+
+function tokenCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function summarizeDailyAIUsage(
+  usage: DailyAIUsageInput | undefined,
+  response: DailyAIResponseMetadataInput | undefined
+): NewspaperAIUsage | null {
+  if (!usage) return null
+
+  return {
+    inputTokens: tokenCount(usage.inputTokens),
+    outputTokens: tokenCount(usage.outputTokens),
+    totalTokens: tokenCount(usage.totalTokens),
+    cachedInputTokens: tokenCount(usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens),
+    cacheWriteInputTokens: tokenCount(usage.inputTokenDetails?.cacheWriteTokens),
+    reasoningTokens: tokenCount(usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens),
+    modelId: response?.modelId ?? 'gpt-5.4'
+  }
+}
+
+export function getDailyAIErrorResponse(error: unknown): {
+  body: { error: string; code?: string }
+  status: number
+} {
+  const details = error instanceof DailyAIProviderError
+    ? error.details
+    : getDailyAIErrorDetails(error)
+
+  return {
+    body: {
+      error: details.userMessage,
+      code: details.code
+    },
+    status: details.status ?? 500
+  }
+}
 
 interface ChatMessage {
   username: string
@@ -80,7 +268,8 @@ export interface DailyAIRequest {
   includeTicker?: boolean
   includeTimeline?: boolean
   includeFearGreed?: boolean
-  source?: 'newspaper' | 'ticker' | 'timeline' | 'fear-greed' | 'cron' | 'manual'
+  includeTraderLeaderboard?: boolean
+  source?: 'newspaper' | 'ticker' | 'timeline' | 'fear-greed' | 'trader-leaderboard' | 'cron' | 'manual'
 }
 
 export interface DailyAIContext {
@@ -93,12 +282,14 @@ export interface DailyAIContext {
     ticker: boolean
     timeline: boolean
     fearGreed: boolean
+    traderLeaderboard: boolean
   }
   ranges: {
     newspaper: ModuleRange | null
     ticker: ModuleRange | null
     timeline: ModuleRange | null
     fearGreed: ModuleRange | null
+    traderLeaderboard: ModuleRange | null
   }
   counts: {
     newspaperMessages: number
@@ -109,10 +300,13 @@ export interface DailyAIContext {
     tickerUsers: number
     timelineUsers: number
     fearGreedUsers: number
+    traderLeaderboardMessages: number
+    traderLeaderboardUsers: number
   }
   newspaperUserAvatarMap: Map<string, string>
   activeChatters: UnifiedNewspaperData['activeChatters']
   fearGreedDateRangeInfo: FearGreedDateRangeInfo | null
+  traderLeaderboardOhlc: OHLCData[]
   timelineActivityBuckets: ActivityBucket[]
   timelineActivityStats: ActivityStats | null
 }
@@ -569,6 +763,7 @@ function buildRanges(request: DailyAIRequest): {
   const includeTicker = request.includeTicker ?? isTodayOneDay
   const includeTimeline = request.includeTimeline ?? isTodayOneDay
   const includeFearGreed = request.includeFearGreed ?? isTodayOneDay
+  const includeTraderLeaderboard = request.includeTraderLeaderboard ?? includeNewspaper
 
   const newspaperRange = includeNewspaper
     ? {
@@ -598,6 +793,13 @@ function buildRanges(request: DailyAIRequest): {
       }
     : null
 
+  const traderLeaderboardRange = includeTraderLeaderboard
+    ? {
+        ...getNewspaperRange(selectedDates),
+        cacheKey: `trader_leaderboard:${cacheDate}:${dayRange}`
+      }
+    : null
+
   return {
     cacheDate,
     dayRange,
@@ -607,13 +809,15 @@ function buildRanges(request: DailyAIRequest): {
       newspaper: includeNewspaper,
       ticker: includeTicker,
       timeline: includeTimeline,
-      fearGreed: includeFearGreed
+      fearGreed: includeFearGreed,
+      traderLeaderboard: includeTraderLeaderboard
     },
     ranges: {
       newspaper: newspaperRange,
       ticker: tickerRange,
       timeline: timelineRange,
-      fearGreed: fearGreedRange
+      fearGreed: fearGreedRange,
+      traderLeaderboard: traderLeaderboardRange
     }
   }
 }
@@ -638,7 +842,7 @@ function formatChartUrls(chartUrls: Array<{ url: string; author: string; time: s
     .join('\n')
 }
 
-function buildDailyPrompt(params: {
+interface DailyPromptParams {
   request: DailyAIRequest
   selectedDates: string[]
   cacheDate: string
@@ -652,11 +856,102 @@ function buildDailyPrompt(params: {
   tickerMessages: ChatMessage[]
   timelineMessages: ChatMessage[]
   fearGreedMessages: ChatMessage[]
+  traderLeaderboardMessages: ChatMessage[]
+  traderLeaderboardOhlc: OHLCData[]
   activityBuckets: ActivityBucket[]
   activityStats: ActivityStats | null
   chartUrls: Array<{ url: string; author: string; time: string }>
-}): string {
+}
+
+export type PromptBlockGroup =
+  | 'system'
+  | 'context'
+  | 'registry'
+  | 'specs'
+  | 'input'
+  | 'contract'
+  | 'validation'
+
+export interface PromptBlockMeta {
+  label: string
+  value: string
+}
+
+export interface PromptBlock {
+  id: string
+  group: PromptBlockGroup
+  groupLabel: string
+  title: string
+  description: string
+  active: boolean
+  cadence: string
+  refreshedBy: string[]
+  body: string
+  charCount: number
+  tokenEstimate: number
+  meta: PromptBlockMeta[]
+}
+
+/**
+ * Rough token estimate (~4 chars/token). This is an approximation for the
+ * prompt inspector UI; the authoritative token count comes from the provider
+ * usage stats stored on a generated issue.
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0
+  return Math.ceil(text.length / 4)
+}
+
+function rangeMeta(range: ModuleRange | null): PromptBlockMeta[] {
+  if (!range) return [{ label: 'Range', value: 'nicht angefragt' }]
+  return [
+    { label: 'Von', value: berlinDateTimeString(range.startDate) },
+    { label: 'Bis', value: berlinDateTimeString(range.endDate) },
+    { label: 'Cache-Key', value: range.cacheKey }
+  ]
+}
+
+function messageMeta(range: ModuleRange | null, messages: ChatMessage[]): PromptBlockMeta[] {
+  return [
+    ...rangeMeta(range),
+    { label: 'Nachrichten', value: messages.length.toLocaleString('de-DE') },
+    { label: 'User', value: String(countUniqueUsers(messages)) }
+  ]
+}
+
+function makeBlock(
+  input: Omit<PromptBlock, 'charCount' | 'tokenEstimate' | 'meta'> & { meta?: PromptBlockMeta[] }
+): PromptBlock {
+  return {
+    ...input,
+    meta: input.meta ?? [],
+    charCount: input.body.length,
+    tokenEstimate: estimateTokens(input.body)
+  }
+}
+
+const CADENCE_STATIC = 'Statisch - aendert sich nur bei Deploy'
+const CADENCE_PER_GENERATION = 'Pro Generierung (Zeit, BTC, Flags)'
+const CADENCE_FULL_ISSUE = 'Bei voller Ausgabe-Generierung'
+const CADENCE_FULL_OR_WIDGET = 'Volle Ausgabe oder Widget-Refresh'
+
+export function buildDailyPromptBlocks(params: DailyPromptParams): PromptBlock[] {
   const { todayMessages, last3DaysMessages, todayStartBerlin } = getFearGreedPeriodInfo(params.fearGreedMessages)
+  const traderLeaderboardPrompt = params.modules.traderLeaderboard
+    ? buildLeaderboardUserPrompt({
+        messages: params.traderLeaderboardMessages.map((message, index) => ({
+          id: `${message.time}-${index}`,
+          username: message.username,
+          text: message.text,
+          time: message.time
+        })),
+        ohlcData: params.traderLeaderboardOhlc,
+        from: params.ranges.traderLeaderboard?.startDate.toISOString() ?? params.cacheDate,
+        to: params.ranges.traderLeaderboard?.endDate.toISOString() ?? params.cacheDate,
+        daysBack: Math.max(params.dayRange, 1),
+        today: params.cacheDate
+      })
+    : 'Trader Leaderboard not requested.'
   const modulePromptProgram = createPromptProgram()
   for (const newspaperModule of firstPartyNewspaperModules) {
     modulePromptProgram.add(newspaperModule.prompt({
@@ -665,18 +960,50 @@ function buildDailyPrompt(params: {
     }))
   }
 
-  return `UNIFIED_DAILY_AI_PROMPT/
+  return [
+    makeBlock({
+      id: 'system_role',
+      group: 'system',
+      groupLabel: '00 - System Role',
+      title: 'System-Rolle & globale Regeln',
+      description: 'Produkt, Sprache, Tonalitaet und global verbotene Inhalte.',
+      active: true,
+      cadence: CADENCE_STATIC,
+      refreshedBy: [],
+      body: `UNIFIED_DAILY_AI_PROMPT/
 
 00_SYSTEM_ROLE/
 Product: Financial Retarded Times
 Language: German
 Tone: neutral, trocken, analytisch
-Global forbidden content: Nachrichten die mit "//" und einem Preis beginnen sind Rate Chart Game Tipps und müssen in ALLEN Modulen ignoriert werden.
-
-Existing newspaper writing rules:
-${UNIFIED_PROMPT}
-
-01_REQUEST_CONTEXT/
+Global forbidden content: Nachrichten die mit "//" und einem Preis beginnen sind Rate Chart Game Tipps und müssen in ALLEN Modulen ignoriert werden.`
+    }),
+    makeBlock({
+      id: 'writing_rules',
+      group: 'system',
+      groupLabel: '00 - System Role',
+      title: 'Newspaper Schreibregeln (UNIFIED_PROMPT)',
+      description: 'Statischer Redaktions-Styleguide fuer alle Artikel.',
+      active: true,
+      cadence: CADENCE_STATIC,
+      refreshedBy: [],
+      body: `Existing newspaper writing rules:
+${UNIFIED_PROMPT}`
+    }),
+    makeBlock({
+      id: 'request_context',
+      group: 'context',
+      groupLabel: '01 - Request Context',
+      title: 'Request-Kontext (Zeit, BTC, Flags)',
+      description: 'Aktuelle Zeit, BTC-Markt, angefragte Module und Cache-Ziele.',
+      active: true,
+      cadence: CADENCE_PER_GENERATION,
+      refreshedBy: ['full-issue', 'widget'],
+      meta: [
+        { label: 'Quelle', value: params.request.source || 'newspaper' },
+        { label: 'BTC', value: params.btcContext ? `$${params.btcContext.currentPrice.toLocaleString('de-DE')}` : 'n/a' }
+      ],
+      body: `01_REQUEST_CONTEXT/
 now_utc: ${new Date().toISOString()}
 now_berlin: ${berlinNow()}
 source: ${params.request.source || 'newspaper'}
@@ -688,17 +1015,41 @@ requested_modules:
 - ticker: ${params.modules.ticker}
 - timeline: ${params.modules.timeline}
 - fear_greed: ${params.modules.fearGreed}
+- trader_leaderboard: ${params.modules.traderLeaderboard}
 
 cache_targets:
 - newspaper: ${params.ranges.newspaper?.cacheKey ?? 'not-requested'}
 - ticker: ${params.ranges.ticker?.cacheKey ?? 'not-requested'}
 - timeline: ${params.ranges.timeline?.cacheKey ?? 'not-requested'}
 - fear_greed: ${params.ranges.fearGreed?.cacheKey ?? 'not-requested'}
-
-module_registry/
-${modulePromptProgram.render()}
-
-02_MODULE_SPECS/
+- trader_leaderboard: ${params.ranges.traderLeaderboard?.cacheKey ?? 'not-requested'}`
+    }),
+    makeBlock({
+      id: 'module_registry',
+      group: 'registry',
+      groupLabel: '01 - Module Registry',
+      title: 'Modul-Registry',
+      description: 'Von den registrierten Newspaper-Modulen erzeugte Prompt-Programme.',
+      active: true,
+      cadence: CADENCE_STATIC,
+      refreshedBy: [],
+      body: `module_registry/
+${modulePromptProgram.render()}`
+    }),
+    makeBlock({
+      id: 'spec_newspaper',
+      group: 'specs',
+      groupLabel: '02 - Module Specs',
+      title: 'Spec: Newspaper',
+      description: 'Regeln und Output-Felder fuer das Newspaper-Modul.',
+      active: params.modules.newspaper,
+      cadence: CADENCE_FULL_ISSUE,
+      refreshedBy: ['full-issue'],
+      meta: [
+        { label: 'Selected dates', value: params.selectedDates.join(', ') },
+        { label: 'Day range', value: String(params.dayRange) }
+      ],
+      body: `02_MODULE_SPECS/
 newspaper/
 - requested: ${params.modules.newspaper}
 - range_type: archive_dates
@@ -708,16 +1059,34 @@ newspaper/
 - output: topContributors, trendingTopics, featuredArticle, secondaryArticle, events, shortNews, moreArticles
 - rules: Use ONLY newspaper_messages. Do not use rolling live messages for old archive dates.
 - chart_urls:
-${formatChartUrls(params.chartUrls)}
-
-ticker/
+${formatChartUrls(params.chartUrls)}`
+    }),
+    makeBlock({
+      id: 'spec_ticker',
+      group: 'specs',
+      groupLabel: '02 - Module Specs',
+      title: 'Spec: Ticker',
+      description: 'Regeln fuer das Live-Ticker-Banner (rolling 24h).',
+      active: params.modules.ticker,
+      cadence: CADENCE_FULL_ISSUE,
+      refreshedBy: ['full-issue'],
+      body: `ticker/
 - requested: ${params.modules.ticker}
 - range_type: rolling_24h
 - cache_key: ${params.ranges.ticker?.cacheKey ?? 'not-requested'}
 - output: 15-25 punchy moving banner events if requested, otherwise []
-- rules: Use ONLY ticker_messages. Every event needs a headline and quote if requested.
-
-timeline/
+- rules: Use ONLY ticker_messages. Every event needs a headline and quote if requested.`
+    }),
+    makeBlock({
+      id: 'spec_timeline',
+      group: 'specs',
+      groupLabel: '02 - Module Specs',
+      title: 'Spec: Timeline',
+      description: 'Regeln fuer die Chat-Timeline inkl. Activity-Buckets.',
+      active: params.modules.timeline,
+      cadence: CADENCE_FULL_ISSUE,
+      refreshedBy: ['full-issue'],
+      body: `timeline/
 - requested: ${params.modules.timeline}
 - range_type: rolling
 - mode: ${params.timelineMode}
@@ -725,9 +1094,18 @@ timeline/
 - output: topic timeline events, summary, activityLevel, dominantSentiment if requested
 - activity_buckets:
 ${formatActivityContext(params.activityBuckets, params.activityStats, params.timelineMode)}
-- rules: Use ONLY timeline_messages. Cover the listed activity buckets when possible.
-
-fear_greed/
+- rules: Use ONLY timeline_messages. Cover the listed activity buckets when possible.`
+    }),
+    makeBlock({
+      id: 'spec_fear_greed',
+      group: 'specs',
+      groupLabel: '02 - Module Specs',
+      title: 'Spec: Fear & Greed',
+      description: 'Regeln fuer den Fear & Greed Index (rolling 7d).',
+      active: params.modules.fearGreed,
+      cadence: CADENCE_FULL_OR_WIDGET,
+      refreshedBy: ['full-issue', 'widget:fear-greed'],
+      body: `fear_greed/
 - requested: ${params.modules.fearGreed}
 - range_type: rolling_7d
 - today_start_berlin: ${todayStartBerlin.toISOString()}
@@ -735,27 +1113,110 @@ fear_greed/
 - previous_fear_greed:
 ${formatPreviousFearGreed(params.previousFearGreed)}
 - output: today, last3Days, last7Days, trend, insight, topDrivers if requested
-- rules: Use ONLY fear_greed_messages.
-
-03_INPUT_DATA/
+- rules: Use ONLY fear_greed_messages.`
+    }),
+    makeBlock({
+      id: 'spec_trader_leaderboard',
+      group: 'specs',
+      groupLabel: '02 - Module Specs',
+      title: 'Spec: Trader Leaderboard',
+      description: 'Regeln fuer das Trader-Leaderboard (Archiv-Range).',
+      active: params.modules.traderLeaderboard,
+      cadence: CADENCE_FULL_OR_WIDGET,
+      refreshedBy: ['full-issue', 'widget:trader-leaderboard'],
+      body: `trader_leaderboard/
+- requested: ${params.modules.traderLeaderboard}
+- range_type: archive_dates
+- selected_dates: ${params.selectedDates.join(', ')}
+- cache_key: ${params.ranges.traderLeaderboard?.cacheKey ?? 'not-requested'}
+- output: weekSummary, leaderboard, hallOfShame, dataRange if requested
+- rules: Use ONLY trader_leaderboard_context. Ignore // game tips. Score only clear bullish/bearish BTC calls against the supplied 1H BTC prices.`
+    }),
+    makeBlock({
+      id: 'input_newspaper',
+      group: 'input',
+      groupLabel: '03 - Input Data',
+      title: 'Chat-Verlauf: Newspaper (Archiv)',
+      description: 'Injizierte Archiv-Chatnachrichten fuer die ausgewaehlten Tage.',
+      active: params.modules.newspaper,
+      cadence: CADENCE_FULL_ISSUE,
+      refreshedBy: ['full-issue'],
+      meta: messageMeta(params.ranges.newspaper, params.newspaperMessages),
+      body: `03_INPUT_DATA/
 newspaper_messages/
-${formatChatModule('newspaper', params.ranges.newspaper, params.newspaperMessages)}
-
-ticker_messages/
-${formatChatModule('ticker', params.ranges.ticker, params.tickerMessages)}
-
-timeline_messages/
-${formatChatModule('timeline', params.ranges.timeline, params.timelineMessages, { truncateAt: 300 })}
-
-fear_greed_messages/
-${formatChatModule('fear_greed', params.ranges.fearGreed, params.fearGreedMessages)}
-
-04_OUTPUT_CONTRACT/
+${formatChatModule('newspaper', params.ranges.newspaper, params.newspaperMessages)}`
+    }),
+    makeBlock({
+      id: 'input_ticker',
+      group: 'input',
+      groupLabel: '03 - Input Data',
+      title: 'Chat-Verlauf: Ticker (24h)',
+      description: 'Letzte 24h Chatnachrichten fuer das Ticker-Banner (max 500).',
+      active: params.modules.ticker,
+      cadence: CADENCE_FULL_ISSUE,
+      refreshedBy: ['full-issue'],
+      meta: messageMeta(params.ranges.ticker, params.tickerMessages),
+      body: `ticker_messages/
+${formatChatModule('ticker', params.ranges.ticker, params.tickerMessages)}`
+    }),
+    makeBlock({
+      id: 'input_timeline',
+      group: 'input',
+      groupLabel: '03 - Input Data',
+      title: 'Chat-Verlauf: Timeline',
+      description: 'Rolling Chatnachrichten fuer die Timeline (auf 300 Zeichen gekuerzt).',
+      active: params.modules.timeline,
+      cadence: CADENCE_FULL_ISSUE,
+      refreshedBy: ['full-issue'],
+      meta: messageMeta(params.ranges.timeline, params.timelineMessages),
+      body: `timeline_messages/
+${formatChatModule('timeline', params.ranges.timeline, params.timelineMessages, { truncateAt: 300 })}`
+    }),
+    makeBlock({
+      id: 'input_fear_greed',
+      group: 'input',
+      groupLabel: '03 - Input Data',
+      title: 'Chat-Verlauf: Fear & Greed (7d)',
+      description: 'Letzte 7 Tage Chatnachrichten fuer die Sentiment-Analyse.',
+      active: params.modules.fearGreed,
+      cadence: CADENCE_FULL_OR_WIDGET,
+      refreshedBy: ['full-issue', 'widget:fear-greed'],
+      meta: messageMeta(params.ranges.fearGreed, params.fearGreedMessages),
+      body: `fear_greed_messages/
+${formatChatModule('fear_greed', params.ranges.fearGreed, params.fearGreedMessages)}`
+    }),
+    makeBlock({
+      id: 'input_trader_leaderboard',
+      group: 'input',
+      groupLabel: '03 - Input Data',
+      title: 'Chat + OHLC: Trader Leaderboard',
+      description: 'Direktional-Calls plus 1H BTC-Preise zur Bewertung.',
+      active: params.modules.traderLeaderboard,
+      cadence: CADENCE_FULL_OR_WIDGET,
+      refreshedBy: ['full-issue', 'widget:trader-leaderboard'],
+      meta: [
+        ...messageMeta(params.ranges.traderLeaderboard, params.traderLeaderboardMessages),
+        { label: 'OHLC Candles', value: String(params.traderLeaderboardOhlc.length) }
+      ],
+      body: `trader_leaderboard_context/
+${traderLeaderboardPrompt}`
+    }),
+    makeBlock({
+      id: 'output_contract',
+      group: 'contract',
+      groupLabel: '04 - Output Contract',
+      title: 'Output-Contract (Schema)',
+      description: 'Erwartete JSON-Struktur und Regeln fuer nicht angefragte Module.',
+      active: true,
+      cadence: CADENCE_STATIC,
+      refreshedBy: [],
+      body: `04_OUTPUT_CONTRACT/
 Return exactly one valid JSON object matching DailyAIResponseSchema:
 - newspaper: { requested, reason, data }
 - ticker: { requested, reason, events }
 - timeline: { requested, reason, events, summary, activityLevel, dominantSentiment }
 - fearGreed: { requested, reason, data }
+- traderLeaderboard: { requested, reason, data }
 
 For every unrequested module:
 - set requested=false
@@ -763,8 +1224,18 @@ For every unrequested module:
 - set data=null for data modules
 - set events=[] for event modules
 - set summary/activityLevel/dominantSentiment=null for timeline
-
-05_FINAL_VALIDATION_RULES/
+- set traderLeaderboard.data=null when trader_leaderboard is not requested`
+    }),
+    makeBlock({
+      id: 'validation_rules',
+      group: 'validation',
+      groupLabel: '05 - Final Validation',
+      title: 'Finale Validierungs-Regeln',
+      description: 'Letzte Leitplanken bevor das Modell antwortet.',
+      active: true,
+      cadence: CADENCE_STATIC,
+      refreshedBy: [],
+      body: `05_FINAL_VALIDATION_RULES/
 - Every output item must come from its module range.
 - Quotes must be exact or omitted with null.
 - Never include //price game tips.
@@ -773,6 +1244,16 @@ For every unrequested module:
 - Do not use ticker_messages for newspaper.
 - Do not use rolling live messages when generating an archive-date newspaper.
 - Do not generate historical ticker or Fear & Greed data for an old newspaper date unless that module was explicitly requested.`
+    })
+  ]
+}
+
+function renderPromptBlocks(blocks: PromptBlock[]): string {
+  return blocks.map(block => block.body).join('\n\n')
+}
+
+function buildDailyPrompt(params: DailyPromptParams): string {
+  return renderPromptBlocks(buildDailyPromptBlocks(params))
 }
 
 function addTickerIds(events: DailyTickerEventData[]): TickerCacheEvent[] {
@@ -807,7 +1288,8 @@ function buildFearGreedDateRangeInfo(messages: ChatMessage[]): FearGreedDateRang
 async function writeDailyCaches(
   supabase: SupabaseServerClient,
   object: DailyAIResponseData,
-  context: DailyAIContext
+  context: DailyAIContext,
+  aiUsage: NewspaperAIUsage | null
 ): Promise<void> {
   const cacheWrites: Array<Promise<void>> = []
   let enrichedNewspaperData: UnifiedNewspaperData | null = null
@@ -857,6 +1339,67 @@ async function writeDailyCaches(
       context.counts.fearGreedUsers,
       context.fearGreedDateRangeInfo
     ))
+    cacheWrites.push(writeNewspaperModuleCache(
+      supabase,
+      {
+        moduleId: fearGreedModule.id,
+        cacheDate: context.cacheDate,
+        dayRange: context.dayRange,
+        moduleVersion: fearGreedModule.version,
+        resourceFingerprint: buildModuleResourceFingerprint({
+          moduleId: fearGreedModule.id,
+          moduleVersion: fearGreedModule.version,
+          issueDate: context.cacheDate,
+          dayRange: context.dayRange,
+          resources: context.ranges.fearGreed
+        }),
+        data: {
+          data: object.fearGreed.data,
+          dateRange: context.fearGreedDateRangeInfo
+        },
+        metadata: {
+          range: context.ranges.fearGreed?.cacheKey ?? null,
+          aiUsage
+        },
+        messageCount: context.counts.fearGreedMessages,
+        uniqueUsers: context.counts.fearGreedUsers
+      },
+      fearGreedModule.cache
+    ))
+  }
+
+  if (object.traderLeaderboard.requested && object.traderLeaderboard.data && context.ranges.traderLeaderboard) {
+    cacheWrites.push(writeNewspaperModuleCache(
+      supabase,
+      {
+        moduleId: traderLeaderboardModule.id,
+        cacheDate: context.cacheDate,
+        dayRange: context.dayRange,
+        moduleVersion: traderLeaderboardModule.version,
+        resourceFingerprint: buildModuleResourceFingerprint({
+          moduleId: traderLeaderboardModule.id,
+          moduleVersion: traderLeaderboardModule.version,
+          issueDate: context.cacheDate,
+          dayRange: context.dayRange,
+          resources: context.ranges.traderLeaderboard
+        }),
+        data: {
+          data: object.traderLeaderboard.data,
+          range: {
+            startDate: context.ranges.traderLeaderboard.startDate.toISOString(),
+            endDate: context.ranges.traderLeaderboard.endDate.toISOString(),
+            cacheKey: context.ranges.traderLeaderboard.cacheKey
+          }
+        },
+        metadata: {
+          ohlcCandles: context.traderLeaderboardOhlc.length,
+          aiUsage
+        },
+        messageCount: context.counts.traderLeaderboardMessages,
+        uniqueUsers: context.counts.traderLeaderboardUsers
+      },
+      traderLeaderboardModule.cache
+    ))
   }
 
   if (object.newspaper.requested && context.ranges.newspaper) {
@@ -866,6 +1409,7 @@ async function writeDailyCaches(
         object,
         context,
         newspaperData: enrichedNewspaperData,
+        aiUsage,
         source: 'generated'
       })
     ))
@@ -874,7 +1418,11 @@ async function writeDailyCaches(
   await Promise.all(cacheWrites)
 }
 
-export async function createDailyAIStream(request: DailyAIRequest = {}) {
+async function prepareDailyAIInputs(request: DailyAIRequest): Promise<{
+  supabase: SupabaseServerClient
+  context: DailyAIContext
+  promptParams: DailyPromptParams
+}> {
   const supabase = await createClient()
   const rangeConfig = buildRanges(request)
   const fetchRange = buildFetchRange(rangeConfig.ranges)
@@ -889,6 +1437,7 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
   const tickerMessages = filterMessages(allMessages, rangeConfig.ranges.ticker).slice(-500)
   const timelineMessages = filterMessages(allMessages, rangeConfig.ranges.timeline)
   const fearGreedMessages = filterMessages(allMessages, rangeConfig.ranges.fearGreed)
+  const traderLeaderboardMessages = filterMessages(allMessages, rangeConfig.ranges.traderLeaderboard)
 
   if (rangeConfig.modules.newspaper && newspaperMessages.length === 0) {
     throw new Error('No newspaper messages found for selected date range')
@@ -904,6 +1453,9 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
   const fearGreedDateRangeInfo = rangeConfig.modules.fearGreed
     ? buildFearGreedDateRangeInfo(fearGreedMessages)
     : null
+  const traderLeaderboardOhlc = rangeConfig.modules.traderLeaderboard
+    ? await fetchLeaderboardOHLC(supabase, Math.max(rangeConfig.dayRange, 1))
+    : []
 
   const context: DailyAIContext = {
     cacheDate: rangeConfig.cacheDate,
@@ -917,19 +1469,22 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
       tickerMessages: tickerMessages.length,
       timelineMessages: timelineMessages.length,
       fearGreedMessages: fearGreedMessages.length,
+      traderLeaderboardMessages: traderLeaderboardMessages.length,
       newspaperUsers: countUniqueUsers(newspaperMessages),
       tickerUsers: countUniqueUsers(tickerMessages),
       timelineUsers: countUniqueUsers(timelineMessages),
-      fearGreedUsers: countUniqueUsers(fearGreedMessages)
+      fearGreedUsers: countUniqueUsers(fearGreedMessages),
+      traderLeaderboardUsers: countUniqueUsers(traderLeaderboardMessages)
     },
     newspaperUserAvatarMap: userAvatarMap,
     activeChatters,
     fearGreedDateRangeInfo,
+    traderLeaderboardOhlc,
     timelineActivityBuckets: activityBuckets,
     timelineActivityStats: activityStats
   }
 
-  const prompt = buildDailyPrompt({
+  const promptParams: DailyPromptParams = {
     request,
     selectedDates: rangeConfig.selectedDates,
     cacheDate: rangeConfig.cacheDate,
@@ -943,10 +1498,70 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
     tickerMessages,
     timelineMessages,
     fearGreedMessages,
+    traderLeaderboardMessages,
+    traderLeaderboardOhlc,
     activityBuckets,
     activityStats,
     chartUrls
-  })
+  }
+
+  return { supabase, context, promptParams }
+}
+
+export interface DailyAIPromptPreview {
+  meta: {
+    cacheDate: string
+    selectedDates: string[]
+    dayRange: number
+    timelineMode: TimelineMode
+    modules: DailyAIContext['modules']
+    counts: DailyAIContext['counts']
+    generatedAt: string
+    model: string
+  }
+  blocks: PromptBlock[]
+  totals: {
+    tokenEstimate: number
+    activeTokenEstimate: number
+    charCount: number
+  }
+}
+
+/**
+ * Builds the exact prompt that createDailyAIStream would send, broken into
+ * structured blocks for the prompt inspector. Does NOT call the model, so it
+ * costs no tokens. Reuses prepareDailyAIInputs so the preview cannot drift
+ * from the real generation path.
+ */
+export async function buildDailyAIPromptPreview(request: DailyAIRequest = {}): Promise<DailyAIPromptPreview> {
+  const { context, promptParams } = await prepareDailyAIInputs(request)
+  const blocks = buildDailyPromptBlocks(promptParams)
+
+  const tokenEstimate = blocks.reduce((sum, block) => sum + block.tokenEstimate, 0)
+  const charCount = blocks.reduce((sum, block) => sum + block.charCount, 0)
+  const activeTokenEstimate = blocks
+    .filter(block => block.active)
+    .reduce((sum, block) => sum + block.tokenEstimate, 0)
+
+  return {
+    meta: {
+      cacheDate: context.cacheDate,
+      selectedDates: context.selectedDates,
+      dayRange: context.dayRange,
+      timelineMode: context.timelineMode,
+      modules: context.modules,
+      counts: context.counts,
+      generatedAt: new Date().toISOString(),
+      model: 'gpt-5.4'
+    },
+    blocks,
+    totals: { tokenEstimate, activeTokenEstimate, charCount }
+  }
+}
+
+export async function createDailyAIStream(request: DailyAIRequest = {}) {
+  const { supabase, context, promptParams } = await prepareDailyAIInputs(request)
+  const prompt = buildDailyPrompt(promptParams)
 
   console.log('[DAILY-AI] Generating unified stream', {
     modules: context.modules,
@@ -955,39 +1570,59 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
     counts: context.counts
   })
 
+  let streamFailure: DailyAIErrorDetails | null = null
+  let aiUsage: NewspaperAIUsage | null = null
+
   const result = streamObject({
     model: openai('gpt-5.4'),
     schema: DailyAIResponseSchema,
     system: `Du bist der Unified Daily AI Generator der Financial Retarded Times. Befolge die Modulgrenzen strikt und gib ausschließlich das strukturierte Objekt zurück.`,
     providerOptions: { openai: { reasoning: { effort: 'high' } } },
     prompt,
-    onFinish: async ({ object, error }) => {
+    onFinish: async ({ object, error, usage, response }) => {
       if (object) {
-        await writeDailyCaches(supabase, object, context)
+        aiUsage = summarizeDailyAIUsage(usage, response)
+        console.log('[DAILY-AI] Token usage:', JSON.stringify(aiUsage))
+        await writeDailyCaches(supabase, object, context, aiUsage)
+      } else if (error && streamFailure) {
+        console.warn('[DAILY-AI] Skipping schema error after stream failure:', JSON.stringify(streamFailure))
       } else if (error) {
-        console.error('[DAILY-AI] Schema error:', String(error))
+        console.error('[DAILY-AI] Schema error:', JSON.stringify(dailyAIErrorForLog(error)))
       }
     },
-    onError: (error) => {
-      console.error('[DAILY-AI] Stream error:', error)
+    onError: ({ error }) => {
+      streamFailure = dailyAIErrorForLog(error)
+      console.error('[DAILY-AI] Stream error:', JSON.stringify(streamFailure))
     }
   })
 
-  return { result, context }
+  return { result, context, getStreamFailure: () => streamFailure, getAIUsage: () => aiUsage }
 }
 
 export async function generateDailyAIObject(request: DailyAIRequest = {}): Promise<{
   object: DailyAIResponseData
   context: DailyAIContext
+  aiUsage: NewspaperAIUsage | null
 }> {
-  const { result, context } = await createDailyAIStream(request)
-  const object = await result.object
+  const { result, context, getStreamFailure, getAIUsage } = await createDailyAIStream(request)
+  let object: DailyAIResponseData | undefined
+
+  try {
+    object = await result.object
+  } catch (error) {
+    const details = getStreamFailure() ?? getDailyAIErrorDetails(error)
+    throw createProviderError(details, error) ?? error
+  }
 
   if (!object) {
+    const details = getStreamFailure()
+    if (details) {
+      throw createProviderError(details, new Error(details.message)) ?? new Error(details.userMessage)
+    }
     throw new Error('Unified daily AI did not return an object')
   }
 
-  return { object, context }
+  return { object, context, aiUsage: getAIUsage() }
 }
 
 export function toLegacyTickerResponse(object: DailyAIResponseData): { events: TickerCacheEvent[]; eventCount: number } {
