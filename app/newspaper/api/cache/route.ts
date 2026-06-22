@@ -26,6 +26,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { cacheLogger as log } from '@/lib/logger'
+import { isNewspaperIssue } from '../../engine'
 
 export async function GET(request: NextRequest) {
   const date = request.nextUrl.searchParams.get('date')
@@ -72,8 +73,12 @@ export async function GET(request: NextRequest) {
           throw fallbackError
         }
         
+        const legacyData = isNewspaperIssue(fallbackCache.data)
+          ? fallbackCache.data.modules.articleDigest.data
+          : fallbackCache.data
+
         return NextResponse.json({
-          data: fallbackCache.data,
+          data: legacyData,
           messageCount: fallbackCache.message_count,
           uniqueUsers: fallbackCache.unique_users,
           updatedAt: fallbackCache.updated_at,
@@ -87,8 +92,12 @@ export async function GET(request: NextRequest) {
       throw error
     }
     
+    const legacyData = isNewspaperIssue(cache.data)
+      ? cache.data.modules.articleDigest.data
+      : cache.data
+
     return NextResponse.json({
-      data: cache.data,
+      data: legacyData,
       messageCount: cache.message_count,
       uniqueUsers: cache.unique_users,
       updatedAt: cache.updated_at,
@@ -103,4 +112,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-

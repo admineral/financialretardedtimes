@@ -86,6 +86,10 @@ interface LeaderboardData {
   fetchedAt?: string
 }
 
+interface LeaderboardWidgetProps {
+  embedded?: boolean
+}
+
 const BADGE_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
   oracle: { icon: '🔮', label: 'Oracle', color: 'text-violet-400' },
   analyst: { icon: '📊', label: 'Analyst', color: 'text-blue-400' },
@@ -254,7 +258,7 @@ function ExpandableRow({
   )
 }
 
-export function LeaderboardWidget() {
+export function LeaderboardWidget({ embedded = false }: LeaderboardWidgetProps = {}) {
   const [data, setData] = useState<LeaderboardData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [showAll, setShowAll] = useState(false)
@@ -300,11 +304,17 @@ export function LeaderboardWidget() {
     if (diffHours < 24) return `vor ${diffHours}h`
     return `vor ${Math.floor(diffHours / 24)}d`
   })() : null
+  const shellClassName = embedded
+    ? 'mt-10 rounded-sm border border-primary/10 bg-card/20 relative z-10 overflow-hidden'
+    : 'border-t border-primary/10 bg-card/20 relative z-10'
+  const innerClassName = embedded
+    ? 'p-5 sm:p-6'
+    : 'w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8'
 
   if (isLoading) {
     return (
-      <section className="border-t border-primary/10 bg-card/20 relative z-10">
-        <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <section className={shellClassName}>
+        <div className={innerClassName}>
           <div className="flex items-center gap-3 mb-5">
             <Trophy className="w-5 h-5 text-amber-400" />
             <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">Trader Leaderboard</h2>
@@ -324,8 +334,8 @@ export function LeaderboardWidget() {
   if (entries.length === 0) return null
 
   return (
-    <section className="border-t border-primary/10 bg-card/20 relative z-10">
-      <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <section className={shellClassName}>
+      <div className={innerClassName}>
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">

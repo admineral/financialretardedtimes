@@ -36,6 +36,7 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { newspaperLogger as log } from '@/lib/logger'
 import type { DateStats } from '../../lib/types'
+import { getNewspaperDateKey } from '../../lib/timezone'
 
 // Cache duration for "today's" data in milliseconds (5 minutes)
 // Past days don't change, so we only need to refresh if today's data might have new messages
@@ -49,7 +50,7 @@ const TODAY_CACHE_DURATION_MS = 5 * 60 * 1000
 function isCacheValid(updatedAt: string, dates: DateStats[]): boolean {
   if (!dates || dates.length === 0) return false
   
-  const today = new Date().toISOString().split('T')[0]
+  const today = getNewspaperDateKey()
   const mostRecentDateInCache = dates[0]?.date
   
   // If cache doesn't contain today's data, it's stale - a new day has started
@@ -72,7 +73,7 @@ function calculateStats(messages: Array<{ time: string; username: string }>) {
   const dateMap = new Map<string, { count: number; users: Set<string> }>()
   
   for (const msg of messages) {
-    const date = new Date(msg.time).toISOString().split('T')[0]
+    const date = getNewspaperDateKey(new Date(msg.time))
     if (!dateMap.has(date)) {
       dateMap.set(date, { count: 0, users: new Set() })
     }
@@ -94,7 +95,7 @@ function calculateStats(messages: Array<{ time: string; username: string }>) {
   const sortedDates = dates.map(d => d.date)
   const usersByDate = new Map<string, Set<string>>()
   for (const msg of messages) {
-    const date = new Date(msg.time).toISOString().split('T')[0]
+    const date = getNewspaperDateKey(new Date(msg.time))
     if (!usersByDate.has(date)) {
       usersByDate.set(date, new Set())
     }
@@ -151,16 +152,7 @@ export async function GET(request: NextRequest) {
       }
 
       if (!cacheError && cachedData) {
-        log.debug('Stale cache hit for available dates')
-        return Response.json({
-          dates: cachedData.dates,
-          totalDays: cachedData.total_days,
-          totalMessages: cachedData.total_messages,
-          cumulativeUsers: cachedData.cumulative_users,
-          isFromCache: true,
-          stale: true,
-          cacheAge: Date.now() - new Date(cachedData.updated_at).getTime()
-        })
+        log.debug('Stale cache hit for available dates, refreshing')
       }
     }
     
@@ -231,4 +223,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-

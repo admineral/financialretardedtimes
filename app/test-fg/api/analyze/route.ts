@@ -29,6 +29,7 @@ import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
 import { generateDailyAIObject, toLegacyFearGreedResponse } from '@/app/newspaper/lib/daily-ai'
+import { pruneFearGreedHistoryForDate } from '@/app/newspaper/lib/cache-writers'
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
@@ -621,6 +622,7 @@ ${formattedChat}`,
             if (historyResult.error) {
               console.error(`[FEAR-GREED] ⚠️ Failed to save history:`, historyResult.error)
             } else {
+              await pruneFearGreedHistoryForDate(saveSupabase, cacheDate)
               console.log(`[FEAR-GREED] ✅ Saved to history for tracking over time`)
             }
           } catch (saveError) {

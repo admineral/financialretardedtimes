@@ -30,10 +30,10 @@ export { ChatSection } from './ChatSection'
 export { ContributorAvatar, prefetchAvatars } from './ContributorAvatar'
 export { NewspaperTimeline } from './NewspaperTimeline'
 export { AvatarProvider, useAvatarContext } from './AvatarContext'
+export { NewspaperIssueProvider, useNewspaperIssue } from './NewspaperIssueProvider'
 
 // UI Components
 export { Skeleton, StreamingText, StreamingContainer, TextOrSkeleton } from './ui/Skeleton'
 
 // Style Helpers
 export { getCategoryStyle, getEventStyle } from './ui/helpers'
-

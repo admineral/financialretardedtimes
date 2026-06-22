@@ -18,8 +18,24 @@ import { AlertTriangle,ChevronLeft,ChevronRight,Loader2,MessageSquare,RefreshCw,
 import { useCallback,useEffect,useRef,useState } from 'react'
 import { createPortal } from 'react-dom'
 
+const CHAT_EVENT_TYPES = ['discussion', 'prediction', 'drama', 'insight', 'milestone', 'humor'] as const
+
 // Event types for chat moments
-type ChatEventType = 'discussion' | 'prediction' | 'drama' | 'insight' | 'milestone' | 'humor'
+type ChatEventType = typeof CHAT_EVENT_TYPES[number]
+
+function normalizeChatEventType(type: ChatEventType | string | null | undefined): ChatEventType {
+  if (!type) return 'discussion'
+
+  const lower = type.toLowerCase().trim()
+  if ((CHAT_EVENT_TYPES as readonly string[]).includes(lower)) return lower as ChatEventType
+  if (lower.includes('discuss') || lower.includes('chat') || lower.includes('debate')) return 'discussion'
+  if (lower.includes('predict') || lower.includes('prognose') || lower.includes('call')) return 'prediction'
+  if (lower.includes('drama') || lower.includes('streit') || lower.includes('beef') || lower.includes('conflict')) return 'drama'
+  if (lower.includes('insight') || lower.includes('erkenntnis') || lower.includes('analyse')) return 'insight'
+  if (lower.includes('mile') || lower.includes('meilenstein')) return 'milestone'
+  if (lower.includes('humor') || lower.includes('witz') || lower.includes('lol') || lower.includes('meme')) return 'humor'
+  return 'discussion'
+}
 
 interface ChatEvent {
   id: string
@@ -31,8 +47,8 @@ interface ChatEvent {
   type: ChatEventType
   participants: string[]
   messageCount?: number
-  quote?: string
-  quoteAuthor?: string
+  quote?: string | null
+  quoteAuthor?: string | null
 }
 
 // AI Response event format (from /test-timeline/api/analyze)
@@ -62,6 +78,11 @@ interface ChatHistoryTimelineProps {
   mini?: boolean // Ultra-minimal one-liner, expands on hover
   defaultMode?: TimelineMode // Default: '3d'
   cacheRefreshKey?: number
+  controlledEvents?: ChatEvent[]
+  controlledActivityBuckets?: ActivityBucket[]
+  controlledActivityStats?: ActivityStats | null
+  controlledCacheInfo?: { updatedAt: string; summary?: string; activityLevel?: string } | null
+  disableAutoFetch?: boolean
 }
 
 interface ActivityBucket {
@@ -294,8 +315,8 @@ function renderTextWithQuotes(text: string, compact = false) {
 }
 
 // Get style for event type - High contrast colors for accessibility
-function getEventStyle(type: ChatEventType) {
-  switch (type) {
+function getEventStyle(type: ChatEventType | string | null | undefined) {
+  switch (normalizeChatEventType(type)) {
     case 'discussion':
       return {
         icon: MessageSquare,
@@ -934,7 +955,12 @@ export function ChatHistoryTimeline({
   compact = false,
   mini = false,
   defaultMode = '3d',
-  cacheRefreshKey = 0
+  cacheRefreshKey = 0,
+  controlledEvents,
+  controlledActivityBuckets,
+  controlledActivityStats,
+  controlledCacheInfo,
+  disableAutoFetch = false
 }: ChatHistoryTimelineProps) {
   const [events, setEvents] = useState<ChatEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -953,6 +979,44 @@ export function ChatHistoryTimeline({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(true)
+  const controlledSignatureRef = useRef<string>('')
+
+  useEffect(() => {
+    if (controlledEvents === undefined) return
+    const controlledSignature = JSON.stringify({
+      events: controlledEvents.map(event => [
+        event.id,
+        event.date,
+        event.time,
+        event.type,
+        event.title,
+        event.description,
+        event.quote ?? '',
+        event.quoteAuthor ?? ''
+      ]),
+      activityBuckets: (controlledActivityBuckets ?? []).map(bucket => [
+        bucket.timestamp,
+        bucket.label,
+        bucket.count,
+        bucket.uniqueUsers,
+        bucket.intensity
+      ]),
+      activityStats: controlledActivityStats,
+      cacheInfo: controlledCacheInfo
+    })
+    if (controlledSignature === controlledSignatureRef.current) return
+    controlledSignatureRef.current = controlledSignature
+
+    setEvents(controlledEvents.map(event => ({
+      ...event,
+      type: normalizeChatEventType(event.type)
+    })))
+    setActivityBuckets(controlledActivityBuckets ?? [])
+    setActivityStats(controlledActivityStats ?? null)
+    setCacheInfo(controlledCacheInfo ?? null)
+    setHasLoaded(true)
+    setError(null)
+  }, [controlledActivityBuckets, controlledActivityStats, controlledCacheInfo, controlledEvents])
 
   // Check scroll position
   const checkScroll = useCallback(() => {
@@ -1284,19 +1348,21 @@ export function ChatHistoryTimeline({
   // Auto-start if enabled (only once)
   const hasStartedRef = useRef(false)
   useEffect(() => {
+    if (disableAutoFetch) return
     if (autoStart && !hasStartedRef.current && !hasLoaded) {
       hasStartedRef.current = true
       loadTimeline()
       loadActivity()
     }
-  }, [autoStart, hasLoaded, loadTimeline, loadActivity])
+  }, [autoStart, hasLoaded, loadTimeline, loadActivity, disableAutoFetch])
 
   useEffect(() => {
+    if (disableAutoFetch) return
     if (cacheRefreshKey <= 0) return
     console.log('[ChatTimeline] 🔁 Cache refresh signal received')
     loadTimeline({ allowGenerate: false, showLoading: false })
     loadActivity()
-  }, [cacheRefreshKey, loadTimeline, loadActivity])
+  }, [cacheRefreshKey, loadTimeline, loadActivity, disableAutoFetch])
   
   // Reload when mode changes
   const handleModeChange = useCallback((newMode: TimelineMode) => {
@@ -2283,4 +2349,3 @@ export function ChatHistoryTimeline({
     </div>
   )
 }
-

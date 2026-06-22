@@ -5,6 +5,7 @@ import type {
   DailyTimelineEventData,
   UnifiedNewspaperData
 } from './types'
+import { getNewspaperDateKey } from './timezone'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -21,6 +22,40 @@ export interface FearGreedDateRangeInfo {
   oldestDate: string
   newestDate: string
   todayMessageCount: number
+}
+
+export async function pruneFearGreedHistoryForDate(
+  supabase: SupabaseServerClient,
+  analysisDate: string
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('fear_greed_history')
+    .select('id, created_at')
+    .eq('analysis_date', analysisDate)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('[DAILY-AI] Failed to read fear/greed history for pruning:', error.message)
+    return
+  }
+
+  if (!data || data.length <= 2) return
+
+  const keepIds = new Set([data[0].id, data[data.length - 1].id])
+  const deleteIds = data
+    .map(row => row.id)
+    .filter(id => !keepIds.has(id))
+
+  if (deleteIds.length === 0) return
+
+  const { error: deleteError } = await supabase
+    .from('fear_greed_history')
+    .delete()
+    .in('id', deleteIds)
+
+  if (deleteError) {
+    console.error('[DAILY-AI] Failed to prune fear/greed history:', deleteError.message)
+  }
 }
 
 export async function writeNewspaperCache(
@@ -82,8 +117,8 @@ export async function writeTickerCache(
       cache_key: 'ticker-24h',
       events,
       event_count: events.length,
-      date_range_start: startDate.toISOString().split('T')[0],
-      date_range_end: endDate.toISOString().split('T')[0],
+      date_range_start: getNewspaperDateKey(startDate),
+      date_range_end: getNewspaperDateKey(endDate),
       updated_at: new Date().toISOString(),
       metadata: {
         messageCount,
@@ -113,8 +148,8 @@ export async function writeTimelineCache(
       cache_key: `timeline-${mode}`,
       events: payload.events,
       event_count: payload.events.length,
-      date_range_start: startDate.toISOString().split('T')[0],
-      date_range_end: endDate.toISOString().split('T')[0],
+      date_range_start: getNewspaperDateKey(startDate),
+      date_range_end: getNewspaperDateKey(endDate),
       updated_at: new Date().toISOString(),
       metadata: {
         mode,
@@ -140,7 +175,7 @@ export async function writeFearGreedCache(
   uniqueUsers: number,
   dateRangeInfo: FearGreedDateRangeInfo
 ): Promise<void> {
-  const cacheDate = new Date().toISOString().split('T')[0]
+  const cacheDate = getNewspaperDateKey()
 
   const cachePromise = supabase
     .from('fear_greed_cache')
@@ -200,5 +235,8 @@ export async function writeFearGreedCache(
 
   if (historyResult.error) {
     console.error('[DAILY-AI] Failed fear/greed history write:', historyResult.error.message)
+    return
   }
+
+  await pruneFearGreedHistoryForDate(supabase, cacheDate)
 }

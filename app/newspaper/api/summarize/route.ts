@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       selectedDates,
       dayRange = 1,
       timelineMode = '24h',
+      includeNewspaper = true,
       includeTicker,
       includeTimeline,
       includeFearGreed
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
       selectedDates?: string[]
       dayRange?: number
       timelineMode?: '24h' | '3d' | '7d'
+      includeNewspaper?: boolean
       includeTicker?: boolean
       includeTimeline?: boolean
       includeFearGreed?: boolean
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
       selectedDates,
       dayRange,
       timelineMode,
-      includeNewspaper: true,
+      includeNewspaper,
       includeTicker,
       includeTimeline,
       includeFearGreed,

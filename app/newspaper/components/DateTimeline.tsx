@@ -83,37 +83,35 @@ export function DateTimeline({
     setScrollIndex(0)
   }, [availableDates.length])
 
+  const getDatesForRange = (anchorDate: string | null, range: DayRange) => {
+    if (!anchorDate) return []
+    if (range === 1) return [anchorDate]
+
+    const anchorIndex = availableDates.findIndex(dateStats => dateStats.date === anchorDate)
+    if (anchorIndex < 0) return [anchorDate]
+
+    return availableDates
+      .slice(anchorIndex, anchorIndex + range)
+      .map(dateStats => dateStats.date)
+  }
+
   const handleDayRangeChange = (newRange: DayRange) => {
     setDayRange(newRange)
     setScrollIndex(0)
     
     if (availableDates.length > 0 && onDayRangeChange) {
-      const mostRecentDate = availableDates[0].date
-      
-      if (newRange === 1) {
-        onDateSelect(mostRecentDate)
-        onDayRangeChange(newRange, [mostRecentDate])
-      } else {
-        const datesToInclude = availableDates.slice(0, newRange).map(d => d.date)
-        onDateSelect(mostRecentDate)
-        onDayRangeChange(newRange, datesToInclude)
-      }
+      const anchorDate = selectedDate || availableDates[0].date
+      const datesToInclude = getDatesForRange(anchorDate, newRange)
+
+      onDateSelect(anchorDate)
+      onDayRangeChange(newRange, datesToInclude)
     }
   }
   
   const handleDateClick = (clickedDate: string) => {
-    if (dayRange > 1) {
-      const currentRangeDates = availableDates.slice(0, dayRange).map(d => d.date)
-      const isInCurrentRange = currentRangeDates.includes(clickedDate)
-      
-      if (!isInCurrentRange) {
-        setDayRange(1)
-        onDateSelect(clickedDate)
-        if (onDayRangeChange) onDayRangeChange(1, [clickedDate])
-        return
-      }
-    }
+    setDayRange(1)
     onDateSelect(clickedDate)
+    if (onDayRangeChange) onDayRangeChange(1, [clickedDate])
   }
 
   useEffect(() => {
@@ -126,9 +124,12 @@ export function DateTimeline({
   
   const getMultiDayStats = () => {
     if (dayRange === 1 || availableDates.length === 0) return null
-    const datesInRange = availableDates.slice(0, dayRange)
+    const selectedRangeDates = getDatesForRange(selectedDate, dayRange)
+    const datesInRange = availableDates.filter(d => selectedRangeDates.includes(d.date))
     const totalMessages = datesInRange.reduce((sum, d) => sum + d.messageCount, 0)
-    const totalUsers = cumulativeUsers?.[dayRange] ?? datesInRange.reduce((sum, d) => sum + d.uniqueUsers, 0)
+    const totalUsers = selectedDate === availableDates[0]?.date
+      ? cumulativeUsers?.[dayRange] ?? datesInRange.reduce((sum, d) => sum + d.uniqueUsers, 0)
+      : datesInRange.reduce((sum, d) => sum + d.uniqueUsers, 0)
     return { totalMessages, totalUsers, daysCount: dayRange, actualDays: datesInRange.length }
   }
   
@@ -136,9 +137,7 @@ export function DateTimeline({
   const visibleDates = availableDates.slice(scrollIndex, scrollIndex + visibleCount)
 
   const getDatesInRange = () => {
-    if (dayRange === 1) return [selectedDate]
-    if (availableDates.length === 0) return [selectedDate]
-    return availableDates.slice(0, dayRange).map(d => d.date)
+    return getDatesForRange(selectedDate, dayRange)
   }
   const datesInRange = getDatesInRange()
 

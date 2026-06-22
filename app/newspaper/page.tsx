@@ -16,7 +16,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon, ExternalLink } from 'lucide-react'
+import { SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon, ExternalLink, Clock3, MessageSquare, Users } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
@@ -27,16 +27,16 @@ import {
   ChatSection,
   NewspaperTimeline,
   AvatarProvider,
+  NewspaperIssueProvider,
 } from './components'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
-import { FearGreedWidget, FearGreedProvider } from '@/app/test-fg/components'
+import { FearGreedDisplay } from '@/app/test-fg/components'
 import { ChartTimelineWidget, SentimentWidget } from '@/app/chart-timeline/components'
 import { PredictionWidget } from '@/app/prediction/components'
 import { LeaderboardWidget } from '@/app/chart-leader/components'
 import { ChatTicker } from '@/app/components/ChatTicker'
-import type { CacheInfo } from './components'
 import type { DayRange } from './components/DateTimeline'
-import type { DateStats, UnifiedNewspaperData } from './lib/types'
+import type { DateStats } from './lib/types'
 
 interface BTCData {
   price: number
@@ -54,8 +54,6 @@ interface CachedDateBootstrap {
   messageCount: number
   uniqueUsers: number
 }
-
-const LAST_NEWSPAPER_DATE_KEY = 'newspaper:lastSelectedDate'
 
 function CurrentDate({ cacheUpdatedAt }: { cacheUpdatedAt?: string }) {
   const [date, setDate] = useState<string>('')
@@ -117,6 +115,80 @@ function formatTimeAgo(dateString: string): string {
   return `${diffDays}d ago`
 }
 
+function formatIssueTimestamp(dateString: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(dateString))
+}
+
+function formatIssueDateRange(selectedDates: string[]): string {
+  if (selectedDates.length === 0) return ''
+
+  const sortedDates = [...selectedDates].sort()
+  const formatDate = (date: string) => new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: 'short'
+  }).format(new Date(`${date}T12:00:00`))
+
+  if (sortedDates.length === 1) return formatDate(sortedDates[0])
+  return `${formatDate(sortedDates[0])} - ${formatDate(sortedDates[sortedDates.length - 1])}`
+}
+
+function IssueMetaStrip({
+  cacheInfo,
+  dayRange,
+  selectedDates
+}: {
+  cacheInfo: {
+    updatedAt: string
+    messageCount: number
+    uniqueUsers: number
+  } | null
+  dayRange: DayRange
+  selectedDates: string[]
+}) {
+  if (!cacheInfo || dayRange === 1) return null
+
+  const issueLabel = selectedDates.length && selectedDates.length !== dayRange
+    ? `${selectedDates.length}/${dayRange}D-Ausgabe`
+    : `${dayRange}D-Ausgabe`
+
+  return (
+    <div className="mb-8 flex flex-col gap-3 border-y border-primary/10 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="font-headline text-[11px] uppercase tracking-[0.18em] text-primary/80">
+          {issueLabel}
+        </span>
+        <span className="hidden h-px w-12 bg-gradient-to-r from-primary/40 to-transparent sm:block" />
+        <span className="truncate text-xs text-muted-foreground">
+          {formatIssueDateRange(selectedDates)}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+          <Clock3 className="h-3.5 w-3.5 text-primary/70" />
+          {formatIssueTimestamp(cacheInfo.updatedAt)}
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+          <MessageSquare className="h-3.5 w-3.5 text-primary/70" />
+          {cacheInfo.messageCount.toLocaleString('de-DE')}
+          <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">Msgs</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+          <Users className="h-3.5 w-3.5 text-primary/70" />
+          {cacheInfo.uniqueUsers.toLocaleString('de-DE')}
+          <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">User</span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Animated BTC Price Display
  */
@@ -173,30 +245,11 @@ export default function NewspaperPage() {
   const [isLoadingDates, setIsLoadingDates] = useState(true)
   const [cumulativeUsers, setCumulativeUsers] = useState<Record<number, number> | undefined>(undefined)
   const [btcData, setBtcData] = useState<BTCData | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [postGenerationRefreshKey, setPostGenerationRefreshKey] = useState(0)
-  const [newspaperData, setNewspaperData] = useState<Partial<UnifiedNewspaperData> | undefined>(undefined)
-  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null)
-  const wasGeneratingRef = useRef(false)
+  const userSelectedDateRef = useRef(false)
 
   useEffect(() => {
     track('newspaper_page_view', { source: 'direct' })
   }, [])
-
-  useEffect(() => {
-    const storedDate = window.localStorage.getItem(LAST_NEWSPAPER_DATE_KEY)
-    if (!storedDate) return
-
-    setSelectedDate(prev => prev || storedDate)
-    setSelectedDates(prev => prev.length > 0 ? prev : [storedDate])
-  }, [])
-
-  useEffect(() => {
-    if (selectedDate) {
-      window.localStorage.setItem(LAST_NEWSPAPER_DATE_KEY, selectedDate)
-    }
-  }, [selectedDate])
 
   useEffect(() => {
     const fetchBTC = async () => {
@@ -251,8 +304,11 @@ export default function NewspaperPage() {
           setAvailableDates(data.dates || [])
           if (data.cumulativeUsers) setCumulativeUsers(data.cumulativeUsers)
           if (data.dates && data.dates.length > 0) {
-            setSelectedDate(prev => prev || data.dates[0].date)
-            setSelectedDates(prev => prev.length > 0 ? prev : [data.dates[0].date])
+            const latestDate = data.dates[0].date
+            if (!userSelectedDateRef.current) {
+              setSelectedDate(latestDate)
+              setSelectedDates([latestDate])
+            }
           }
         }
       } catch (err) {
@@ -265,6 +321,7 @@ export default function NewspaperPage() {
   }, [])
 
   const handleDateSelect = useCallback((date: string) => {
+    userSelectedDateRef.current = true
     setSelectedDate(date)
     if (dayRange === 1) setSelectedDates([date])
     track('newspaper_date_select', { date, dayRange, source: 'timeline' })
@@ -276,30 +333,43 @@ export default function NewspaperPage() {
     track('newspaper_day_range_change', { dayRange: days, datesCount: dates.length })
   }, [])
 
-  const handleLoadingChange = useCallback((loading: boolean) => {
-    setIsLoading(loading)
-    if (!loading && wasGeneratingRef.current) {
-      wasGeneratingRef.current = false
-      // Unified generation writes widget caches on stream completion. Give the
-      // server a short beat, then ask cache-backed widgets to re-read.
-      window.setTimeout(() => setPostGenerationRefreshKey(k => k + 1), 750)
-    }
-  }, [])
-  const handleDataChange = useCallback((data: Partial<UnifiedNewspaperData> | undefined) => setNewspaperData(data), [])
-  
-  const handleRefresh = useCallback(() => {
-    setRefreshKey(k => k + 1)
-    track('newspaper_refresh', { selectedDate: selectedDate || 'none', dayRange })
-  }, [selectedDate, dayRange])
-  
-  const handleCacheInfoChange = useCallback((info: CacheInfo | null) => {
-    if (info && !info.isFromCache) wasGeneratingRef.current = true
-    setCacheInfo(info)
-  }, [])
-
   return (
     <AvatarProvider>
-      <FearGreedProvider autoStart cacheRefreshKey={postGenerationRefreshKey}>
+      <NewspaperIssueProvider
+        selectedDate={selectedDate}
+        selectedDates={selectedDates}
+        dayRange={dayRange}
+      >
+      {(issueState) => {
+        const issue = issueState.issue
+        const isIssueInitialLoading = issueState.isLoading && !issue
+        const isIssueStreaming = issueState.isRefreshing
+        const isIssueBusy = isIssueInitialLoading || isIssueStreaming
+        const isFearGreedRefreshing = issueState.refreshingModule === 'sentiment.fearGreed'
+        const newspaperData = issue?.modules.articleDigest.data ?? undefined
+        const issueCacheInfo = issueState.cacheInfo
+        const fearGreedCacheInfo = issue
+          ? {
+              updatedAt: issue.meta.updatedAt,
+              isFromToday: true,
+              isStale: !issue.meta.isFresh,
+              dateRange: issue.modules.fearGreed.dateRange ?? undefined
+            }
+          : null
+        const handleRefresh = () => {
+          void issueState.refreshIssue()
+          track('newspaper_refresh', { selectedDate: selectedDate || 'none', dayRange })
+        }
+        const handleFearGreedRefresh = () => {
+          void issueState.refreshModule('sentiment.fearGreed')
+          track('newspaper_module_refresh', {
+            moduleId: 'sentiment.fearGreed',
+            selectedDate: selectedDate || 'none',
+            dayRange
+          })
+        }
+
+        return (
       <main className="min-h-screen bg-background relative">
         {/* Subtle gradient background - z-0 to stay behind content */}
         <div className="fixed inset-0 bg-gradient-to-br from-background via-background to-primary/5 pointer-events-none z-0" />
@@ -310,7 +380,7 @@ export default function NewspaperPage() {
           <div className="w-full border-b border-primary/10 bg-card/50 backdrop-blur-sm">
             <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex justify-between items-center">
               <div className="flex items-center gap-3 text-xs">
-                <CurrentDate cacheUpdatedAt={cacheInfo?.updatedAt} />
+                <CurrentDate cacheUpdatedAt={issueCacheInfo?.updatedAt} />
               </div>
               <div className="flex items-center gap-3">
                 <Link
@@ -321,7 +391,7 @@ export default function NewspaperPage() {
                   <ExternalLink className="h-3.5 w-3.5" />
                   <span>OpenClaw</span>
                 </Link>
-                {isLoading && (
+                {isIssueBusy && (
                   <span className="flex items-center gap-1.5 text-xs text-primary animate-pulse">
                     <SparklesIcon className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">Kuratiere...</span>
@@ -330,15 +400,15 @@ export default function NewspaperPage() {
                 <div className="flex items-center gap-1.5">
                   <button 
                     onClick={handleRefresh}
-                    disabled={isLoading}
+                    disabled={isIssueBusy}
                     className="p-2 hover:bg-primary/10 rounded-full transition-all disabled:opacity-50"
                     aria-label="Aktualisieren"
                   >
-                    <RefreshCwIcon className={`h-4 w-4 text-muted-foreground hover:text-primary transition-colors ${isLoading ? 'animate-spin text-primary' : ''}`} />
+                    <RefreshCwIcon className={`h-4 w-4 text-muted-foreground hover:text-primary transition-colors ${isIssueBusy ? 'animate-spin text-primary' : ''}`} />
                   </button>
-                  {cacheInfo && !isLoading && (
+                  {issueCacheInfo && !isIssueBusy && (
                     <span className="text-xs text-muted-foreground/70 font-mono">
-                      {formatTimeAgo(cacheInfo.updatedAt)}
+                      {formatTimeAgo(issueCacheInfo.updatedAt)}
                     </span>
                   )}
                 </div>
@@ -399,7 +469,7 @@ export default function NewspaperPage() {
             availableDates={availableDates}
             selectedDate={selectedDate}
             isLoadingDates={isLoadingDates}
-            isLoading={isLoading}
+            isLoading={isIssueBusy}
             onDateSelect={handleDateSelect}
             onDayRangeChange={handleDayRangeChange}
             onRefresh={handleRefresh}
@@ -414,7 +484,10 @@ export default function NewspaperPage() {
               speed="normal"
               autoStart
               className="newspaper-ticker"
-              cacheRefreshKey={postGenerationRefreshKey}
+              eventsOverride={issue?.modules.tickerBanner.events ?? []}
+              cacheInfoOverride={issueCacheInfo ? { updatedAt: issueCacheInfo.updatedAt, stale: !issueCacheInfo.isFresh } : null}
+              isLoadingOverride={isIssueInitialLoading}
+              disableAutoFetch
             />
           </div>
         )}
@@ -429,13 +502,29 @@ export default function NewspaperPage() {
                   autoStart
                   mini
                   defaultMode="24h"
-                  cacheRefreshKey={postGenerationRefreshKey}
+                  showRefreshButton={false}
+                  controlledEvents={issue?.modules.expandingTimeline.events ?? []}
+                  controlledActivityBuckets={issue?.modules.expandingTimeline.activityBuckets ?? []}
+                  controlledActivityStats={issue?.modules.expandingTimeline.activityStats ?? null}
+                  controlledCacheInfo={issueCacheInfo ? {
+                    updatedAt: issueCacheInfo.updatedAt,
+                    summary: issue?.modules.expandingTimeline.summary ?? undefined,
+                    activityLevel: issue?.modules.expandingTimeline.activityLevel ?? undefined
+                  } : null}
+                  disableAutoFetch
                 />
               </div>
               
               {/* Fear & Greed Widget - compact version on the right */}
               <div className="hidden lg:flex items-center border-l border-primary/10 px-4 bg-card/50">
-                <FearGreedWidget compact />
+                <FearGreedDisplay
+                  compact
+                  data={issue?.modules.fearGreed.data ?? null}
+                  cacheInfo={fearGreedCacheInfo}
+                  isLoading={isIssueInitialLoading || isFearGreedRefreshing}
+                  hasData={Boolean(issue?.modules.fearGreed.data)}
+                  refresh={handleFearGreedRefresh}
+                />
               </div>
             </div>
           </div>
@@ -450,7 +539,7 @@ export default function NewspaperPage() {
               <div className="sticky top-24">
                 <NewspaperSidebar 
                   data={newspaperData} 
-                  isLoading={isLoading}
+                  isLoading={isIssueInitialLoading}
                   selectedDate={selectedDate}
                   selectedDates={selectedDates}
                 />
@@ -460,7 +549,7 @@ export default function NewspaperPage() {
             {/* Main Content Column */}
             <main className="lg:col-span-7">
               {/* Section Header */}
-              <div className="flex items-center gap-4 mb-8">
+              <div className="mb-3 flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <Zap className="w-5 h-5 text-primary" />
                   <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">
@@ -469,17 +558,25 @@ export default function NewspaperPage() {
                 </div>
                 <div className="flex-1 h-px bg-gradient-to-r from-primary/40 to-transparent" />
               </div>
+              <IssueMetaStrip
+                cacheInfo={issueCacheInfo}
+                dayRange={dayRange}
+                selectedDates={selectedDates}
+              />
 
               {/* AI-Generated Content */}
               <NewspaperContent 
                 selectedDate={selectedDate}
                 selectedDates={selectedDates}
                 dayRange={dayRange}
-                onLoadingChange={handleLoadingChange}
-                onDataChange={handleDataChange}
-                onCacheInfoChange={handleCacheInfoChange}
-                forceRefresh={refreshKey}
+                dataOverride={newspaperData}
+                isLoadingOverride={isIssueBusy}
+                disableAutoFetch
               />
+
+              {dayRange === 1 && !isIssueInitialLoading && (
+                <LeaderboardWidget embedded />
+              )}
             </main>
 
             {/* Right Sidebar */}
@@ -487,13 +584,19 @@ export default function NewspaperPage() {
               <div className="sticky top-24 space-y-6">
                 {/* Fear & Greed Index */}
                 <div className="glass-card-gold p-5 rounded-sm">
-                  <FearGreedWidget />
+                  <FearGreedDisplay
+                    data={issue?.modules.fearGreed.data ?? null}
+                    cacheInfo={fearGreedCacheInfo}
+                    isLoading={isIssueInitialLoading || isFearGreedRefreshing}
+                    hasData={Boolean(issue?.modules.fearGreed.data)}
+                    refresh={handleFearGreedRefresh}
+                  />
                 </div>
 
                 {/* Short News */}
                 <ShortNewsSidebar 
                   data={newspaperData} 
-                  isLoading={isLoading} 
+                  isLoading={isIssueInitialLoading} 
                 />
 
                 {/* Live Chat */}
@@ -526,13 +629,8 @@ export default function NewspaperPage() {
           </div>
         </div>
 
-        {/* Leaderboard Section */}
-        {dayRange === 1 && !isLoading && (
-          <LeaderboardWidget />
-        )}
-
         {/* Chart Timeline Section */}
-        {dayRange === 1 && !isLoading && (
+        {dayRange === 1 && !isIssueInitialLoading && (
           <section className="border-t border-primary/10 mt-8 bg-card/20 relative z-10">
             <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
               <ChartTimelineWidget autoStart showMinLineSlider />
@@ -541,17 +639,17 @@ export default function NewspaperPage() {
         )}
 
         {/* Sentiment Section */}
-        {dayRange === 1 && !isLoading && (
+        {dayRange === 1 && !isIssueInitialLoading && (
           <SentimentWidget />
         )}
 
         {/* Prediction Market Section */}
-        {dayRange === 1 && !isLoading && (
+        {dayRange === 1 && !isIssueInitialLoading && (
           <PredictionWidget />
         )}
 
         {/* Older Editions Section */}
-        {dayRange === 1 && !isLoading && (
+        {dayRange === 1 && !isIssueInitialLoading && (
           <section className="border-t-2 border-primary/20 mt-4 bg-card/30 relative z-10">
             <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
               {/* Section Header */}
@@ -571,7 +669,10 @@ export default function NewspaperPage() {
               
               {/* Timeline */}
               <div className="max-w-5xl mx-auto">
-                <NewspaperTimeline currentDate={selectedDate} />
+                <NewspaperTimeline
+                  currentDate={selectedDate}
+                  refreshKey={issueCacheInfo?.updatedAt ?? null}
+                />
               </div>
             </div>
           </section>
@@ -613,7 +714,9 @@ export default function NewspaperPage() {
           </div>
         </footer>
       </main>
-      </FearGreedProvider>
+        )
+      }}
+      </NewspaperIssueProvider>
     </AvatarProvider>
   )
 }

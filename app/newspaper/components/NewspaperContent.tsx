@@ -60,6 +60,9 @@ interface NewspaperContentProps {
   selectedDate: string | null
   selectedDates?: string[]
   dayRange?: 1 | 3 | 7
+  dataOverride?: Partial<UnifiedNewspaperData> | null
+  isLoadingOverride?: boolean
+  disableAutoFetch?: boolean
   onLoadingChange?: (isLoading: boolean) => void
   onDataChange?: (data: Partial<UnifiedNewspaperData> | undefined) => void
   onCacheInfoChange?: (info: CacheInfo | null) => void
@@ -284,7 +287,10 @@ export function NewspaperContent({
   onLoadingChange, 
   onDataChange,
   onCacheInfoChange,
-  forceRefresh = 0
+  forceRefresh = 0,
+  dataOverride,
+  isLoadingOverride,
+  disableAutoFetch = false
 }: NewspaperContentProps) {
   const lastLoadedDateRef = useRef<string | null>(null)
   const lastLoadedDatesRef = useRef<string[]>([])
@@ -309,11 +315,12 @@ export function NewspaperContent({
   const [showingCache, setShowingCache] = useState(true)
   const streamingDailyData = newspaperData as Partial<DailyAIResponseData> | undefined
   const streamingData = streamingDailyData?.newspaper?.data as Partial<UnifiedNewspaperData> | undefined
-  const data = showingCache 
+  const internalData = showingCache 
     ? (cachedData as Partial<UnifiedNewspaperData> | undefined)
     : (streamingData || cachedData as Partial<UnifiedNewspaperData> | undefined)
+  const data = dataOverride === undefined ? internalData : (dataOverride ?? undefined)
   
-  const isLoading = isCacheLoading || isAILoading
+  const isLoading = isLoadingOverride ?? (isCacheLoading || isAILoading)
   const error = aiError || (cacheError ? new Error(cacheError) : null)
 
   const isCacheTooOld = useCallback((updatedAt: string): boolean => {
@@ -399,6 +406,7 @@ export function NewspaperContent({
 
   useEffect(() => {
     if (!selectedDate) return
+    if (disableAutoFetch) return
     const datesToUse = selectedDates && selectedDates.length > 0 ? selectedDates : [selectedDate]
     const effectiveDayRange = dayRange || 1
     const datesKey = datesToUse.join(',')
@@ -430,7 +438,7 @@ export function NewspaperContent({
       lastRefreshKeyRef.current = forceRefresh
       generateContent(datesToUse, effectiveDayRange, { preserveCache: true })
     }
-  }, [selectedDate, selectedDates, dayRange, forceRefresh, fetchFromCache, generateContent, onCacheInfoChange])
+  }, [selectedDate, selectedDates, dayRange, forceRefresh, fetchFromCache, generateContent, onCacheInfoChange, disableAutoFetch])
 
   const handleRegenerate = () => {
     if (selectedDate) {

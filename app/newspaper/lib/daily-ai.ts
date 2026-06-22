@@ -13,12 +13,14 @@ import type {
 } from './types'
 import {
   writeFearGreedCache,
-  writeNewspaperCache,
   writeTickerCache,
   writeTimelineCache,
   type FearGreedDateRangeInfo,
   type TickerCacheEvent
 } from './cache-writers'
+import { addDaysToDateKey, getNewspaperDateKey, getNewspaperDayBounds, NEWSPAPER_TIME_ZONE } from './timezone'
+import { createPromptProgram, createNewspaperIssue, writeNewspaperIssueCache } from '../engine'
+import { firstPartyNewspaperModules } from '../modules'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 type TimelineMode = '24h' | '3d' | '7d'
@@ -83,6 +85,7 @@ export interface DailyAIRequest {
 
 export interface DailyAIContext {
   cacheDate: string
+  selectedDates: string[]
   dayRange: number
   timelineMode: TimelineMode
   modules: {
@@ -110,13 +113,11 @@ export interface DailyAIContext {
   newspaperUserAvatarMap: Map<string, string>
   activeChatters: UnifiedNewspaperData['activeChatters']
   fearGreedDateRangeInfo: FearGreedDateRangeInfo | null
+  timelineActivityBuckets: ActivityBucket[]
+  timelineActivityStats: ActivityStats | null
 }
 
-const TIMEZONE = 'Europe/Berlin'
-
-function dateOnly(date: Date): string {
-  return date.toISOString().split('T')[0]
-}
+const TIMEZONE = NEWSPAPER_TIME_ZONE
 
 function berlinNow(): string {
   return new Date().toLocaleString('de-DE', {
@@ -160,9 +161,12 @@ function getRollingRange(mode: TimelineMode): { startDate: Date; endDate: Date }
 
 function getNewspaperRange(selectedDates: string[]): { startDate: Date; endDate: Date } {
   const sortedDates = [...selectedDates].sort()
+  const firstDay = getNewspaperDayBounds(sortedDates[0])
+  const lastDay = getNewspaperDayBounds(sortedDates[sortedDates.length - 1])
+
   return {
-    startDate: new Date(`${sortedDates[0]}T00:00:00.000Z`),
-    endDate: new Date(`${sortedDates[sortedDates.length - 1]}T23:59:59.999Z`)
+    startDate: firstDay.startDate,
+    endDate: lastDay.endDate
   }
 }
 
@@ -535,10 +539,9 @@ function getFearGreedPeriodInfo(messages: ChatMessage[]): {
   last3DaysMessages: ChatMessage[]
   todayStartBerlin: Date
 } {
-  const berlinDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: TIMEZONE })
-  const todayStartBerlin = new Date(`${berlinDateStr}T00:00:00+01:00`)
-  const threeDaysAgoBerlin = new Date(todayStartBerlin)
-  threeDaysAgoBerlin.setDate(threeDaysAgoBerlin.getDate() - 3)
+  const berlinDateStr = getNewspaperDateKey()
+  const todayStartBerlin = getNewspaperDayBounds(berlinDateStr).startDate
+  const threeDaysAgoBerlin = getNewspaperDayBounds(addDaysToDateKey(berlinDateStr, -3)).startDate
 
   return {
     todayStartBerlin,
@@ -555,7 +558,7 @@ function buildRanges(request: DailyAIRequest): {
   modules: DailyAIContext['modules']
   ranges: DailyAIContext['ranges']
 } {
-  const today = dateOnly(new Date())
+  const today = getNewspaperDateKey()
   const selectedDates = request.selectedDates?.length ? request.selectedDates : [today]
   const dayRange = request.dayRange || selectedDates.length || 1
   const cacheDate = selectedDates[0] || today
@@ -654,6 +657,13 @@ function buildDailyPrompt(params: {
   chartUrls: Array<{ url: string; author: string; time: string }>
 }): string {
   const { todayMessages, last3DaysMessages, todayStartBerlin } = getFearGreedPeriodInfo(params.fearGreedMessages)
+  const modulePromptProgram = createPromptProgram()
+  for (const newspaperModule of firstPartyNewspaperModules) {
+    modulePromptProgram.add(newspaperModule.prompt({
+      mode: 'composed',
+      outputPath: `modules.${newspaperModule.id}`
+    }))
+  }
 
   return `UNIFIED_DAILY_AI_PROMPT/
 
@@ -684,6 +694,9 @@ cache_targets:
 - ticker: ${params.ranges.ticker?.cacheKey ?? 'not-requested'}
 - timeline: ${params.ranges.timeline?.cacheKey ?? 'not-requested'}
 - fear_greed: ${params.ranges.fearGreed?.cacheKey ?? 'not-requested'}
+
+module_registry/
+${modulePromptProgram.render()}
 
 02_MODULE_SPECS/
 newspaper/
@@ -763,13 +776,20 @@ For every unrequested module:
 }
 
 function addTickerIds(events: DailyTickerEventData[]): TickerCacheEvent[] {
-  return events.map((event, index) => ({
-    ...event,
-    text: event.text.slice(0, 100),
-    label: event.label ? event.label.slice(0, 8) : null,
-    headline: event.headline ? event.headline.slice(0, 80) : null,
-    id: `${event.date}-${event.time.replace(':', '')}-${index}`
-  }))
+  return events
+    .map((event, index): TickerCacheEvent | null => {
+      const text = event.text?.trim() || event.headline?.trim() || event.quote?.trim()
+      if (!text) return null
+
+      return {
+        ...event,
+        text: text.slice(0, 100),
+        label: event.label ? event.label.slice(0, 8) : null,
+        headline: event.headline ? event.headline.slice(0, 80) : text.slice(0, 80),
+        id: `${event.date}-${event.time.replace(':', '')}-${index}`
+      }
+    })
+    .filter((event): event is TickerCacheEvent => Boolean(event))
 }
 
 function buildFearGreedDateRangeInfo(messages: ChatMessage[]): FearGreedDateRangeInfo {
@@ -790,6 +810,7 @@ async function writeDailyCaches(
   context: DailyAIContext
 ): Promise<void> {
   const cacheWrites: Array<Promise<void>> = []
+  let enrichedNewspaperData: UnifiedNewspaperData | null = null
 
   if (object.newspaper.requested && object.newspaper.data && context.ranges.newspaper) {
     const enriched = normalizeNewspaperData(
@@ -797,14 +818,7 @@ async function writeDailyCaches(
       context.newspaperUserAvatarMap,
       context.activeChatters
     )
-    cacheWrites.push(writeNewspaperCache(
-      supabase,
-      context.cacheDate,
-      context.dayRange,
-      enriched,
-      context.counts.newspaperMessages,
-      context.counts.newspaperUsers
-    ))
+    enrichedNewspaperData = enriched
   }
 
   if (object.ticker.requested && object.ticker.events.length > 0 && context.ranges.ticker) {
@@ -845,6 +859,18 @@ async function writeDailyCaches(
     ))
   }
 
+  if (object.newspaper.requested && context.ranges.newspaper) {
+    cacheWrites.push(writeNewspaperIssueCache(
+      supabase,
+      createNewspaperIssue({
+        object,
+        context,
+        newspaperData: enrichedNewspaperData,
+        source: 'generated'
+      })
+    ))
+  }
+
   await Promise.all(cacheWrites)
 }
 
@@ -881,6 +907,7 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
 
   const context: DailyAIContext = {
     cacheDate: rangeConfig.cacheDate,
+    selectedDates: rangeConfig.selectedDates,
     dayRange: rangeConfig.dayRange,
     timelineMode: rangeConfig.timelineMode,
     modules: rangeConfig.modules,
@@ -897,7 +924,9 @@ export async function createDailyAIStream(request: DailyAIRequest = {}) {
     },
     newspaperUserAvatarMap: userAvatarMap,
     activeChatters,
-    fearGreedDateRangeInfo
+    fearGreedDateRangeInfo,
+    timelineActivityBuckets: activityBuckets,
+    timelineActivityStats: activityStats
   }
 
   const prompt = buildDailyPrompt({

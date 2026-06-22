@@ -16,7 +16,7 @@
 'use client'
 
 import { AlertTriangle,Laugh,MessageSquare,RefreshCw,Sparkles,TrendingDown,TrendingUp,X } from 'lucide-react'
-import { useCallback,useEffect,useRef,useState } from 'react'
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react'
 import { createPortal } from 'react-dom'
 
 // Event types
@@ -27,13 +27,13 @@ interface TickerEvent {
   date: string // YYYY-MM-DD format
   time: string
   username: string
-  text: string // Short preview text
-  type: TickerEventType
-  emoji?: string
-  label?: string // Short label like "BTC", "PUMP", etc.
-  headline?: string // Funny/catchy headline from AI
-  quote?: string // Full original quote (shown on hover)
-  quoteAuthor?: string // Author of the quote if different from username
+  text?: string | null // Short preview text
+  type?: TickerEventType | string | null
+  emoji?: string | null
+  label?: string | null // Short label like "BTC", "PUMP", etc.
+  headline?: string | null // Funny/catchy headline from AI
+  quote?: string | null // Full original quote (shown on hover)
+  quoteAuthor?: string | null // Author of the quote if different from username
 }
 
 interface ChatTickerProps {
@@ -42,6 +42,10 @@ interface ChatTickerProps {
   autoStart?: boolean
   autoRefreshMinutes?: number // Optional: auto-refresh interval in minutes (default: 240 = 4h)
   cacheRefreshKey?: number
+  eventsOverride?: TickerEvent[]
+  cacheInfoOverride?: { updatedAt: string; stale?: boolean } | null
+  isLoadingOverride?: boolean
+  disableAutoFetch?: boolean
 }
 
 // Style config for event types - enhanced with labels
@@ -116,6 +120,53 @@ const speedSettings = {
   slow: 30,
   normal: 50,
   fast: 80
+}
+
+function getTickerEventStyle(type: TickerEvent['type'] | string | null | undefined) {
+  if (type && type in eventStyles) {
+    return eventStyles[type as TickerEventType]
+  }
+  return eventStyles.insight
+}
+
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function getTickerHeadline(event: TickerEvent): string {
+  return asText(event.headline) || asText(event.text) || asText(event.quote) || 'Chat-Highlight'
+}
+
+function getTickerBody(event: TickerEvent): string {
+  return asText(event.text) || getTickerHeadline(event)
+}
+
+function normalizeTickerEvent(event: Partial<TickerEvent>, index: number): TickerEvent | null {
+  if (!event || typeof event !== 'object') return null
+
+  const date = asText(event.date)
+  const time = asText(event.time)
+  const headline = getTickerHeadline(event as TickerEvent)
+
+  return {
+    id: asText(event.id) || `${date || 'stream'}-${time.replace(':', '') || index}-${index}`,
+    date: date || new Date().toISOString().slice(0, 10),
+    time: time || '--:--',
+    username: asText(event.username) || asText(event.quoteAuthor) || 'Community',
+    text: getTickerBody(event as TickerEvent).slice(0, 160),
+    type: event.type && event.type in eventStyles ? event.type : 'insight',
+    emoji: event.emoji ?? null,
+    label: asText(event.label).slice(0, 8) || null,
+    headline: headline.slice(0, 100),
+    quote: asText(event.quote) || null,
+    quoteAuthor: asText(event.quoteAuthor) || null
+  }
+}
+
+function normalizeTickerEvents(events: Partial<TickerEvent>[]): TickerEvent[] {
+  return events
+    .map((event, index) => normalizeTickerEvent(event, index))
+    .filter((event): event is TickerEvent => Boolean(event))
 }
 
 /**
@@ -372,14 +423,14 @@ function formatEventDate(dateStr: string): string {
  */
 function TickerItem({ event }: { event: TickerEvent }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const style = eventStyles[event.type]
+  const style = getTickerEventStyle(event.type)
   const Icon = style.icon
   const displayLabel = event.label || style.label
   const quoteAuthor = event.quoteAuthor || event.username
   const { relative, formatted } = getDateInfo(event.date)
   
   // Truncate headline for inline display
-  const displayHeadline = event.headline || event.text
+  const displayHeadline = getTickerHeadline(event)
   const truncatedHeadline = displayHeadline.length > 60 
     ? displayHeadline.slice(0, 57) + '...' 
     : displayHeadline
@@ -505,7 +556,7 @@ function TickerItem({ event }: { event: TickerEvent }) {
             
             {/* Full description */}
             <div className="text-sm leading-relaxed mb-4">
-              {renderTextWithQuotes(event.text, false)}
+              {renderTextWithQuotes(getTickerBody(event), false)}
             </div>
             
             {/* Author */}
@@ -555,7 +606,11 @@ export function ChatTicker({
   speed = 'normal',
   autoStart = true,
   autoRefreshMinutes = 60, // Default: 1 hour
-  cacheRefreshKey = 0
+  cacheRefreshKey = 0,
+  eventsOverride,
+  cacheInfoOverride,
+  isLoadingOverride,
+  disableAutoFetch = false
 }: ChatTickerProps) {
   const [events, setEvents] = useState<TickerEvent[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -564,27 +619,46 @@ export function ChatTicker({
   const [error, setError] = useState<string | null>(null)
   const [cacheInfo, setCacheInfo] = useState<{ updatedAt: string; stale: boolean } | null>(null)
   const [, forceUpdate] = useState(0) // For re-rendering to update cache age display
+  const effectiveCacheInfo = cacheInfoOverride === undefined
+    ? cacheInfo
+    : (cacheInfoOverride ? { updatedAt: cacheInfoOverride.updatedAt, stale: Boolean(cacheInfoOverride.stale) } : null)
+  const effectiveIsLoading = isLoadingOverride ?? isLoading
   
   // Calculate cache age from cacheInfo.updatedAt (from Supabase)
   const getCacheAgeMinutes = () => {
-    if (!cacheInfo?.updatedAt) return undefined
-    return Math.floor((Date.now() - new Date(cacheInfo.updatedAt).getTime()) / 60000)
+    if (!effectiveCacheInfo?.updatedAt) return undefined
+    return Math.floor((Date.now() - new Date(effectiveCacheInfo.updatedAt).getTime()) / 60000)
   }
   const actualCacheAgeMinutes = getCacheAgeMinutes()
   const isLive = actualCacheAgeMinutes !== undefined ? actualCacheAgeMinutes < 30 : true
   
   // Update age display every minute
   useEffect(() => {
-    if (!cacheInfo?.updatedAt) return
+    if (!effectiveCacheInfo?.updatedAt) return
     const interval = setInterval(() => forceUpdate(n => n + 1), 60000)
     return () => clearInterval(interval)
-  }, [cacheInfo?.updatedAt])
+  }, [effectiveCacheInfo?.updatedAt])
   const tickerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null) // For manual scroll when stopped
-  const animationRef = useRef<number | null>(null)
-  const positionRef = useRef(0)
   const hasInitializedRef = useRef(false) // Prevent double-fetch on mount/strict mode
   const isRefreshingInBackgroundRef = useRef(false) // Prevent multiple background refreshes
+  const eventsOverrideSignatureRef = useRef<string>('')
+
+  useEffect(() => {
+    if (eventsOverride === undefined) return
+    const signature = eventsOverride.map(event => [
+      event.id,
+      event.date,
+      event.time,
+      event.type,
+      event.headline ?? '',
+      event.text ?? '',
+      event.quote ?? ''
+    ].join(':')).join('|')
+    if (signature === eventsOverrideSignatureRef.current) return
+    eventsOverrideSignatureRef.current = signature
+    setEvents(normalizeTickerEvents(eventsOverride))
+  }, [eventsOverride])
   
   // Helper to parse streaming response with progressive updates
   const parseStreamingResponse = async (
@@ -599,11 +673,12 @@ export function ChatTicker({
     let lastEventCount = 0
     
     // Helper to add IDs to events
-    const addIds = (events: Array<Omit<TickerEvent, 'id'>>): TickerEvent[] => 
+    const addIds = (events: Array<Partial<TickerEvent>>): TickerEvent[] => normalizeTickerEvents(
       events.map((evt, idx) => ({
         ...evt,
-        id: `${evt.date}-${evt.time?.replace(':', '')}-${idx}`
-      } as TickerEvent))
+        id: `${asText(evt.date) || 'stream'}-${asText(evt.time).replace(':', '') || idx}-${idx}`
+      }))
+    )
     
     // Helper to try parsing partial events
     const tryParsePartial = (text: string): TickerEvent[] => {
@@ -701,7 +776,7 @@ export function ChatTicker({
         
         // If we have cached events, use them
         if (data.events && data.events.length > 0) {
-          setEvents(data.events)
+          setEvents(normalizeTickerEvents(data.events))
           setCacheInfo({
             updatedAt: data.updatedAt,
             stale: data.stale || false
@@ -768,71 +843,27 @@ export function ChatTicker({
     }
   }, [])
   
-  // Animation loop (only runs when not stopped and not paused)
-  useEffect(() => {
-    if (events.length === 0 || isPaused || isStopped) return
-    
-    const ticker = tickerRef.current
-    if (!ticker) return
-    
-    const pixelsPerSecond = speedSettings[speed]
-    let lastTime = performance.now()
-    
-    const animate = (currentTime: number) => {
-      const deltaTime = (currentTime - lastTime) / 1000
-      lastTime = currentTime
-      
-      positionRef.current -= pixelsPerSecond * deltaTime
-      
-      // Reset when scrolled past content
-      const contentWidth = ticker.scrollWidth / 2
-      if (Math.abs(positionRef.current) >= contentWidth) {
-        positionRef.current = 0
-      }
-      
-      ticker.style.transform = `translateX(${positionRef.current}px)`
-      animationRef.current = requestAnimationFrame(animate)
-    }
-    
-    animationRef.current = requestAnimationFrame(animate)
-    
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
-    }
-  }, [events, isPaused, isStopped, speed])
-  
-  // Reset animation position when stopping/starting
-  useEffect(() => {
-    if (isStopped) {
-      // Reset transform when stopped so manual scroll works
-      const ticker = tickerRef.current
-      if (ticker) {
-        ticker.style.transform = 'translateX(0)'
-        positionRef.current = 0
-      }
-    }
-  }, [isStopped])
-  
   // Auto-start (runs only ONCE on mount when autoStart is true)
   useEffect(() => {
+    if (disableAutoFetch) return
     // Only fetch once on initial mount, ignore React Strict Mode double-invoke
     if (autoStart && !hasInitializedRef.current) {
       hasInitializedRef.current = true
       console.log('[Ticker] 🚀 Auto-starting initial fetch...')
       fetchEvents()
     }
-  }, [autoStart, fetchEvents])
+  }, [autoStart, fetchEvents, disableAutoFetch])
 
   useEffect(() => {
+    if (disableAutoFetch) return
     if (cacheRefreshKey <= 0) return
     console.log('[Ticker] 🔁 Cache refresh signal received')
     fetchEvents(false)
-  }, [cacheRefreshKey, fetchEvents])
+  }, [cacheRefreshKey, fetchEvents, disableAutoFetch])
   
   // Periodic auto-refresh (for users who stay on the page a long time)
   useEffect(() => {
+    if (disableAutoFetch) return
     if (!autoRefreshMinutes || autoRefreshMinutes <= 0) return
     
     const intervalMs = autoRefreshMinutes * 60 * 1000
@@ -844,7 +875,7 @@ export function ChatTicker({
     }, intervalMs)
     
     return () => clearInterval(intervalId)
-  }, [autoRefreshMinutes, fetchEvents])
+  }, [autoRefreshMinutes, fetchEvents, disableAutoFetch])
   
   // Pause on hover, auto-resume when mouse leaves
   const handleMouseEnter = () => setIsPaused(true)
@@ -882,7 +913,12 @@ export function ChatTicker({
   }
   
   // Group events with date separators
-  const groupedItems = groupEventsByDate(events)
+  const groupedItems = useMemo(() => groupEventsByDate(events), [events])
+  const tickerDurationSeconds = useMemo(() => {
+    const baseDuration = Math.max(24, groupedItems.length * 4)
+    const speedMultiplier = speedSettings.normal / speedSettings[speed]
+    return Math.round(baseDuration * speedMultiplier)
+  }, [groupedItems.length, speed])
   
   if (error) {
     return (
@@ -892,7 +928,7 @@ export function ChatTicker({
     )
   }
   
-  if (isLoading && events.length === 0) {
+  if (effectiveIsLoading && events.length === 0) {
     return (
       <div className={`bg-card/50 border border-foreground/10 rounded-lg p-3 flex items-center gap-2 ${className}`}>
         <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
@@ -939,11 +975,11 @@ export function ChatTicker({
               e.stopPropagation()
               fetchEvents(true)
             }}
-            disabled={isLoading}
+            disabled={effectiveIsLoading}
             className="flex items-center gap-1 px-2 py-1 bg-muted/30 border border-muted-foreground/20 rounded-md hover:bg-muted/50 hover:border-muted-foreground/30 transition-all disabled:opacity-50"
             title="Timeline aktualisieren"
           >
-            <RefreshCw className={`w-3 h-3 text-muted-foreground/70 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3 h-3 text-muted-foreground/70 ${effectiveIsLoading ? 'animate-spin' : ''}`} />
             <span className="text-[9px] font-mono text-muted-foreground">
               {actualCacheAgeMinutes < 1 ? 'just now' : actualCacheAgeMinutes < 60 ? `${actualCacheAgeMinutes}m ago` : `${Math.floor(actualCacheAgeMinutes / 60)}h ago`}
             </span>
@@ -960,10 +996,16 @@ export function ChatTicker({
       >
         <div 
           ref={tickerRef}
+          data-ticker-track
           className="inline-flex items-stretch"
           style={{ 
             willChange: isStopped ? 'auto' : 'transform',
-            transform: isStopped ? 'none' : undefined 
+            transform: isStopped ? 'none' : undefined,
+            animationName: isStopped ? 'none' : 'ticker-scroll',
+            animationDuration: `${tickerDurationSeconds}s`,
+            animationTimingFunction: 'linear',
+            animationIterationCount: 'infinite',
+            animationPlayState: isPaused || isStopped ? 'paused' : 'running'
           }}
         >
           {/* Duplicate content for seamless loop (only when animating) */}

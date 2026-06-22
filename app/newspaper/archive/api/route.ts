@@ -9,6 +9,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
+import { getNewspaperDateKey } from '../../lib/timezone'
 
 interface Message {
   id: string
@@ -95,7 +96,7 @@ export async function GET() {
     }>()
     
     for (const msg of messages) {
-      const date = new Date(msg.time).toISOString().split('T')[0]
+      const date = getNewspaperDateKey(new Date(msg.time))
       
       if (!dateMap.has(date)) {
         dateMap.set(date, { messages: [], users: new Set() })
@@ -159,4 +160,3 @@ export async function GET() {
     }, { status: 500 })
   }
 }
-

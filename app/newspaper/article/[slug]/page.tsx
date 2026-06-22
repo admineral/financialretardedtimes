@@ -34,6 +34,7 @@ import { ArrowLeft, Clock, Users, TrendingUp, TrendingDown, Minus, RefreshCw, Lo
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { Badge } from '@/components/ui/badge'
 import { ContributorAvatar } from '../../components/ContributorAvatar'
+import { getNewspaperDateKey } from '../../lib/timezone'
 
 /**
  * Schema for chart/image references
@@ -574,7 +575,7 @@ function ArticleContent({ params }: { params: Promise<{ slug: string }> }) {
   const author = searchParams.get('author') || ''
   const contributorsParam = searchParams.get('contributors') || ''
   const quoteParam = searchParams.get('quote') || ''
-  const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0]
+  const selectedDate = searchParams.get('date') || getNewspaperDateKey()
   const dayRange = parseInt(searchParams.get('dayRange') || '1', 10)
   
   // Parse these once and memoize
@@ -968,4 +969,3 @@ export default function ArticlePage({ params }: { params: Promise<{ slug: string
     </Suspense>
   )
 }
-

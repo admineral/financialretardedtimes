@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { TrendingUp, TrendingDown, Minus, RefreshCw, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useFearGreed, FearGreedProvider, type FearGreedData } from './FearGreedContext'
+import { useFearGreed, FearGreedProvider, type CacheInfo, type FearGreedData } from './FearGreedContext'
 
 // Re-export types for backwards compatibility
 export type { FearGreedData }
@@ -103,17 +103,31 @@ interface FearGreedWidgetProps {
   compact?: boolean
 }
 
+interface FearGreedDisplayProps extends FearGreedWidgetProps {
+  data: Partial<FearGreedData> | null
+  cacheInfo: CacheInfo | null
+  isLoading: boolean
+  error?: Error
+  hasData: boolean
+  refresh?: () => void
+}
+
 /**
  * Fear & Greed Widget Component - Newspaper Style
  * 
  * Uses shared FearGreedContext for data. Must be wrapped in FearGreedProvider.
  * When refresh is called on any widget, all widgets update together.
  */
-export function FearGreedWidget({ 
+export function FearGreedDisplay({ 
   className,
   compact = false,
-}: FearGreedWidgetProps) {
-  const { data, cacheInfo, isLoading, error, hasData, refresh } = useFearGreed()
+  data,
+  cacheInfo,
+  isLoading,
+  error,
+  hasData,
+  refresh = () => {}
+}: FearGreedDisplayProps) {
 
   // Loading skeleton - newspaper style
   if (isLoading && !hasData) {
@@ -394,6 +408,22 @@ export function FearGreedWidget({
         </div>
       )}
     </div>
+  )
+}
+
+export function FearGreedWidget(props: FearGreedWidgetProps) {
+  const { data, cacheInfo, isLoading, error, hasData, refresh } = useFearGreed()
+
+  return (
+    <FearGreedDisplay
+      {...props}
+      data={data}
+      cacheInfo={cacheInfo}
+      isLoading={isLoading}
+      error={error}
+      hasData={hasData}
+      refresh={refresh}
+    />
   )
 }
 

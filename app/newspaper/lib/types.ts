@@ -138,7 +138,7 @@ export const NewspaperAISchema = z.object({
   moreArticles: z.array(MoreArticleSchema).min(3).max(4)
 })
 
-const DailyTickerEventSchema = z.object({
+export const DailyTickerEventSchema = z.object({
   date: z.string(),
   time: z.string(),
   username: z.string(),
@@ -151,7 +151,7 @@ const DailyTickerEventSchema = z.object({
   quoteAuthor: z.string().nullable()
 })
 
-const DailyTimelineEventSchema = z.object({
+export const DailyTimelineEventSchema = z.object({
   timestamp: z.string().nullable(),
   time: z.string(),
   date: z.string(),
@@ -171,7 +171,7 @@ const DailyPeriodSentimentSchema = z.object({
   classificationDE: z.enum(['Extreme Angst', 'Angst', 'Neutral', 'Gier', 'Extreme Gier'])
 })
 
-const DailyFearGreedSchema = z.object({
+export const DailyFearGreedSchema = z.object({
   today: DailyPeriodSentimentSchema,
   last3Days: DailyPeriodSentimentSchema,
   last7Days: DailyPeriodSentimentSchema,
@@ -244,4 +244,3 @@ export type ShortNewsData = z.infer<typeof ShortNewsSchema>
 export type MoreArticleData = z.infer<typeof MoreArticleSchema>
 export type ActiveChatter = z.infer<typeof ActiveChatterSchema>
 export type ChartImage = z.infer<typeof ChartImageSchema>
-

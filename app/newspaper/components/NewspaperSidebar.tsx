@@ -49,6 +49,12 @@ export function NewspaperSidebar({ data, selectedDate, selectedDates }: Newspape
     setHasFetchedMore(false)
     setAdditionalChatters([])
   }, [selectedDate, selectedDates])
+
+  useEffect(() => {
+    if (!data?.activeChatters?.length) return
+    setInitialChatters(data.activeChatters.slice(0, INITIAL_CHATTERS_COUNT))
+    setTotalChattersCount(data.activeChatters.length)
+  }, [data?.activeChatters])
   
   const handleUserClick = useCallback((username: string, e: React.MouseEvent) => {
     e.preventDefault()
@@ -66,6 +72,7 @@ export function NewspaperSidebar({ data, selectedDate, selectedDates }: Newspape
 
   useEffect(() => {
     const fetchInitialChatters = async () => {
+      if (data?.activeChatters?.length) return
       const dates = selectedDates?.length ? selectedDates : (selectedDate ? [selectedDate] : [])
       if (dates.length === 0) return
 
@@ -101,7 +108,7 @@ export function NewspaperSidebar({ data, selectedDate, selectedDates }: Newspape
     }
 
     fetchInitialChatters()
-  }, [selectedDate, selectedDates, addAvatars])
+  }, [selectedDate, selectedDates, addAvatars, data?.activeChatters])
 
   const fetchMoreChatters = useCallback(async () => {
     if (hasFetchedMore || isLoadingMore) return

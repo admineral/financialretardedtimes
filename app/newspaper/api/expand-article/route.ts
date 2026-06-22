@@ -32,6 +32,7 @@ import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
+import { addDaysToDateKey, getNewspaperDayBounds } from '../../lib/timezone'
 
 /**
  * Schema for chart/image references
@@ -261,24 +262,20 @@ async function fetchChatContext(
   // Calculate date range
   const dates: string[] = [date]
   if (dayRange > 1) {
-    const startDate = new Date(date)
     for (let i = 1; i < dayRange; i++) {
-      const prevDate = new Date(startDate)
-      prevDate.setDate(prevDate.getDate() - i)
-      dates.push(prevDate.toISOString().split('T')[0])
+      dates.push(addDaysToDateKey(date, -i))
     }
   }
   
   // Fetch messages for all dates (including meta for chart URLs)
   for (const d of dates) {
-    const startOfDay = `${d}T00:00:00.000Z`
-    const endOfDay = `${d}T23:59:59.999Z`
+    const { startDate, endDate } = getNewspaperDayBounds(d)
     
     const { data, error } = await supabase
       .from('tv_chat_messages')
       .select('username, text, time, meta')
-      .gte('time', startOfDay)
-      .lte('time', endOfDay)
+      .gte('time', startDate.toISOString())
+      .lte('time', endDate.toISOString())
       .order('time', { ascending: true })
       .limit(1000)
     
@@ -443,5 +440,4 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
     )
   }
 }
-
 

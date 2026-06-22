@@ -86,6 +86,19 @@ function formatRelativeTime(isoString: string | null): string {
   return `vor ${diffDays}d`
 }
 
+async function fetchWidgetResource(url: string): Promise<Response | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await fetch(url)
+    } catch (error) {
+      if (attempt === 1) {
+        console.warn(`[ChartTimelineWidget] Optional request failed: ${url}`, error)
+      }
+    }
+  }
+  return null
+}
+
 export function ChartTimelineWidget({ autoStart = true, showMinLineSlider = false }: ChartTimelineWidgetProps) {
   const [ohlcData, setOhlcData] = useState<OHLCData[]>([])
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null)
@@ -100,18 +113,18 @@ export function ChartTimelineWidget({ autoStart = true, showMinLineSlider = fals
     try {
       // Fetch OHLC and analysis in parallel
       const [ohlcRes, analysisRes] = await Promise.all([
-        fetch(`/chart-timeline/api/ohlc?timeframe=15m${force ? '&force=true' : ''}`),
-        fetch('/chart-timeline/api/analyze')
+        fetchWidgetResource(`/chart-timeline/api/ohlc?timeframe=15m${force ? '&force=true' : ''}`),
+        fetchWidgetResource('/chart-timeline/api/analyze')
       ])
 
-      if (ohlcRes.ok) {
+      if (ohlcRes?.ok) {
         const ohlcJson = await ohlcRes.json()
         setOhlcData(ohlcJson.ohlc || [])
         setOhlcFetchedAt(ohlcJson.fetchedAt)
         setIsCached(ohlcJson.cached || false)
       }
 
-      if (analysisRes.ok) {
+      if (analysisRes?.ok) {
         const analysisJson = await analysisRes.json()
         if (analysisJson.cached && analysisJson.analysis) {
           setAnalysis(analysisJson.analysis)
@@ -119,7 +132,7 @@ export function ChartTimelineWidget({ autoStart = true, showMinLineSlider = fals
         }
       }
     } catch (err) {
-      console.error('[ChartTimelineWidget] Error:', err)
+      console.warn('[ChartTimelineWidget] Optional widget data unavailable:', err)
     } finally {
       setIsLoading(false)
     }

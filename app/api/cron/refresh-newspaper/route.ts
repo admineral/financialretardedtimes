@@ -22,6 +22,7 @@
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { cronLogger as log } from '@/lib/logger'
+import { getNewspaperDateKey } from '@/app/newspaper/lib/timezone'
 
 export const maxDuration = 60 // Allow up to 60 seconds for AI generation
 
@@ -40,7 +41,7 @@ export async function GET() {
   
   try {
     // Get today's date in YYYY-MM-DD format
-    const today = new Date().toISOString().split('T')[0]
+    const today = getNewspaperDateKey()
     
     log.info('Starting newspaper refresh', { date: today })
     
@@ -101,4 +102,3 @@ export async function GET() {
     )
   }
 }
-

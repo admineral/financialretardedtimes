@@ -47,6 +47,19 @@ interface CacheResponse {
   dayRange: number
 }
 
+async function fetchTimelineResource(url: string): Promise<Response | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await fetch(url)
+    } catch (error) {
+      if (attempt === 1) {
+        console.warn(`[Timeline] Optional request failed: ${url}`, error)
+      }
+    }
+  }
+  return null
+}
+
 function formatDateHeader(dateStr: string): { weekday: string; date: string; relative: string } {
   const date = new Date(dateStr + 'T12:00:00')
   const today = new Date()
@@ -295,9 +308,10 @@ function DayContent({ newspaper }: { newspaper: CachedNewspaper }) {
 
 interface NewspaperTimelineProps {
   currentDate?: string | null
+  refreshKey?: string | null
 }
 
-export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
+export function NewspaperTimeline({ currentDate, refreshKey }: NewspaperTimelineProps) {
   const [newspapers, setNewspapers] = useState<CachedNewspaper[]>([])
   const [availableDates, setAvailableDates] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -310,18 +324,21 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
 
   const fetchAvailableDates = useCallback(async () => {
     try {
-      const response = await fetch('/newspaper/api/cache-list?dayRange=1&limit=30')
+      const response = await fetchTimelineResource('/newspaper/api/cache-list?dayRange=1&limit=100')
+      if (!response) return []
       if (!response.ok) throw new Error('Failed to fetch cache list')
       
       const data: CacheListResponse = await response.json()
-      const filteredDates = data.dates.map(d => d.date).filter(d => d !== currentDate)
+      const filteredDates = data.dates
+        .map(d => d.date)
+        .filter(d => currentDate ? d < currentDate : true)
       
       setAvailableDates(filteredDates)
-      setHasMore(data.hasMore && filteredDates.length < data.total - 1)
+      setHasMore(filteredDates.length > 5)
       
       return filteredDates
     } catch (err) {
-      console.error('[Timeline] Failed to fetch dates:', err)
+      console.warn('[Timeline] Optional archive dates unavailable:', err)
       setError('Keine gecachten Ausgaben gefunden')
       return []
     }
@@ -331,7 +348,8 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     if (loadedDatesRef.current.has(date)) return null
     
     try {
-      const response = await fetch(`/newspaper/api/cache?date=${date}&dayRange=1`)
+      const response = await fetchTimelineResource(`/newspaper/api/cache?date=${date}&dayRange=1`)
+      if (!response) return null
       if (!response.ok) return null
       
       const data: CacheResponse = await response.json()
@@ -345,7 +363,7 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
         updatedAt: data.updatedAt
       }
     } catch (err) {
-      console.error(`[Timeline] Failed to fetch ${date}:`, err)
+      console.warn(`[Timeline] Optional archive issue unavailable for ${date}:`, err)
       return null
     }
   }, [])
@@ -374,7 +392,7 @@ export function NewspaperTimeline({ currentDate }: NewspaperTimelineProps) {
     }
     
     loadInitial()
-  }, [fetchAvailableDates, fetchNewspaper, currentDate])
+  }, [fetchAvailableDates, fetchNewspaper, currentDate, refreshKey])
 
   const loadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore) return
