@@ -1,6 +1,5 @@
 'use client'
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TerminalCard, MetricTile } from './TerminalCard'
 import { TopUsersPanel } from './TopUsersPanel'
 import { useTopUsers } from '../hooks/use-top-users'
@@ -65,38 +64,16 @@ export function UsersTerminal({ dates, selectedDate }: UsersTerminalProps) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricTile label="All-Time Msgs" value={allMetrics.totalMessages.toLocaleString('de-DE')} />
-        <MetricTile label="30T Volume" value={w30.totalMessages.toLocaleString('de-DE')} sub={`Peak ${w30.peakDay?.date}`} />
+        <MetricTile label="30T Volume" value={w30.totalMessages.toLocaleString('de-DE')} sub={w30.peakDay ? `Peak ${w30.peakDay.date}` : undefined} />
         <MetricTile label="7T Volume" value={w7.totalMessages.toLocaleString('de-DE')} />
         <MetricTile label="Peak Day" value={allMetrics.peakDay?.messageCount.toLocaleString('de-DE') ?? '—'} sub={allMetrics.peakDay?.date} />
       </div>
 
-      <Tabs defaultValue="grid" className="w-full">
-        <TabsList>
-          <TabsTrigger value="grid">Multi-Rank Grid</TabsTrigger>
-          <TabsTrigger value="focus">Focus Rank</TabsTrigger>
-        </TabsList>
-        <TabsContent value="grid" className="mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {RANK_TABS.map(tab => (
-              <LeaderboardColumn key={tab.id} range={tab.id} date={selectedDate} dates={dates} />
-            ))}
-          </div>
-        </TabsContent>
-        <TabsContent value="focus" className="mt-4">
-          <Tabs defaultValue="30d">
-            <TabsList>
-              {RANK_TABS.map(t => (
-                <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>
-              ))}
-            </TabsList>
-            {RANK_TABS.map(t => (
-              <TabsContent key={t.id} value={t.id} className="mt-4">
-                <LeaderboardColumn range={t.id} date={selectedDate} dates={dates} />
-              </TabsContent>
-            ))}
-          </Tabs>
-        </TabsContent>
-      </Tabs>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {RANK_TABS.map(tab => (
+          <LeaderboardColumn key={tab.id} range={tab.id} date={selectedDate} dates={dates} />
+        ))}
+      </div>
     </div>
   )
 }

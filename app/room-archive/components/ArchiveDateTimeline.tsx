@@ -117,7 +117,7 @@ export function ArchiveDateTimeline({
 
         <button
           type="button"
-          onClick={() => setScrollIndex(prev => Math.max(0, prev - 1))}
+          onClick={() => setScrollIndex(prev => Math.max(0, prev - visibleCount))}
           disabled={!canScrollLeft}
           className={cn(
             'p-2 rounded-full transition-all duration-200 flex-shrink-0 hover:bg-primary/10 text-muted-foreground hover:text-primary',
@@ -185,11 +185,13 @@ export function ArchiveDateTimeline({
                     >
                       {month}
                     </span>
-                  </div>
-
-                  <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    <span className="text-[10px] font-mono bg-card border border-primary/20 px-2 py-0.5 rounded whitespace-nowrap">
-                      {dateStats.messageCount.toLocaleString('de-DE')} msgs · {dateStats.uniqueUsers} user
+                    <span
+                      className={cn(
+                        'text-[9px] font-mono tabular-nums mt-1',
+                        isSelected ? 'text-primary-foreground/80' : 'text-primary/70'
+                      )}
+                    >
+                      {dateStats.messageCount.toLocaleString('de-DE')}
                     </span>
                   </div>
                 </button>
@@ -202,7 +204,7 @@ export function ArchiveDateTimeline({
           type="button"
           onClick={() =>
             setScrollIndex(prev =>
-              Math.min(Math.max(0, filteredDates.length - visibleCount), prev + 1)
+              Math.min(Math.max(0, filteredDates.length - visibleCount), prev + visibleCount)
             )
           }
           disabled={!canScrollRight}
@@ -239,6 +241,20 @@ export function ArchiveDateTimeline({
             )}
           </div>
         </div>
+      </div>
+
+      <div className="md:hidden flex items-center gap-2 flex-wrap pb-2 text-[11px] font-mono text-muted-foreground">
+        <span className="text-primary font-bold uppercase">{timeRange}</span>
+        <span className="text-muted-foreground/40">|</span>
+        <span>{windowStats.totalMessages.toLocaleString('de-DE')} Nachrichten</span>
+        <span className="text-muted-foreground/40">|</span>
+        <span>{windowStats.days} Tage</span>
+        {selectedDateInfo && (
+          <>
+            <span className="text-muted-foreground/40">|</span>
+            <span>{selectedDateInfo.messageCount.toLocaleString('de-DE')} am Tag</span>
+          </>
+        )}
       </div>
     </div>
   )

@@ -14,6 +14,7 @@ import {
   LayoutGridIcon,
   RefreshCwIcon,
   ScrollTextIcon,
+  TriangleAlertIcon,
   UsersIcon,
   ZapIcon
 } from 'lucide-react'
@@ -74,7 +75,7 @@ export default function RoomArchivePage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [timeRange, setTimeRange] = useState<ArchiveTimeRange>('all')
 
-  const { data: stats, isLoading, isRevalidating, refresh } = useArchiveStats(DEFAULT_ROOM)
+  const { data: stats, isLoading, isRevalidating, error, refresh } = useArchiveStats(DEFAULT_ROOM)
 
   const dates = stats?.dates ?? EMPTY_DATES
   const totalMessages = stats?.totalMessages ?? 0
@@ -338,10 +339,27 @@ export default function RoomArchivePage() {
           />
         )}
 
-        {isLoading && dates.length === 0 && (
+        {isLoading && dates.length === 0 && !error && (
           <div className="flex items-center justify-center py-24 text-muted-foreground">
             <ActivityIcon className="h-5 w-5 animate-spin mr-2" />
             Terminal boot…
+          </div>
+        )}
+
+        {error && dates.length === 0 && !isLoading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+            <TriangleAlertIcon className="h-8 w-8 text-red-500/80" />
+            <div>
+              <p className="text-sm font-mono text-foreground">Archiv konnte nicht geladen werden</p>
+              <p className="text-xs text-muted-foreground mt-1">{error}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => refresh()}
+              className="text-xs font-mono px-4 py-2 rounded-md border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+            >
+              Erneut versuchen
+            </button>
           </div>
         )}
       </div>
