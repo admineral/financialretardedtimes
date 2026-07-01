@@ -26,17 +26,29 @@ interface MessageVolumeChartProps {
   className?: string
   heightClass?: string
   showUsers?: boolean
+  isLoading?: boolean
 }
 
 export function MessageVolumeChart({
   data,
   className,
   heightClass = 'h-[220px]',
-  showUsers
+  showUsers,
+  isLoading
 }: MessageVolumeChartProps) {
+  if (isLoading) {
+    return (
+      <div className={cn('flex items-end gap-1 animate-pulse px-1', heightClass, className)}>
+        {[45, 70, 30, 85, 55, 40, 65, 50, 75, 35, 60, 48].map((h, i) => (
+          <div key={i} className="flex-1 bg-muted/50 rounded-t-sm" style={{ height: `${h}%` }} />
+        ))}
+      </div>
+    )
+  }
+
   if (data.length === 0) {
     return (
-      <div className={cn('flex items-center justify-center text-xs text-muted-foreground', heightClass)}>
+      <div className={cn('flex items-center justify-center text-xs text-muted-foreground', heightClass, className)}>
         Keine Daten
       </div>
     )
@@ -44,7 +56,7 @@ export function MessageVolumeChart({
 
   return (
     <ChartContainer config={chartConfig} className={cn('w-full', heightClass, className)}>
-      <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="18%">
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis
           dataKey="label"
@@ -53,13 +65,13 @@ export function MessageVolumeChart({
           tickMargin={8}
           interval="preserveStartEnd"
           minTickGap={24}
-          fontSize={10}
+          fontSize={11}
         />
-        <YAxis tickLine={false} axisLine={false} width={36} fontSize={10} />
+        <YAxis tickLine={false} axisLine={false} width={36} fontSize={11} />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="messages" fill="var(--color-messages)" radius={[2, 2, 0, 0]} maxBarSize={32} />
+        <Bar dataKey="messages" fill="var(--color-messages)" radius={[2, 2, 0, 0]} maxBarSize={28} />
         {showUsers && (
-          <Bar dataKey="users" fill="var(--color-users)" radius={[2, 2, 0, 0]} maxBarSize={16} />
+          <Bar dataKey="users" fill="var(--color-users)" radius={[2, 2, 0, 0]} maxBarSize={28} />
         )}
       </BarChart>
     </ChartContainer>

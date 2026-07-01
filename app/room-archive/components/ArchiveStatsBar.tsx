@@ -53,7 +53,7 @@ export function ArchiveStatsBar({
       {uniqueUsers !== undefined && (
         <StatCard
           icon={UsersIcon}
-          label="Unique User"
+          label="Aktive User (30T)"
           value={uniqueUsers.toLocaleString('de-DE')}
           accent="muted"
         />
@@ -108,11 +108,11 @@ function StatCard({
       <div className="flex items-center gap-2 mb-1">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         {IconSecondary && <IconSecondary className="h-3 w-3 text-muted-foreground/60" />}
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+        <span className="text-[10px] sm:text-[11px] uppercase tracking-wider text-muted-foreground truncate">{label}</span>
       </div>
-      <p className="text-lg font-bold font-mono leading-tight">{value}</p>
+      <p className="text-base sm:text-lg font-bold font-mono leading-tight truncate">{value}</p>
       {subValue && (
-        <p className="text-[10px] text-muted-foreground mt-0.5">{subValue}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{subValue}</p>
       )}
     </div>
   )

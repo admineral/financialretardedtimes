@@ -1,7 +1,6 @@
 'use client'
 
-import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { CalendarDaysIcon } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import type { DateStats } from '@/app/newspaper/lib/types'
 import { ContributionCalendar } from './ContributionCalendar'
@@ -68,47 +67,48 @@ export function CalendarTerminal({
           <MessageVolumeChart data={chartSeriesFromDates(filteredDates)} heightClass="h-[160px]" />
         </TerminalCard>
 
-        {selectedStats && (
-          <TerminalCard
-            title="Selected Day"
-            subtitle={selectedDate ?? ''}
-            className="lg:col-span-7"
-            action={
-              <Button size="sm" className="h-7 text-[10px]" onClick={() => onDateSelect(selectedDate!)}>
-                Focus
-              </Button>
-            }
-          >
-            <div className="grid grid-cols-3 gap-2 text-center mb-3">
-              <div>
-                <p className="text-[9px] text-muted-foreground uppercase">Msgs</p>
-                <p className="font-mono font-bold">{selectedStats.messageCount.toLocaleString('de-DE')}</p>
+        <TerminalCard
+          title="Selected Day"
+          subtitle={selectedStats ? (selectedDate ?? '') : 'Kein Tag ausgewählt'}
+          className="lg:col-span-7"
+        >
+          {selectedStats && selectedDate ? (
+            <>
+              <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Msgs</p>
+                  <p className="font-mono font-bold text-base sm:text-lg">{selectedStats.messageCount.toLocaleString('de-DE')}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Users</p>
+                  <p className="font-mono font-bold text-base sm:text-lg">{selectedStats.uniqueUsers}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Share</p>
+                  <p className="font-mono font-bold text-base sm:text-lg">
+                    {rangeMetrics.totalMessages > 0
+                      ? `${Math.round((selectedStats.messageCount / rangeMetrics.totalMessages) * 100)}%`
+                      : '—'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-[9px] text-muted-foreground uppercase">Users</p>
-                <p className="font-mono font-bold">{selectedStats.uniqueUsers}</p>
-              </div>
-              <div>
-                <p className="text-[9px] text-muted-foreground uppercase">Share</p>
-                <p className="font-mono font-bold">
-                  {rangeMetrics.totalMessages > 0
-                    ? `${Math.round((selectedStats.messageCount / rangeMetrics.totalMessages) * 100)}%`
-                    : '—'}
-                </p>
-              </div>
+              <Separator className="my-3" />
+              <InfiniteChatStream
+                selectedDate={selectedDate}
+                availableDates={availableDateKeys}
+                compact
+              />
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground">
+              <CalendarDaysIcon className="h-9 w-9 mb-3 opacity-40" />
+              <p className="text-sm">Tag in der Matrix antippen</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                Wähle einen aktiven Tag, um Statistiken und Chat zu sehen.
+              </p>
             </div>
-            <Separator className="my-3" />
-            <ScrollArea className="h-[320px] pr-2">
-              {selectedDate && (
-                <InfiniteChatStream
-                  selectedDate={selectedDate}
-                  availableDates={availableDateKeys}
-                  compact
-                />
-              )}
-            </ScrollArea>
-          </TerminalCard>
-        )}
+          )}
+        </TerminalCard>
       </div>
     </div>
   )

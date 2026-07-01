@@ -17,6 +17,14 @@ interface ContributionCalendarProps {
 
 const FLUID_MAX_WEEKS = 18
 
+/** Local YYYY-MM-DD key (avoids the UTC shift that toISOString() can introduce). */
+function localDateKey(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 function getIntensityLevel(count: number, max: number): number {
   if (count === 0) return 0
   const ratio = count / max
@@ -59,7 +67,7 @@ function buildCalendarGrid(dates: DateStats[]) {
     const week: Array<{ date: string; count: number; stats?: DateStats } | null> = []
 
     for (let d = 0; d < 7; d++) {
-      const dateKey = cursor.toISOString().split('T')[0]
+      const dateKey = localDateKey(cursor)
       const stats = countByDate.get(dateKey)
       const inRange = cursor >= firstDate && cursor <= lastDate
 
@@ -111,10 +119,13 @@ function CalendarCell({
 
   const level = getIntensityLevel(cell.count, max)
   const isSelected = selectedDate === cell.date
+  const isEmpty = cell.count === 0
 
   return (
     <button
       type="button"
+      disabled={isEmpty}
+      aria-label={`${cell.date}: ${cell.count.toLocaleString('de-DE')} Nachrichten`}
       title={`${cell.date}: ${cell.count.toLocaleString('de-DE')} Nachrichten`}
       onClick={() => onDateSelect(cell.date)}
       className={cn(
@@ -122,8 +133,8 @@ function CalendarCell({
         'rounded-sm border transition-all duration-150',
         INTENSITY_CLASSES[level],
         isSelected && 'ring-2 ring-primary ring-offset-1 ring-offset-background z-10',
-        cell.count > 0 && 'hover:brightness-110 cursor-pointer',
-        cell.count === 0 && 'opacity-40 cursor-default'
+        !isEmpty && 'hover:brightness-110 cursor-pointer',
+        isEmpty && 'opacity-40 cursor-default'
       )}
     />
   )
@@ -320,7 +331,7 @@ export function ContributionCalendar({
   const cellPx = resolvedLayout === 'fixed-lg' || resolvedLayout === 'scroll-lg' ? 18 : 14
   const cellClass =
     resolvedLayout === 'fluid'
-      ? 'w-full aspect-square min-h-[10px] max-h-[14px] sm:max-h-[16px] md:max-h-[18px]'
+      ? 'w-full aspect-square min-h-[12px] max-h-[16px] sm:max-h-[18px] md:max-h-[20px]'
       : resolvedLayout === 'fixed-lg' || resolvedLayout === 'scroll-lg'
         ? 'w-[18px] h-[18px]'
         : 'w-[14px] h-[14px]'
