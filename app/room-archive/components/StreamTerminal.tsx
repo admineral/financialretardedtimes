@@ -5,8 +5,7 @@ import { ArchiveDateTimeline, type ArchiveTimeRange } from './ArchiveDateTimelin
 import { ContributionCalendar } from './ContributionCalendar'
 import { InfiniteChatStream } from './InfiniteChatStream'
 import { TerminalCard, MetricTile } from './TerminalCard'
-import { MessageVolumeChart } from './MessageVolumeChart'
-import { chartSeriesFromDates } from '../lib/range-utils'
+import { Badge } from '@/components/ui/badge'
 
 interface StreamTerminalProps {
   dates: DateStats[]
@@ -22,7 +21,6 @@ interface StreamTerminalProps {
 
 export function StreamTerminal({
   dates,
-  filteredDates,
   timeRange,
   onTimeRangeChange,
   selectedDate,
@@ -44,51 +42,57 @@ export function StreamTerminal({
         onDateSelect={onDateSelect}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-3 space-y-4">
-          <TerminalCard title="Day Picker" subtitle="Heatmap navigator">
-            <ContributionCalendar
-              dates={filteredDates}
-              maxDailyMessages={maxDailyMessages}
-              selectedDate={selectedDate}
-              onDateSelect={onDateSelect}
-              cellSize="lg"
-            />
-          </TerminalCard>
-          {dayStats && (
-            <TerminalCard title="Day Stats">
-              <div className="grid grid-cols-2 gap-2">
-                <MetricTile label="Msgs" value={dayStats.messageCount.toLocaleString('de-DE')} />
-                <MetricTile label="Users" value={String(dayStats.uniqueUsers)} />
-              </div>
-              <div className="mt-3">
-                <MessageVolumeChart
-                  data={chartSeriesFromDates([dayStats])}
-                  heightClass="h-[80px]"
-                />
-              </div>
-            </TerminalCard>
-          )}
-        </div>
+      <TerminalCard
+        title="Day Picker"
+        subtitle={`Full archive · ${dates.length} days`}
+        badge="ALL"
+        contentClassName="pt-1 pb-2"
+      >
+        <ContributionCalendar
+          dates={dates}
+          maxDailyMessages={maxDailyMessages}
+          selectedDate={selectedDate}
+          onDateSelect={onDateSelect}
+          cellSize="fluid"
+        />
+      </TerminalCard>
 
-        <TerminalCard
-          title="Live Archive Stream"
-          subtitle="Infinite scroll · ältere Tage nach oben"
-          badge="FEED"
-          className="xl:col-span-9"
-          noPadding
-        >
-          {selectedDate ? (
-            <InfiniteChatStream
-              selectedDate={selectedDate}
-              availableDates={availableDateKeys}
-              onDateChange={onDateSelect}
-            />
-          ) : (
-            <p className="p-8 text-sm text-muted-foreground text-center">Tag auswählen</p>
-          )}
-        </TerminalCard>
-      </div>
+      {dayStats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <MetricTile label="Selected" value={selectedDate ?? '—'} sub="Active day" />
+          <MetricTile label="Msgs" value={dayStats.messageCount.toLocaleString('de-DE')} />
+          <MetricTile label="Users" value={String(dayStats.uniqueUsers)} />
+          <MetricTile
+            label="Archive"
+            value={dates.length.toLocaleString('de-DE')}
+            sub={`${dates.reduce((s, d) => s + d.messageCount, 0).toLocaleString('de-DE')} total msgs`}
+          />
+        </div>
+      )}
+
+      <TerminalCard
+        title="Live Archive Stream"
+        subtitle="Infinite scroll · ältere Tage nach oben"
+        badge="FEED"
+        noPadding
+        action={
+          selectedDate ? (
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {selectedDate}
+            </Badge>
+          ) : undefined
+        }
+      >
+        {selectedDate ? (
+          <InfiniteChatStream
+            selectedDate={selectedDate}
+            availableDates={availableDateKeys}
+            onDateChange={onDateSelect}
+          />
+        ) : (
+          <p className="p-8 text-sm text-muted-foreground text-center">Tag im Day Picker auswählen</p>
+        )}
+      </TerminalCard>
     </div>
   )
 }
