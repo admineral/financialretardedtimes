@@ -22,16 +22,17 @@ import {
   UsersIcon
 } from 'lucide-react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { DateTimeline } from '@/app/newspaper/components/DateTimeline'
 import type { DateStats } from '@/app/newspaper/lib/types'
-import type { DayRange } from '@/app/newspaper/components/DateTimeline'
 import {
   ArchiveStatsBar,
+  ArchiveDateTimeline,
+  filterDatesByRange,
   ContributionCalendar,
   DayActivityChart,
   InfiniteChatStream,
   TopUsersPanel
 } from './components'
+import type { ArchiveTimeRange } from './components'
 import { cn } from '@/lib/utils'
 
 type ViewTab = 'timeline' | 'calendar' | 'stream' | 'users'
@@ -73,7 +74,7 @@ export default function RoomArchivePage() {
   const [activeTab, setActiveTab] = useState<ViewTab>('timeline')
   const [dates, setDates] = useState<DateStats[]>([])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
-  const [, setDayRange] = useState<DayRange>(1)
+  const [timeRange, setTimeRange] = useState<ArchiveTimeRange>('1m')
   const [cumulativeUsers, setCumulativeUsers] = useState<Record<number, number>>({})
   const [totalMessages, setTotalMessages] = useState(0)
   const [totalDays, setTotalDays] = useState(0)
@@ -173,9 +174,19 @@ export default function RoomArchivePage() {
     }
   }, [activeTab, selectedDate, fetchUsers])
 
+  const filteredDates = useMemo(
+    () => filterDatesByRange(dates, timeRange),
+    [dates, timeRange]
+  )
+
   const selectedDateStats = useMemo(
     () => dates.find(d => d.date === selectedDate) || null,
     [dates, selectedDate]
+  )
+
+  const filteredMaxDailyMessages = useMemo(
+    () => filteredDates.reduce((max, day) => Math.max(max, day.messageCount), 0),
+    [filteredDates]
   )
 
   const availableDateKeys = useMemo(
@@ -185,17 +196,11 @@ export default function RoomArchivePage() {
 
   const handleDateSelect = (date: string) => {
     setSelectedDate(date)
-    setDayRange(1)
-    if (activeTab !== 'stream') return
   }
 
   const handleCalendarDateSelect = (date: string) => {
     setSelectedDate(date)
     setActiveTab('stream')
-  }
-
-  const handleDayRangeChange = (_range: DayRange, _dates: string[]) => {
-    // Archive explorer uses dayRange only for DateTimeline display
   }
 
   const lastSync = syncHistory[0]
@@ -283,17 +288,16 @@ export default function RoomArchivePage() {
         </div>
       </div>
 
-      {/* DateTimeline — shared across timeline + stream tabs */}
+      {/* Archive timeline — shared across timeline + stream tabs */}
       {(activeTab === 'timeline' || activeTab === 'stream') && (
         <div className="border-y border-primary/10 bg-card/30 mb-6">
-          <DateTimeline
+          <ArchiveDateTimeline
             availableDates={dates}
             selectedDate={selectedDate}
             isLoadingDates={isLoading}
-            isLoading={false}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
             onDateSelect={handleDateSelect}
-            onDayRangeChange={handleDayRangeChange}
-            cumulativeUsers={cumulativeUsers}
           />
         </div>
       )}
@@ -391,7 +395,19 @@ export default function RoomArchivePage() {
         )}
 
         {activeTab === 'calendar' && (
-          <div className="glass-card-gold rounded-lg p-6 border border-primary/20">
+          <div className="space-y-6">
+            <div className="border border-primary/10 bg-card/30 rounded-lg">
+              <ArchiveDateTimeline
+                availableDates={dates}
+                selectedDate={selectedDate}
+                isLoadingDates={isLoading}
+                timeRange={timeRange}
+                onTimeRangeChange={setTimeRange}
+                onDateSelect={handleCalendarDateSelect}
+              />
+            </div>
+
+            <div className="glass-card-gold rounded-lg p-6 border border-primary/20">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="font-headline text-lg">Aktivitäts-Kalender</h2>
@@ -410,11 +426,12 @@ export default function RoomArchivePage() {
               )}
             </div>
             <ContributionCalendar
-              dates={dates}
-              maxDailyMessages={maxDailyMessages}
+              dates={filteredDates}
+              maxDailyMessages={filteredMaxDailyMessages || maxDailyMessages}
               selectedDate={selectedDate}
               onDateSelect={handleCalendarDateSelect}
             />
+            </div>
           </div>
         )}
 
