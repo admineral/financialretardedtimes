@@ -1,37 +1,33 @@
 /**
- * Room Archive Explorer
- *
- * Full visualization of the cron-synced chat archive:
- * - Timeline navigator (DateTimeline)
- * - GitHub-style contribution calendar
- * - Infinite scroll chat stream (day-by-day)
- * - Top users leaderboard
+ * Room Archive Explorer — Terminal Dashboard
  */
 
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
+  ActivityIcon,
   ArrowLeftIcon,
   CalendarDaysIcon,
+  LayoutDashboardIcon,
   LayoutGridIcon,
-  MessageSquareIcon,
   RefreshCwIcon,
   ScrollTextIcon,
-  UsersIcon
+  UsersIcon,
+  ZapIcon
 } from 'lucide-react'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import type { DateStats } from '@/app/newspaper/lib/types'
 import {
   ArchiveStatsBar,
   ArchiveDateTimeline,
   filterDatesByRange,
-  ContributionCalendar,
-  DayActivityChart,
-  InfiniteChatStream,
-  TopUsersPanel,
-  SyncHistoryList
+  OverviewDashboard,
+  CalendarTerminal,
+  StreamTerminal,
+  UsersTerminal,
+  SyncTerminal,
+  TimelineTerminal
 } from './components'
 import type { ArchiveTimeRange, ActivityBucket } from './components'
 import { useArchiveStats } from './hooks/use-archive-stats'
@@ -41,7 +37,7 @@ import {
 } from './lib/activity-from-stats'
 import { cn } from '@/lib/utils'
 
-type ViewTab = 'timeline' | 'calendar' | 'stream' | 'users'
+type ViewTab = 'overview' | 'timeline' | 'calendar' | 'stream' | 'users' | 'sync'
 
 interface ActivityMeta {
   peakIndex: number
@@ -50,13 +46,6 @@ interface ActivityMeta {
   mode: 'hourly' | 'daily'
   from: string
   to: string
-}
-
-interface SyncStatus {
-  last_sync_at: string
-  total_messages: number
-  is_full_history: boolean
-  newest_message_time: string | null
 }
 
 const RANGE_LABELS: Record<ArchiveTimeRange, string> = {
@@ -69,17 +58,18 @@ const RANGE_LABELS: Record<ArchiveTimeRange, string> = {
 const DEFAULT_ROOM = 'bitcoin_de_DE'
 
 const TABS: { id: ViewTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon },
   { id: 'timeline', label: 'Timeline', icon: LayoutGridIcon },
   { id: 'calendar', label: 'Kalender', icon: CalendarDaysIcon },
-  { id: 'stream', label: 'Chat-Stream', icon: ScrollTextIcon },
-  { id: 'users', label: 'Top User', icon: UsersIcon }
+  { id: 'stream', label: 'Stream', icon: ScrollTextIcon },
+  { id: 'users', label: 'Ranks', icon: UsersIcon },
+  { id: 'sync', label: 'Sync', icon: ZapIcon }
 ]
 
 export default function RoomArchivePage() {
-  const [activeTab, setActiveTab] = useState<ViewTab>('timeline')
+  const [activeTab, setActiveTab] = useState<ViewTab>('overview')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [timeRange, setTimeRange] = useState<ArchiveTimeRange>('1m')
-  const [usersScope, setUsersScope] = useState<'day' | 'all'>('day')
 
   const { data: stats, isLoading, isRevalidating, refresh } = useArchiveStats(DEFAULT_ROOM)
 
@@ -100,31 +90,10 @@ export default function RoomArchivePage() {
     to: ''
   })
   const [isLoadingActivity, setIsLoadingActivity] = useState(false)
-  const [topUsers, setTopUsers] = useState<Array<{ username: string; messageCount: number; user_pic?: string; is_moderator?: boolean }>>([])
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
 
   useEffect(() => {
-    if (!selectedDate && dates[0]?.date) {
-      setSelectedDate(dates[0].date)
-    }
+    if (!selectedDate && dates[0]?.date) setSelectedDate(dates[0].date)
   }, [dates, selectedDate])
-
-  const fetchUsers = useCallback(async (date: string | null, scope: 'day' | 'all') => {
-    setIsLoadingUsers(true)
-    try {
-      const params = new URLSearchParams({ room: DEFAULT_ROOM, limit: '25' })
-      if (scope === 'day' && date) params.set('date', date)
-      const response = await fetch(`/room-archive/api/users?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        setTopUsers(data.users || [])
-      }
-    } catch (err) {
-      console.error('Failed to fetch users:', err)
-    } finally {
-      setIsLoadingUsers(false)
-    }
-  }, [])
 
   const filteredDates = useMemo(
     () => filterDatesByRange(dates, timeRange),
@@ -137,7 +106,7 @@ export default function RoomArchivePage() {
     if (shouldUseCountsOnlyActivity(filteredDates.length)) {
       const instant = buildDailyActivityFromStats(filteredDates)
       if (instant) {
-        setActivityBuckets(instant.buckets)
+        setActivityBuckets(instant.buckets as ActivityBucket[])
         setActivityMeta({
           peakIndex: instant.peakIndex,
           peakLabel: instant.peakLabel,
@@ -170,7 +139,6 @@ export default function RoomArchivePage() {
           to: data.to || to
         })
       })
-      .catch(err => console.error('Failed to fetch hourly activity:', err))
       .finally(() => {
         if (!cancelled) setIsLoadingActivity(false)
       })
@@ -180,26 +148,9 @@ export default function RoomArchivePage() {
     }
   }, [activeTab, filteredDates])
 
-  useEffect(() => {
-    if (activeTab === 'users') {
-      fetchUsers(selectedDate, usersScope)
-    }
-  }, [activeTab, selectedDate, usersScope, fetchUsers])
-
-  useEffect(() => {
-    if (activeTab === 'timeline' && selectedDate) {
-      fetchUsers(selectedDate, 'day')
-    }
-  }, [activeTab, selectedDate, fetchUsers])
-
   const selectedDateStats = useMemo(
     () => dates.find(d => d.date === selectedDate) || null,
     [dates, selectedDate]
-  )
-
-  const filteredMaxDailyMessages = useMemo(
-    () => filteredDates.reduce((max, day) => Math.max(max, day.messageCount), 0),
-    [filteredDates]
   )
 
   const rangeMessageTotal = useMemo(
@@ -207,30 +158,21 @@ export default function RoomArchivePage() {
     [filteredDates]
   )
 
-  const availableDateKeys = useMemo(
-    () => dates.map(d => d.date),
-    [dates]
-  )
-
-  const handleDateSelect = (date: string) => {
-    setSelectedDate(date)
-  }
-
-  const handleCalendarDateSelect = (date: string) => {
-    setSelectedDate(date)
-    setActiveTab('stream')
-  }
+  const availableDateKeys = useMemo(() => dates.map(d => d.date), [dates])
 
   const activitySubtitle =
     activityMeta.mode === 'daily'
       ? `Tägliche Verteilung · ${RANGE_LABELS[timeRange]} · Europe/Berlin`
       : `Stündliche Verteilung · ${RANGE_LABELS[timeRange]} · Europe/Berlin`
 
+  const handleDateSelect = (date: string) => setSelectedDate(date)
+
+  const showRangeNav = activeTab === 'overview'
+
   return (
     <main className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b border-primary/10">
-        <div className="w-full max-w-[1800px] mx-auto px-4 md:px-8 py-4">
+        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-8 py-3">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
               <Link
@@ -240,30 +182,26 @@ export default function RoomArchivePage() {
                 <ArrowLeftIcon className="h-4 w-4" />
                 <span className="text-sm hidden sm:inline">Newspaper</span>
               </Link>
-              <div className="h-4 w-px bg-primary/20 flex-shrink-0" />
-              <div className="min-w-0">
-                <h1 className="font-masthead text-xl md:text-2xl gold-text truncate">
-                  Room Archive
-                </h1>
-                <p className="text-[10px] text-muted-foreground truncate">
-                  bitcoin_de_DE · Sync alle 5 Min via Vercel Cron
-                </p>
+              <div className="h-4 w-px bg-primary/20" />
+              <div>
+                <h1 className="font-masthead text-xl md:text-2xl gold-text">Archive Terminal</h1>
+                <p className="text-[10px] font-mono text-muted-foreground">bitcoin_de_DE · QUANT DESK</p>
               </div>
             </div>
-
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Link
-                href="/chat-archive"
-                className="hidden md:inline text-xs text-muted-foreground hover:text-primary transition-colors px-2"
-              >
-                User Archive
+            <div className="flex items-center gap-2">
+              {(isRevalidating || stats?.cacheState === 'client') && (
+                <span className="hidden md:inline text-[10px] font-mono text-primary/60">
+                  {stats?.cacheState === 'client' ? 'cached' : 'sync…'}
+                </span>
+              )}
+              <Link href="/chat-archive" className="hidden md:inline text-xs text-muted-foreground hover:text-primary px-2">
+                Users
               </Link>
               <button
                 type="button"
                 onClick={() => refresh()}
                 disabled={isLoading || isRevalidating}
                 className="p-2 hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
-                title="Daten aktualisieren"
               >
                 <RefreshCwIcon className={cn('h-4 w-4', (isLoading || isRevalidating) && 'animate-spin')} />
               </button>
@@ -273,20 +211,18 @@ export default function RoomArchivePage() {
         </div>
       </header>
 
-      {/* Stats */}
-      <div className="w-full max-w-[1800px] mx-auto px-4 md:px-8 py-4">
+      <div className="w-full max-w-[1920px] mx-auto px-4 md:px-8 py-3">
         <ArchiveStatsBar
           totalMessages={totalMessages}
           totalDays={totalDays}
-          uniqueUsers={cumulativeUsers[7]}
+          uniqueUsers={cumulativeUsers[30] ?? cumulativeUsers[7]}
           syncStatus={syncStatus}
           selectedDateStats={selectedDateStats}
         />
       </div>
 
-      {/* Tab navigation */}
-      <div className="w-full max-w-[1800px] mx-auto px-4 md:px-8">
-        <div className="flex items-center gap-1 p-1 bg-card/80 border border-primary/20 rounded-full w-fit mb-4">
+      <div className="w-full max-w-[1920px] mx-auto px-4 md:px-8 pb-2">
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-card/80 border border-primary/20 rounded-lg w-full sm:w-fit">
           {TABS.map(tab => {
             const Icon = tab.icon
             return (
@@ -295,23 +231,22 @@ export default function RoomArchivePage() {
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-semibold rounded-full transition-all duration-200',
+                  'flex items-center gap-1.5 px-3 py-2 text-xs font-mono font-semibold rounded-md transition-all',
                   activeTab === tab.id
-                    ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30'
+                    ? 'bg-primary text-primary-foreground shadow-md'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{tab.label}</span>
+                {tab.label}
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* Archive timeline — shared across timeline + stream tabs */}
-      {(activeTab === 'timeline' || activeTab === 'stream') && (
-        <div className="border-y border-primary/10 bg-card/30 mb-6">
+      {showRangeNav && (
+        <div className="border-y border-primary/10 bg-card/20 mb-4">
           <ArchiveDateTimeline
             availableDates={dates}
             selectedDate={selectedDate}
@@ -323,190 +258,89 @@ export default function RoomArchivePage() {
         </div>
       )}
 
-      {/* Content */}
-      <div className="w-full max-w-[1800px] mx-auto px-4 md:px-8 pb-12">
-        {activeTab === 'timeline' && selectedDate && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              <div className="glass-card-gold rounded-lg p-5 border border-primary/20">
-                <h2 className="font-headline text-lg mb-1 flex items-center gap-2">
-                  <MessageSquareIcon className="h-4 w-4 text-primary" />
-                  Aktivität — {rangeMessageTotal.toLocaleString('de-DE')} Nachrichten
-                  <span className="text-sm font-mono text-primary/70">({RANGE_LABELS[timeRange]})</span>
-                </h2>
-                <p className="text-xs text-muted-foreground mb-4">
-                  {activitySubtitle}
-                  {activityMeta.from && activityMeta.to && (
-                    <span className="ml-2 font-mono text-muted-foreground/60">
-                      {activityMeta.from} → {activityMeta.to}
-                    </span>
-                  )}
-                  {filteredDates.length > 7 && (
-                    <span className="ml-2 text-primary/60">· instant counts</span>
-                  )}
-                </p>
-                <DayActivityChart
-                  buckets={activityBuckets}
-                  peakIndex={activityMeta.peakIndex}
-                  peakLabel={activityMeta.peakLabel}
-                  totalMessages={activityMeta.totalMessages}
-                  mode={activityMeta.mode}
-                  isLoading={isLoadingActivity}
-                />
-              </div>
+      <div className="w-full max-w-[1920px] mx-auto px-4 md:px-8 pb-16">
+        {activeTab === 'overview' && (
+          <OverviewDashboard
+            dates={dates}
+            totalMessages={totalMessages}
+            totalDays={totalDays}
+            maxDailyMessages={maxDailyMessages}
+            syncStatus={syncStatus}
+            selectedDate={selectedDate}
+            onDateSelect={d => {
+              handleDateSelect(d)
+              setActiveTab('stream')
+            }}
+            onOpenStream={() => setActiveTab('stream')}
+            onOpenSync={() => setActiveTab('sync')}
+          />
+        )}
 
-              <SyncHistoryList roomId={DEFAULT_ROOM} />
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-lg border border-foreground/10 bg-card p-5">
-                <h3 className="font-headline text-sm mb-4">Top User — {selectedDate}</h3>
-                <TopUsersPanel
-                  users={topUsers}
-                  isLoading={isLoadingUsers}
-                  roomId={DEFAULT_ROOM}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('users')
-                    fetchUsers(selectedDate, 'day')
-                  }}
-                  className="mt-3 text-xs text-primary hover:underline w-full text-center"
-                >
-                  Alle anzeigen →
-                </button>
-              </div>
-
-              <div className="rounded-lg border border-foreground/10 bg-card p-5">
-                <p className="text-xs text-muted-foreground mb-3">Was wird gespeichert?</p>
-                <ul className="text-xs space-y-1.5 text-muted-foreground">
-                  <li>· Nachrichten (Text, User, Zeit, Badges)</li>
-                  <li>· Links &amp; Quotes (separate Tabellen)</li>
-                  <li>· Sync-Status alle 5 Min (Vercel Cron)</li>
-                  <li>· Tages-Statistiken im date_stats_cache</li>
-                </ul>
-                <Link
-                  href="/chat-archive"
-                  className="mt-4 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  <UsersIcon className="h-3 w-3" />
-                  User-Profile Archive →
-                </Link>
-              </div>
-            </div>
-          </div>
+        {activeTab === 'timeline' && (
+          <TimelineTerminal
+            dates={dates}
+            filteredDates={filteredDates}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
+            selectedDate={selectedDate}
+            onDateSelect={handleDateSelect}
+            isLoadingDates={isLoading && dates.length === 0}
+            rangeMessageTotal={rangeMessageTotal}
+            rangeLabel={RANGE_LABELS[timeRange]}
+            activityBuckets={activityBuckets}
+            activityMeta={activityMeta}
+            activitySubtitle={activitySubtitle}
+            isLoadingActivity={isLoadingActivity}
+          />
         )}
 
         {activeTab === 'calendar' && (
-          <div className="space-y-6">
-            <div className="border border-primary/10 bg-card/30 rounded-lg">
-              <ArchiveDateTimeline
-                availableDates={dates}
-                selectedDate={selectedDate}
-                isLoadingDates={isLoading && dates.length === 0}
-                timeRange={timeRange}
-                onTimeRangeChange={setTimeRange}
-                onDateSelect={handleCalendarDateSelect}
-              />
-            </div>
-
-            <div className="glass-card-gold rounded-lg p-6 border border-primary/20">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="font-headline text-lg">Aktivitäts-Kalender</h2>
-                <p className="text-xs text-muted-foreground mt-1">
-                  GitHub-style Heatmap · Klick öffnet Chat-Stream für den Tag
-                </p>
-              </div>
-              {selectedDate && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('stream')}
-                  className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-full font-mono"
-                >
-                  Stream: {selectedDate}
-                </button>
-              )}
-            </div>
-            <ContributionCalendar
-              dates={filteredDates}
-              maxDailyMessages={filteredMaxDailyMessages || maxDailyMessages}
-              selectedDate={selectedDate}
-              onDateSelect={handleCalendarDateSelect}
-            />
-            </div>
-          </div>
+          <CalendarTerminal
+            dates={dates}
+            filteredDates={filteredDates}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
+            selectedDate={selectedDate}
+            onDateSelect={handleDateSelect}
+            maxDailyMessages={maxDailyMessages}
+            isLoadingDates={isLoading && dates.length === 0}
+            availableDateKeys={availableDateKeys}
+          />
         )}
 
-        {activeTab === 'stream' && selectedDate && (
-          <InfiniteChatStream
+        {activeTab === 'stream' && (
+          <StreamTerminal
+            dates={dates}
+            filteredDates={filteredDates}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
             selectedDate={selectedDate}
-            availableDates={availableDateKeys}
-            roomId={DEFAULT_ROOM}
-            onDateChange={handleDateSelect}
+            onDateSelect={handleDateSelect}
+            maxDailyMessages={maxDailyMessages}
+            isLoadingDates={isLoading && dates.length === 0}
+            availableDateKeys={availableDateKeys}
           />
         )}
 
         {activeTab === 'users' && (
-          <div className="max-w-2xl">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex items-center gap-1 p-1 bg-card/80 border border-primary/20 rounded-full">
-                <button
-                  type="button"
-                  onClick={() => setUsersScope('day')}
-                  className={cn(
-                    'px-3 py-1 text-xs font-mono rounded-full transition-all',
-                    usersScope === 'day' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-                  )}
-                >
-                  Tag
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUsersScope('all')}
-                  className={cn(
-                    'px-3 py-1 text-xs font-mono rounded-full transition-all',
-                    usersScope === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-                  )}
-                >
-                  Gesamt
-                </button>
-              </div>
-              {usersScope === 'day' && selectedDate && (
-                <span className="text-xs text-muted-foreground font-mono">{selectedDate}</span>
-              )}
-            </div>
+          <UsersTerminal dates={dates} selectedDate={selectedDate} />
+        )}
 
-            {usersScope === 'day' && !selectedDate && (
-              <p className="text-sm text-muted-foreground mb-4">
-                Wähle einen Tag in der Timeline oder im Kalender.
-              </p>
-            )}
-
-            <TopUsersPanel
-              users={topUsers}
-              isLoading={isLoadingUsers}
-              roomId={DEFAULT_ROOM}
-              dateLabel={usersScope === 'day' ? selectedDate || undefined : 'Gesamtes Archiv'}
-            />
-          </div>
+        {activeTab === 'sync' && (
+          <SyncTerminal
+            syncStatus={syncStatus}
+            totalMessages={totalMessages}
+            onRefreshStats={refresh}
+          />
         )}
 
         {isLoading && dates.length === 0 && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <RefreshCwIcon className="h-5 w-5 animate-spin mr-2" />
-            Lade Archiv...
+          <div className="flex items-center justify-center py-24 text-muted-foreground">
+            <ActivityIcon className="h-5 w-5 animate-spin mr-2" />
+            Terminal boot…
           </div>
         )}
       </div>
-
-      {/* Footer info */}
-      {syncStatus?.last_sync_at && (
-        <div className="fixed bottom-4 right-4 text-[10px] font-mono text-muted-foreground/50 bg-card/80 border border-foreground/10 px-3 py-1.5 rounded-full backdrop-blur-sm hidden md:block">
-          Letzter Cron: {new Date(syncStatus.last_sync_at).toLocaleTimeString('de-DE')}
-        </div>
-      )}
     </main>
   )
 }

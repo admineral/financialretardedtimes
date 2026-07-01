@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { getNewspaperDayBounds } from '@/app/newspaper/lib/timezone'
-import { loadDateStats } from '../../lib/date-stats'
+import { getRangeBounds, type UserRange } from '../../lib/range-utils'
 
 const DEFAULT_ROOM = 'bitcoin_de_DE'
 const USERS_CACHE_MS = 10 * 60 * 1000
@@ -17,13 +17,14 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl
   const date = searchParams.get('date')
+  const range = (searchParams.get('range') || (date ? 'day' : 'all')) as UserRange
   const roomId = searchParams.get('room') || DEFAULT_ROOM
   const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100)
   const forceRefresh = searchParams.get('refresh') === 'true'
 
   try {
     const supabase = await createClient()
-    const cacheKey = `${roomId}:${date || 'all'}:${limit}`
+    const cacheKey = `${roomId}:${range}:${date || ''}:${limit}`
 
     if (!forceRefresh) {
       const { data: cached } = await supabase
@@ -39,25 +40,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    let fromIso: string | null = null
-    let toIso: string | null = null
-
-    if (date) {
-      const { startDate, endDate } = getNewspaperDayBounds(date)
-      fromIso = startDate.toISOString()
-      toIso = endDate.toISOString()
-    }
+    const bounds = getRangeBounds(range, date)
+    const { startDate } = getNewspaperDayBounds(bounds.from)
+    const { endDate } = getNewspaperDayBounds(bounds.to)
+    const fromIso = startDate.toISOString()
+    const toIso = endDate.toISOString()
 
     const { data: rpcUsers, error: rpcError } = await supabase.rpc('get_room_top_chatters', {
       p_room_id: roomId,
-      p_from: fromIso || '1970-01-01T00:00:00.000Z',
-      p_to: toIso || new Date().toISOString(),
+      p_from: fromIso,
+      p_to: toIso,
       p_limit: limit
     })
 
     if (rpcError) {
       console.warn('[ROOM ARCHIVE USERS] RPC unavailable, falling back:', rpcError.message)
-      return fallbackUsersQuery(supabase, roomId, date, limit)
+      return fallbackUsersQuery(supabase, roomId, bounds.from, bounds.to, limit)
     }
 
     const users = (rpcUsers || []).map(
@@ -75,7 +73,10 @@ export async function GET(request: NextRequest) {
     )
 
     const payload = {
-      date: date || null,
+      date: range === 'day' ? date : null,
+      range,
+      from: bounds.from,
+      to: bounds.to,
       roomId,
       users,
       totalUniqueUsers: users.length,
@@ -86,8 +87,8 @@ export async function GET(request: NextRequest) {
       {
         cache_key: `users:${cacheKey}`,
         room_id: roomId,
-        from_date: date || 'all',
-        to_date: date || 'all',
+        from_date: bounds.from,
+        to_date: bounds.to,
         mode: 'daily',
         payload,
         updated_at: new Date().toISOString()
@@ -110,9 +111,12 @@ export async function GET(request: NextRequest) {
 async function fallbackUsersQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
   roomId: string,
-  date: string | null,
+  fromDate: string,
+  toDate: string,
   limit: number
 ) {
+  const { startDate } = getNewspaperDayBounds(fromDate)
+  const { endDate } = getNewspaperDayBounds(toDate)
   const userMap = new Map<string, { count: number; user_pic?: string; is_moderator: boolean }>()
   const pageSize = 1000
   let offset = 0
@@ -123,12 +127,9 @@ async function fallbackUsersQuery(
       .from('tv_chat_messages')
       .select('username, user_pic, is_moderator')
       .eq('room_id', roomId)
+      .gte('time', startDate.toISOString())
+      .lte('time', endDate.toISOString())
       .order('time', { ascending: false })
-
-    if (date) {
-      const { startDate, endDate } = getNewspaperDayBounds(date)
-      query = query.gte('time', startDate.toISOString()).lte('time', endDate.toISOString())
-    }
 
     const { data: page, error } = await query.range(offset, offset + pageSize - 1)
     if (error) throw new Error(error.message)
@@ -164,7 +165,9 @@ async function fallbackUsersQuery(
     .slice(0, limit)
 
   return Response.json({
-    date: date || null,
+    range: fromDate === toDate ? 'day' : 'custom',
+    from: fromDate,
+    to: toDate,
     roomId,
     users,
     totalUniqueUsers: userMap.size,

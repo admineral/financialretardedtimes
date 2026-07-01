@@ -29,6 +29,7 @@ interface InfiniteChatStreamProps {
   roomId?: string
   onDateChange?: (date: string) => void
   className?: string
+  compact?: boolean
 }
 
 const MESSAGE_LIMIT = 200
@@ -49,7 +50,8 @@ export function InfiniteChatStream({
   availableDates,
   roomId = DEFAULT_ROOM,
   onDateChange,
-  className
+  className,
+  compact
 }: InfiniteChatStreamProps) {
   const [dayBlocks, setDayBlocks] = useState<DayBlock[]>([])
   const [isLoadingInitial, setIsLoadingInitial] = useState(true)
@@ -240,24 +242,29 @@ export function InfiniteChatStream({
 
   return (
     <div className={cn('flex flex-col rounded-lg border border-foreground/10 bg-card overflow-hidden', className)}>
-      <div className="px-4 py-2 border-b border-foreground/10 bg-muted/20 flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">
-          Scroll nach oben für ältere Tage · {dayBlocks.length} Tag{dayBlocks.length !== 1 ? 'e' : ''} geladen
-        </span>
-        {onDateChange && (
-          <button
-            type="button"
-            onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })}
-            className="text-primary hover:underline"
-          >
-            Nach unten
-          </button>
-        )}
-      </div>
+      {!compact && (
+        <div className="px-4 py-2 border-b border-foreground/10 bg-muted/20 flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">
+            Scroll nach oben für ältere Tage · {dayBlocks.length} Tag{dayBlocks.length !== 1 ? 'e' : ''} geladen
+          </span>
+          {onDateChange && (
+            <button
+              type="button"
+              onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })}
+              className="text-primary hover:underline"
+            >
+              Nach unten
+            </button>
+          )}
+        </div>
+      )}
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto max-h-[70vh] min-h-[400px] px-4 py-2"
+        className={cn(
+          'flex-1 overflow-y-auto px-4 py-2',
+          compact ? 'max-h-[260px] min-h-[200px]' : 'max-h-[70vh] min-h-[400px]'
+        )}
       >
         <div ref={topSentinelRef} className="h-1" />
 

@@ -10,6 +10,7 @@ interface ContributionCalendarProps {
   selectedDate: string | null
   onDateSelect: (date: string) => void
   className?: string
+  cellSize?: 'sm' | 'lg'
 }
 
 function getIntensityLevel(count: number, max: number): number {
@@ -34,8 +35,11 @@ export function ContributionCalendar({
   maxDailyMessages,
   selectedDate,
   onDateSelect,
-  className
+  className,
+  cellSize = 'sm'
 }: ContributionCalendarProps) {
+  const cellPx = cellSize === 'lg' ? 18 : 14
+  const cellClass = cellSize === 'lg' ? 'w-[18px] h-[18px]' : 'w-[14px] h-[14px]'
   const { weeks, monthLabels } = useMemo(() => {
     if (dates.length === 0) return { weeks: [] as Array<Array<{ date: string; count: number; stats?: DateStats } | null>>, monthLabels: [] as string[] }
 
@@ -113,8 +117,8 @@ export function ContributionCalendar({
           {monthLabels.map((label, i) => (
             <span
               key={i}
-              className="text-[10px] text-muted-foreground/70 w-[14px] flex-shrink-0"
-              style={{ minWidth: 14 }}
+              className="text-[10px] text-muted-foreground/70 flex-shrink-0"
+              style={{ minWidth: cellPx }}
             >
               {label}
             </span>
@@ -141,7 +145,7 @@ export function ContributionCalendar({
               <div key={weekIdx} className="flex flex-col gap-1">
                 {week.map((cell, dayIdx) => {
                   if (!cell) {
-                    return <div key={dayIdx} className="w-[14px] h-[14px]" />
+                    return <div key={dayIdx} className={cellClass} />
                   }
 
                   const level = getIntensityLevel(cell.count, max)
@@ -154,7 +158,8 @@ export function ContributionCalendar({
                       title={`${cell.date}: ${cell.count.toLocaleString('de-DE')} Nachrichten`}
                       onClick={() => onDateSelect(cell.date)}
                       className={cn(
-                        'w-[14px] h-[14px] rounded-sm border transition-all duration-150',
+                        cellClass,
+                        'rounded-sm border transition-all duration-150',
                         INTENSITY_CLASSES[level],
                         isSelected && 'ring-2 ring-primary ring-offset-1 ring-offset-background scale-110',
                         cell.count > 0 && 'hover:scale-125 cursor-pointer',

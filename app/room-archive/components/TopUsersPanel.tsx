@@ -17,6 +17,8 @@ interface TopUsersPanelProps {
   roomId?: string
   dateLabel?: string
   className?: string
+  limit?: number
+  compact?: boolean
 }
 
 const DEFAULT_ROOM = 'bitcoin_de_DE'
@@ -26,26 +28,30 @@ export function TopUsersPanel({
   isLoading,
   roomId = DEFAULT_ROOM,
   dateLabel,
-  className
+  className,
+  limit,
+  compact
 }: TopUsersPanelProps) {
   if (isLoading) {
     return (
-      <div className={cn('flex items-center justify-center py-12 text-muted-foreground', className)}>
-        <Loader2Icon className="h-5 w-5 animate-spin mr-2" />
-        Lade User...
+      <div className={cn('flex items-center justify-center py-6 text-muted-foreground', className)}>
+        <Loader2Icon className="h-4 w-4 animate-spin mr-2" />
+        {!compact && 'Lade User...'}
       </div>
     )
   }
 
-  if (users.length === 0) {
+  const displayUsers = limit ? users.slice(0, limit) : users
+
+  if (displayUsers.length === 0) {
     return (
-      <div className={cn('text-center py-12 text-muted-foreground text-sm', className)}>
-        Keine User-Daten verfügbar
+      <div className={cn('text-center py-6 text-muted-foreground text-sm', className)}>
+        Keine User-Daten
       </div>
     )
   }
 
-  const maxCount = users[0]?.messageCount || 1
+  const maxCount = displayUsers[0]?.messageCount || 1
 
   return (
     <div className={className}>
@@ -55,12 +61,15 @@ export function TopUsersPanel({
         </p>
       )}
 
-      <div className="space-y-2">
-        {users.map((user, index) => (
+      <div className={cn('space-y-2', compact && 'space-y-1')}>
+        {displayUsers.map((user, index) => (
           <Link
             key={user.username}
             href={`/chat-archive?username=${encodeURIComponent(user.username)}&room=${roomId}`}
-            className="flex items-center gap-3 p-3 rounded-lg border border-foreground/10 bg-card/60 hover:bg-card hover:border-primary/30 transition-all group"
+            className={cn(
+              'flex items-center gap-3 rounded-lg border border-foreground/10 bg-card/60 hover:bg-card hover:border-primary/30 transition-all group',
+              compact ? 'p-2' : 'p-3'
+            )}
           >
             <span className={cn(
               'w-6 text-center text-sm font-mono font-bold flex-shrink-0',
