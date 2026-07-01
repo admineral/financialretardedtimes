@@ -30,9 +30,10 @@ import {
   ContributionCalendar,
   DayActivityChart,
   InfiniteChatStream,
-  TopUsersPanel
+  TopUsersPanel,
+  SyncHistoryList
 } from './components'
-import type { ArchiveTimeRange } from './components'
+import type { ArchiveTimeRange, ActivityBucket } from './components'
 import { cn } from '@/lib/utils'
 
 type ViewTab = 'timeline' | 'calendar' | 'stream' | 'users'
@@ -44,21 +45,20 @@ interface SyncStatus {
   newest_message_time: string | null
 }
 
-interface SyncHistoryEntry {
-  id: number
-  started_at: string
-  completed_at: string | null
-  success: boolean
-  messages_inserted: number
-  trigger_type: string
+interface ActivityMeta {
+  peakIndex: number
+  peakLabel: string
+  totalMessages: number
+  mode: 'hourly' | 'daily'
+  from: string
+  to: string
 }
 
-interface ActivityBucket {
-  hour: number
-  label: string
-  count: number
-  uniqueUsers: number
-  intensity: number
+const RANGE_LABELS: Record<ArchiveTimeRange, string> = {
+  '1w': '1W',
+  '1m': '1M',
+  '1y': '1J',
+  all: 'All'
 }
 
 const DEFAULT_ROOM = 'bitcoin_de_DE'
@@ -80,10 +80,16 @@ export default function RoomArchivePage() {
   const [totalDays, setTotalDays] = useState(0)
   const [maxDailyMessages, setMaxDailyMessages] = useState(0)
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
-  const [syncHistory, setSyncHistory] = useState<SyncHistoryEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activityBuckets, setActivityBuckets] = useState<ActivityBucket[]>([])
-  const [activityMeta, setActivityMeta] = useState({ peakHour: 0, totalMessages: 0 })
+  const [activityMeta, setActivityMeta] = useState<ActivityMeta>({
+    peakIndex: 0,
+    peakLabel: '00:00',
+    totalMessages: 0,
+    mode: 'hourly',
+    from: '',
+    to: ''
+  })
   const [isLoadingActivity, setIsLoadingActivity] = useState(false)
   const [topUsers, setTopUsers] = useState<Array<{ username: string; messageCount: number; user_pic?: string; is_moderator?: boolean }>>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
@@ -104,7 +110,6 @@ export default function RoomArchivePage() {
       setMaxDailyMessages(data.maxDailyMessages || 0)
       setCumulativeUsers(data.cumulativeUsers || {})
       setSyncStatus(data.syncStatus)
-      setSyncHistory(data.syncHistory || [])
 
       setSelectedDate(prev => {
         if (prev && data.dates?.some((d: DateStats) => d.date === prev)) return prev
@@ -121,16 +126,39 @@ export default function RoomArchivePage() {
     fetchStats()
   }, [fetchStats])
 
-  const fetchActivity = useCallback(async (date: string) => {
+  const fetchRangeActivity = useCallback(async (rangeDates: DateStats[]) => {
+    if (rangeDates.length === 0) {
+      setActivityBuckets([])
+      setActivityMeta({
+        peakIndex: 0,
+        peakLabel: '00:00',
+        totalMessages: 0,
+        mode: 'hourly',
+        from: '',
+        to: ''
+      })
+      return
+    }
+
     setIsLoadingActivity(true)
+    const from = rangeDates[rangeDates.length - 1].date
+    const to = rangeDates[0].date
+
     try {
       const response = await fetch(
-        `/room-archive/api/activity?date=${date}&room=${DEFAULT_ROOM}`
+        `/room-archive/api/activity?from=${from}&to=${to}&room=${DEFAULT_ROOM}`
       )
       if (response.ok) {
         const data = await response.json()
         setActivityBuckets(data.buckets || [])
-        setActivityMeta({ peakHour: data.peakHour || 0, totalMessages: data.totalMessages || 0 })
+        setActivityMeta({
+          peakIndex: data.peakIndex ?? 0,
+          peakLabel: data.peakLabel || '00:00',
+          totalMessages: data.totalMessages || 0,
+          mode: data.mode === 'daily' ? 'daily' : 'hourly',
+          from: data.from || from,
+          to: data.to || to
+        })
       }
     } catch (err) {
       console.error('Failed to fetch activity:', err)
@@ -156,11 +184,16 @@ export default function RoomArchivePage() {
     }
   }, [])
 
+  const filteredDates = useMemo(
+    () => filterDatesByRange(dates, timeRange),
+    [dates, timeRange]
+  )
+
   useEffect(() => {
-    if (selectedDate && (activeTab === 'timeline' || activeTab === 'stream')) {
-      fetchActivity(selectedDate)
+    if (activeTab === 'timeline') {
+      fetchRangeActivity(filteredDates)
     }
-  }, [selectedDate, activeTab, fetchActivity])
+  }, [activeTab, filteredDates, fetchRangeActivity])
 
   useEffect(() => {
     if (activeTab === 'users') {
@@ -174,11 +207,6 @@ export default function RoomArchivePage() {
     }
   }, [activeTab, selectedDate, fetchUsers])
 
-  const filteredDates = useMemo(
-    () => filterDatesByRange(dates, timeRange),
-    [dates, timeRange]
-  )
-
   const selectedDateStats = useMemo(
     () => dates.find(d => d.date === selectedDate) || null,
     [dates, selectedDate]
@@ -186,6 +214,11 @@ export default function RoomArchivePage() {
 
   const filteredMaxDailyMessages = useMemo(
     () => filteredDates.reduce((max, day) => Math.max(max, day.messageCount), 0),
+    [filteredDates]
+  )
+
+  const rangeMessageTotal = useMemo(
+    () => filteredDates.reduce((sum, day) => sum + day.messageCount, 0),
     [filteredDates]
   )
 
@@ -203,7 +236,10 @@ export default function RoomArchivePage() {
     setActiveTab('stream')
   }
 
-  const lastSync = syncHistory[0]
+  const activitySubtitle =
+    activityMeta.mode === 'daily'
+      ? `Tägliche Verteilung · ${RANGE_LABELS[timeRange]} · Europe/Berlin`
+      : `Stündliche Verteilung · ${RANGE_LABELS[timeRange]} · Europe/Berlin`
 
   return (
     <main className="min-h-screen bg-background">
@@ -310,48 +346,28 @@ export default function RoomArchivePage() {
               <div className="glass-card-gold rounded-lg p-5 border border-primary/20">
                 <h2 className="font-headline text-lg mb-1 flex items-center gap-2">
                   <MessageSquareIcon className="h-4 w-4 text-primary" />
-                  Aktivität — {selectedDateStats?.messageCount.toLocaleString('de-DE')} Nachrichten
+                  Aktivität — {rangeMessageTotal.toLocaleString('de-DE')} Nachrichten
+                  <span className="text-sm font-mono text-primary/70">({RANGE_LABELS[timeRange]})</span>
                 </h2>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Stündliche Verteilung (Europe/Berlin)
+                  {activitySubtitle}
+                  {activityMeta.from && activityMeta.to && (
+                    <span className="ml-2 font-mono text-muted-foreground/60">
+                      {activityMeta.from} → {activityMeta.to}
+                    </span>
+                  )}
                 </p>
                 <DayActivityChart
                   buckets={activityBuckets}
-                  peakHour={activityMeta.peakHour}
+                  peakIndex={activityMeta.peakIndex}
+                  peakLabel={activityMeta.peakLabel}
                   totalMessages={activityMeta.totalMessages}
+                  mode={activityMeta.mode}
                   isLoading={isLoadingActivity}
                 />
               </div>
 
-              <div className="rounded-lg border border-foreground/10 bg-card p-5">
-                <h3 className="font-headline text-sm mb-3 text-muted-foreground">Sync-Verlauf</h3>
-                <div className="space-y-2">
-                  {syncHistory.slice(0, 5).map(entry => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center justify-between text-xs py-1.5 border-b border-foreground/5 last:border-0"
-                    >
-                      <span className={entry.success ? 'text-green-500' : 'text-red-500'}>
-                        {entry.success ? '✓' : '✗'} {entry.trigger_type}
-                      </span>
-                      <span className="font-mono text-muted-foreground">
-                        +{entry.messages_inserted} msgs
-                      </span>
-                      <span className="text-muted-foreground/60">
-                        {new Date(entry.started_at).toLocaleString('de-DE', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </span>
-                    </div>
-                  ))}
-                  {syncHistory.length === 0 && (
-                    <p className="text-xs text-muted-foreground">Kein Sync-Verlauf</p>
-                  )}
-                </div>
-              </div>
+              <SyncHistoryList roomId={DEFAULT_ROOM} />
             </div>
 
             <div className="space-y-4">
@@ -498,10 +514,9 @@ export default function RoomArchivePage() {
       </div>
 
       {/* Footer info */}
-      {lastSync && (
+      {syncStatus?.last_sync_at && (
         <div className="fixed bottom-4 right-4 text-[10px] font-mono text-muted-foreground/50 bg-card/80 border border-foreground/10 px-3 py-1.5 rounded-full backdrop-blur-sm hidden md:block">
-          Letzter Cron: {new Date(lastSync.started_at).toLocaleTimeString('de-DE')}
-          {lastSync.messages_inserted > 0 && ` · +${lastSync.messages_inserted}`}
+          Letzter Cron: {new Date(syncStatus.last_sync_at).toLocaleTimeString('de-DE')}
         </div>
       )}
     </main>
