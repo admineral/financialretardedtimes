@@ -1,59 +1,46 @@
 'use client'
 
 import type { DateStats } from '@/app/newspaper/lib/types'
-import { ArchiveDateTimeline, type ArchiveTimeRange } from './ArchiveDateTimeline'
 import { ContributionCalendar } from './ContributionCalendar'
 import { InfiniteChatStream } from './InfiniteChatStream'
 import { TerminalCard, MetricTile } from './TerminalCard'
 import { Badge } from '@/components/ui/badge'
+import { computeRangeMetrics } from '../lib/range-utils'
 
 interface StreamTerminalProps {
-  dates: DateStats[]
   filteredDates: DateStats[]
-  timeRange: ArchiveTimeRange
-  onTimeRangeChange: (r: ArchiveTimeRange) => void
+  rangeLabel: string
+  rangeMaxDailyMessages: number
   selectedDate: string | null
   onDateSelect: (date: string) => void
-  maxDailyMessages: number
-  isLoadingDates: boolean
   availableDateKeys: string[]
 }
 
 export function StreamTerminal({
-  dates,
-  timeRange,
-  onTimeRangeChange,
+  filteredDates,
+  rangeLabel,
+  rangeMaxDailyMessages,
   selectedDate,
   onDateSelect,
-  maxDailyMessages,
-  isLoadingDates,
   availableDateKeys
 }: StreamTerminalProps) {
-  const dayStats = dates.find(d => d.date === selectedDate)
+  const dayStats = filteredDates.find(d => d.date === selectedDate)
+  const rangeMetrics = computeRangeMetrics(filteredDates)
 
   return (
     <div className="space-y-4">
-      <ArchiveDateTimeline
-        availableDates={dates}
-        selectedDate={selectedDate}
-        isLoadingDates={isLoadingDates}
-        timeRange={timeRange}
-        onTimeRangeChange={onTimeRangeChange}
-        onDateSelect={onDateSelect}
-      />
-
       <TerminalCard
         title="Day Picker"
-        subtitle={`Full archive · ${dates.length} days`}
-        badge="ALL"
+        subtitle={`${filteredDates.length} days · ${rangeLabel}`}
+        badge={rangeLabel}
         contentClassName="pt-1 pb-2"
       >
         <ContributionCalendar
-          dates={dates}
-          maxDailyMessages={maxDailyMessages}
+          dates={filteredDates}
+          maxDailyMessages={rangeMaxDailyMessages}
           selectedDate={selectedDate}
           onDateSelect={onDateSelect}
-          cellSize="fluid"
+          cellSize="auto"
         />
       </TerminalCard>
 
@@ -63,9 +50,9 @@ export function StreamTerminal({
           <MetricTile label="Msgs" value={dayStats.messageCount.toLocaleString('de-DE')} />
           <MetricTile label="Users" value={String(dayStats.uniqueUsers)} />
           <MetricTile
-            label="Archive"
-            value={dates.length.toLocaleString('de-DE')}
-            sub={`${dates.reduce((s, d) => s + d.messageCount, 0).toLocaleString('de-DE')} total msgs`}
+            label={`Range · ${rangeLabel}`}
+            value={rangeMetrics.totalMessages.toLocaleString('de-DE')}
+            sub={`${rangeMetrics.totalDays} Tage`}
           />
         </div>
       )}

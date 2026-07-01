@@ -107,3 +107,8 @@ export function chartSeriesFromDates(dates: DateStats[]) {
       users: d.uniqueUsers
     }))
 }
+
+export function maxDailyMessagesInRange(dates: DateStats[], fallback = 1): number {
+  if (dates.length === 0) return fallback
+  return Math.max(...dates.map(d => d.messageCount), 1)
+}

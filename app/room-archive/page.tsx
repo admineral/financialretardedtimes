@@ -35,6 +35,7 @@ import {
   buildDailyActivityFromStats,
   shouldUseCountsOnlyActivity
 } from './lib/activity-from-stats'
+import { maxDailyMessagesInRange } from './lib/range-utils'
 import { cn } from '@/lib/utils'
 import type { DateStats } from '@/app/newspaper/lib/types'
 
@@ -71,7 +72,7 @@ const TABS: { id: ViewTab; label: string; icon: React.ComponentType<{ className?
 export default function RoomArchivePage() {
   const [activeTab, setActiveTab] = useState<ViewTab>('overview')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
-  const [timeRange, setTimeRange] = useState<ArchiveTimeRange>('1m')
+  const [timeRange, setTimeRange] = useState<ArchiveTimeRange>('all')
 
   const { data: stats, isLoading, isRevalidating, refresh } = useArchiveStats(DEFAULT_ROOM)
 
@@ -101,6 +102,13 @@ export default function RoomArchivePage() {
     () => filterDatesByRange(dates, timeRange),
     [dates, timeRange]
   )
+
+  const rangeMaxDailyMessages = useMemo(
+    () => maxDailyMessagesInRange(filteredDates, maxDailyMessages),
+    [filteredDates, maxDailyMessages]
+  )
+
+  const filteredDateKeys = useMemo(() => filteredDates.map(d => d.date), [filteredDates])
 
   useEffect(() => {
     if (activeTab !== 'timeline' || filteredDates.length === 0) return
@@ -160,7 +168,7 @@ export default function RoomArchivePage() {
     [filteredDates]
   )
 
-  const availableDateKeys = useMemo(() => dates.map(d => d.date), [dates])
+  const availableDateKeys = filteredDateKeys
 
   const activitySubtitle =
     activityMeta.mode === 'daily'
@@ -169,7 +177,7 @@ export default function RoomArchivePage() {
 
   const handleDateSelect = (date: string) => setSelectedDate(date)
 
-  const showRangeNav = activeTab === 'overview'
+  const showRangeNav = ['overview', 'timeline', 'calendar', 'stream'].includes(activeTab)
 
   return (
     <main className="min-h-screen bg-background">
@@ -264,9 +272,12 @@ export default function RoomArchivePage() {
         {activeTab === 'overview' && (
           <OverviewDashboard
             dates={dates}
+            filteredDates={filteredDates}
+            timeRange={timeRange}
+            rangeLabel={RANGE_LABELS[timeRange]}
+            rangeMaxDailyMessages={rangeMaxDailyMessages}
             totalMessages={totalMessages}
             totalDays={totalDays}
-            maxDailyMessages={maxDailyMessages}
             syncStatus={syncStatus}
             selectedDate={selectedDate}
             onDateSelect={d => {
@@ -282,11 +293,8 @@ export default function RoomArchivePage() {
           <TimelineTerminal
             dates={dates}
             filteredDates={filteredDates}
-            timeRange={timeRange}
-            onTimeRangeChange={setTimeRange}
             selectedDate={selectedDate}
             onDateSelect={handleDateSelect}
-            isLoadingDates={isLoading && dates.length === 0}
             rangeMessageTotal={rangeMessageTotal}
             rangeLabel={RANGE_LABELS[timeRange]}
             activityBuckets={activityBuckets}
@@ -300,26 +308,21 @@ export default function RoomArchivePage() {
           <CalendarTerminal
             dates={dates}
             filteredDates={filteredDates}
-            timeRange={timeRange}
-            onTimeRangeChange={setTimeRange}
+            rangeLabel={RANGE_LABELS[timeRange]}
+            rangeMaxDailyMessages={rangeMaxDailyMessages}
             selectedDate={selectedDate}
             onDateSelect={handleDateSelect}
-            maxDailyMessages={maxDailyMessages}
-            isLoadingDates={isLoading && dates.length === 0}
             availableDateKeys={availableDateKeys}
           />
         )}
 
         {activeTab === 'stream' && (
           <StreamTerminal
-            dates={dates}
             filteredDates={filteredDates}
-            timeRange={timeRange}
-            onTimeRangeChange={setTimeRange}
+            rangeLabel={RANGE_LABELS[timeRange]}
+            rangeMaxDailyMessages={rangeMaxDailyMessages}
             selectedDate={selectedDate}
             onDateSelect={handleDateSelect}
-            maxDailyMessages={maxDailyMessages}
-            isLoadingDates={isLoading && dates.length === 0}
             availableDateKeys={availableDateKeys}
           />
         )}

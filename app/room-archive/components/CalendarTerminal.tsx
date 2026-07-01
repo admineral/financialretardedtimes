@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import type { DateStats } from '@/app/newspaper/lib/types'
-import { ArchiveDateTimeline, type ArchiveTimeRange } from './ArchiveDateTimeline'
 import { ContributionCalendar } from './ContributionCalendar'
 import { TerminalCard, MetricTile } from './TerminalCard'
 import { MessageVolumeChart } from './MessageVolumeChart'
@@ -14,24 +13,20 @@ import { chartSeriesFromDates, computeRangeMetrics } from '../lib/range-utils'
 interface CalendarTerminalProps {
   dates: DateStats[]
   filteredDates: DateStats[]
-  timeRange: ArchiveTimeRange
-  onTimeRangeChange: (r: ArchiveTimeRange) => void
+  rangeLabel: string
+  rangeMaxDailyMessages: number
   selectedDate: string | null
   onDateSelect: (date: string) => void
-  maxDailyMessages: number
-  isLoadingDates: boolean
   availableDateKeys: string[]
 }
 
 export function CalendarTerminal({
   dates,
   filteredDates,
-  timeRange,
-  onTimeRangeChange,
+  rangeLabel,
+  rangeMaxDailyMessages,
   selectedDate,
   onDateSelect,
-  maxDailyMessages,
-  isLoadingDates,
   availableDateKeys
 }: CalendarTerminalProps) {
   const rangeMetrics = computeRangeMetrics(filteredDates)
@@ -39,27 +34,18 @@ export function CalendarTerminal({
 
   return (
     <div className="space-y-4">
-      <ArchiveDateTimeline
-        availableDates={dates}
-        selectedDate={selectedDate}
-        isLoadingDates={isLoadingDates}
-        timeRange={timeRange}
-        onTimeRangeChange={onTimeRangeChange}
-        onDateSelect={onDateSelect}
-      />
-
       <TerminalCard
         title="Activity Matrix"
-        subtitle={`GitHub-style heatmap · ${filteredDates.length} days in range`}
-        badge={timeRange.toUpperCase()}
+        subtitle={`GitHub-style heatmap · ${filteredDates.length} days`}
+        badge={rangeLabel}
         contentClassName="pt-1 pb-2"
       >
         <ContributionCalendar
           dates={filteredDates}
-          maxDailyMessages={maxDailyMessages}
+          maxDailyMessages={rangeMaxDailyMessages}
           selectedDate={selectedDate}
           onDateSelect={onDateSelect}
-          cellSize="fluid"
+          cellSize="auto"
         />
       </TerminalCard>
 

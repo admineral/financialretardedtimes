@@ -3,6 +3,7 @@
 import { Fragment, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type { DateStats } from '@/app/newspaper/lib/types'
+import { datesStatsSignature } from '../lib/range-utils'
 
 interface ContributionCalendarProps {
   dates: DateStats[]
@@ -10,8 +11,11 @@ interface ContributionCalendarProps {
   selectedDate: string | null
   onDateSelect: (date: string) => void
   className?: string
-  cellSize?: 'sm' | 'lg' | 'fluid'
+  /** sm/lg = fixed cells; fluid = stretch; auto = fluid if ≤18 weeks else horizontal scroll */
+  cellSize?: 'sm' | 'lg' | 'fluid' | 'auto'
 }
+
+const FLUID_MAX_WEEKS = 18
 
 function getIntensityLevel(count: number, max: number): number {
   if (count === 0) return 0
@@ -125,81 +129,44 @@ function CalendarCell({
   )
 }
 
-export function ContributionCalendar({
-  dates,
-  maxDailyMessages,
+function CalendarLegend({ dates }: { dates: DateStats[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 mt-4 text-[10px] text-muted-foreground">
+      <span>Weniger</span>
+      {INTENSITY_CLASSES.map((cls, i) => (
+        <div key={i} className={cn('w-[12px] h-[12px] rounded-sm border', cls)} />
+      ))}
+      <span>Mehr</span>
+      <span className="ml-auto font-mono">
+        {dates.reduce((s, d) => s + d.messageCount, 0).toLocaleString('de-DE')} Nachrichten · {dates.length} Tage
+      </span>
+    </div>
+  )
+}
+
+function FixedCalendar({
+  weeks,
+  monthLabels,
+  dayLabels,
+  cellClass,
+  cellPx,
+  max,
   selectedDate,
   onDateSelect,
-  className,
-  cellSize = 'sm'
-}: ContributionCalendarProps) {
-  const { weeks, monthLabels } = useMemo(() => buildCalendarGrid(dates), [dates])
-
-  const dayLabels = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
-  const max = maxDailyMessages || 1
-  const isFluid = cellSize === 'fluid'
-  const cellPx = cellSize === 'lg' ? 18 : 14
-  const cellClass = isFluid
-    ? 'w-full aspect-square max-h-5 sm:max-h-6 md:max-h-7'
-    : cellSize === 'lg'
-      ? 'w-[18px] h-[18px]'
-      : 'w-[14px] h-[14px]'
-
-  if (dates.length === 0) {
-    return (
-      <div className={cn('text-sm text-muted-foreground py-8 text-center', className)}>
-        Keine Archivdaten vorhanden
-      </div>
-    )
-  }
-
-  if (isFluid) {
-    return (
-      <div className={cn('w-full', className)}>
-        <div
-          className="w-full grid gap-1"
-          style={{ gridTemplateColumns: `2.25rem repeat(${weeks.length}, minmax(0, 1fr))` }}
-        >
-          <div aria-hidden />
-          {monthLabels.map((label, i) => (
-            <span
-              key={i}
-              className="text-[10px] text-muted-foreground/70 truncate px-0.5 self-end pb-0.5"
-            >
-              {label}
-            </span>
-          ))}
-
-          {dayLabels.map((label, rowIdx) => (
-            <Fragment key={label}>
-              <span
-                className={cn(
-                  'text-[10px] text-muted-foreground/60 flex items-center justify-end pr-1',
-                  rowIdx % 2 === 0 ? 'opacity-100' : 'opacity-0 sm:opacity-100'
-                )}
-              >
-                {label}
-              </span>
-              {weeks.map((week, weekIdx) => (
-                <div key={`${weekIdx}-${rowIdx}`} className="min-w-0">
-                  <CalendarCell
-                    cell={week[rowIdx]}
-                    max={max}
-                    selectedDate={selectedDate}
-                    onDateSelect={onDateSelect}
-                    cellClass={cellClass}
-                  />
-                </div>
-              ))}
-            </Fragment>
-          ))}
-        </div>
-
-        <CalendarLegend dates={dates} />
-      </div>
-    )
-  }
-
+  dates,
+  className
+}: {
+  weeks: Array<Array<{ date: string; count: number; stats?: DateStats } | null>>
+  monthLabels: string[]
+  dayLabels: string[]
+  cellClass: string
+  cellPx: number
+  max: number
+  selectedDate: string | null
+  onDateSelect: (date: string) => void
+  dates: DateStats[]
+  className?: string
+}) {
   return (
     <div className={cn('overflow-x-auto', className)}>
       <div className="inline-block min-w-full">
@@ -221,7 +188,8 @@ export function ContributionCalendar({
               <span
                 key={label}
                 className={cn(
-                  'text-[10px] text-muted-foreground/60 h-[14px] leading-[14px]',
+                  'text-[10px] text-muted-foreground/60 leading-none flex items-center',
+                  cellSizeHeightClass(cellClass),
                   i % 2 === 0 ? 'opacity-100' : 'opacity-0 sm:opacity-100'
                 )}
               >
@@ -254,17 +222,145 @@ export function ContributionCalendar({
   )
 }
 
-function CalendarLegend({ dates }: { dates: DateStats[] }) {
+function cellSizeHeightClass(cellClass: string): string {
+  if (cellClass.includes('18px')) return 'h-[18px]'
+  if (cellClass.includes('14px')) return 'h-[14px]'
+  return 'h-[14px]'
+}
+
+function FluidCalendar({
+  weeks,
+  monthLabels,
+  dayLabels,
+  cellClass,
+  max,
+  selectedDate,
+  onDateSelect,
+  dates,
+  className
+}: {
+  weeks: Array<Array<{ date: string; count: number; stats?: DateStats } | null>>
+  monthLabels: string[]
+  dayLabels: string[]
+  cellClass: string
+  max: number
+  selectedDate: string | null
+  onDateSelect: (date: string) => void
+  dates: DateStats[]
+  className?: string
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-2 mt-4 text-[10px] text-muted-foreground">
-      <span>Weniger</span>
-      {INTENSITY_CLASSES.map((cls, i) => (
-        <div key={i} className={cn('w-[12px] h-[12px] rounded-sm border', cls)} />
-      ))}
-      <span>Mehr</span>
-      <span className="ml-auto font-mono">
-        {dates.reduce((s, d) => s + d.messageCount, 0).toLocaleString('de-DE')} Nachrichten · {dates.length} Tage
-      </span>
+    <div className={cn('w-full', className)}>
+      <div
+        className="w-full grid gap-1"
+        style={{ gridTemplateColumns: `2.25rem repeat(${weeks.length}, minmax(0, 1fr))` }}
+      >
+        <div aria-hidden />
+        {monthLabels.map((label, i) => (
+          <span
+            key={i}
+            className="text-[10px] text-muted-foreground/70 truncate px-0.5 self-end pb-0.5"
+          >
+            {label}
+          </span>
+        ))}
+
+        {dayLabels.map((label, rowIdx) => (
+          <Fragment key={label}>
+            <span
+              className={cn(
+                'text-[10px] text-muted-foreground/60 flex items-center justify-end pr-1',
+                rowIdx % 2 === 0 ? 'opacity-100' : 'opacity-0 sm:opacity-100'
+              )}
+            >
+              {label}
+            </span>
+            {weeks.map((week, weekIdx) => (
+              <div key={`${weekIdx}-${rowIdx}`} className="min-w-0">
+                <CalendarCell
+                  cell={week[rowIdx]}
+                  max={max}
+                  selectedDate={selectedDate}
+                  onDateSelect={onDateSelect}
+                  cellClass={cellClass}
+                />
+              </div>
+            ))}
+          </Fragment>
+        ))}
+      </div>
+
+      <CalendarLegend dates={dates} />
     </div>
+  )
+}
+
+export function ContributionCalendar({
+  dates,
+  maxDailyMessages,
+  selectedDate,
+  onDateSelect,
+  className,
+  cellSize = 'sm'
+}: ContributionCalendarProps) {
+  const signature = datesStatsSignature(dates)
+  const { weeks, monthLabels } = useMemo(() => buildCalendarGrid(dates), [signature])
+
+  const dayLabels = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
+  const max = maxDailyMessages || 1
+
+  const resolvedLayout = useMemo(() => {
+    if (cellSize === 'auto') {
+      return weeks.length > FLUID_MAX_WEEKS ? 'scroll-lg' : 'fluid'
+    }
+    if (cellSize === 'fluid') return 'fluid'
+    return cellSize === 'lg' ? 'fixed-lg' : 'fixed-sm'
+  }, [cellSize, weeks.length])
+
+  const cellPx = resolvedLayout === 'fixed-lg' || resolvedLayout === 'scroll-lg' ? 18 : 14
+  const cellClass =
+    resolvedLayout === 'fluid'
+      ? 'w-full aspect-square min-h-[10px] max-h-[14px] sm:max-h-[16px] md:max-h-[18px]'
+      : resolvedLayout === 'fixed-lg' || resolvedLayout === 'scroll-lg'
+        ? 'w-[18px] h-[18px]'
+        : 'w-[14px] h-[14px]'
+
+  if (dates.length === 0) {
+    return (
+      <div className={cn('text-sm text-muted-foreground py-8 text-center', className)}>
+        Keine Archivdaten vorhanden
+      </div>
+    )
+  }
+
+  if (resolvedLayout === 'fluid') {
+    return (
+      <FluidCalendar
+        weeks={weeks}
+        monthLabels={monthLabels}
+        dayLabels={dayLabels}
+        cellClass={cellClass}
+        max={max}
+        selectedDate={selectedDate}
+        onDateSelect={onDateSelect}
+        dates={dates}
+        className={className}
+      />
+    )
+  }
+
+  return (
+    <FixedCalendar
+      weeks={weeks}
+      monthLabels={monthLabels}
+      dayLabels={dayLabels}
+      cellClass={cellClass}
+      cellPx={cellPx}
+      max={max}
+      selectedDate={selectedDate}
+      onDateSelect={onDateSelect}
+      dates={dates}
+      className={className}
+    />
   )
 }

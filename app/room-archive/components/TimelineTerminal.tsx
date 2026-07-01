@@ -2,7 +2,6 @@
 
 import type { DateStats } from '@/app/newspaper/lib/types'
 import { MessageSquareIcon } from 'lucide-react'
-import { ArchiveDateTimeline, type ArchiveTimeRange } from './ArchiveDateTimeline'
 import { TerminalCard, MetricTile } from './TerminalCard'
 import { DayActivityChart } from './DayActivityChart'
 import type { ActivityBucket } from './DayActivityChart'
@@ -26,11 +25,8 @@ interface ActivityMeta {
 interface TimelineTerminalProps {
   dates: DateStats[]
   filteredDates: DateStats[]
-  timeRange: ArchiveTimeRange
-  onTimeRangeChange: (r: ArchiveTimeRange) => void
   selectedDate: string | null
   onDateSelect: (date: string) => void
-  isLoadingDates: boolean
   rangeMessageTotal: number
   rangeLabel: string
   activityBuckets: ActivityBucket[]
@@ -42,11 +38,7 @@ interface TimelineTerminalProps {
 export function TimelineTerminal({
   dates,
   filteredDates,
-  timeRange,
-  onTimeRangeChange,
   selectedDate,
-  onDateSelect,
-  isLoadingDates,
   rangeMessageTotal,
   rangeLabel,
   activityBuckets,
@@ -60,15 +52,6 @@ export function TimelineTerminal({
 
   return (
     <div className="space-y-4">
-      <ArchiveDateTimeline
-        availableDates={dates}
-        selectedDate={selectedDate}
-        isLoadingDates={isLoadingDates}
-        timeRange={timeRange}
-        onTimeRangeChange={onTimeRangeChange}
-        onDateSelect={onDateSelect}
-      />
-
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <MetricTile label="Range Msgs" value={rangeMessageTotal.toLocaleString('de-DE')} sub={rangeLabel} />
         <MetricTile label="Ø / Tag" value={String(rangeMetrics.avgPerDay)} />
