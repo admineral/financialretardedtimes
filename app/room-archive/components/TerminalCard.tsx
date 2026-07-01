@@ -37,13 +37,13 @@ export function TerminalCard({
               {title}
             </h3>
             {badge && (
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary/80">
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary/80">
                 {badge}
               </span>
             )}
           </div>
           {subtitle && (
-            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{subtitle}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{subtitle}</p>
           )}
         </div>
         {action}
@@ -63,9 +63,9 @@ interface MetricTileProps {
 export function MetricTile({ label, value, sub }: MetricTileProps) {
   return (
     <div className="rounded-md border border-foreground/10 bg-background/50 px-3 py-2">
-      <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-mono">{label}</p>
-      <p className="text-lg font-bold font-mono tabular-nums mt-0.5">{value}</p>
-      {sub && <p className="text-[10px] text-muted-foreground/70 font-mono">{sub}</p>}
+      <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-muted-foreground font-mono truncate">{label}</p>
+      <p className="text-base sm:text-lg font-bold font-mono tabular-nums mt-0.5 truncate">{value}</p>
+      {sub && <p className="text-[11px] text-muted-foreground/70 font-mono truncate">{sub}</p>}
     </div>
   )
 }

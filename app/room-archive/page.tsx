@@ -294,7 +294,6 @@ export default function RoomArchivePage() {
             dates={dates}
             filteredDates={filteredDates}
             selectedDate={selectedDate}
-            onDateSelect={handleDateSelect}
             rangeMessageTotal={rangeMessageTotal}
             rangeLabel={RANGE_LABELS[timeRange]}
             activityBuckets={activityBuckets}
