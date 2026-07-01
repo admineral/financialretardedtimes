@@ -35,7 +35,7 @@ export function BtcChatOverlayChart({
   isLoading,
   className
 }: BtcChatOverlayChartProps) {
-  if (isLoading) {
+  if (isLoading && data.length === 0) {
     return (
       <div className="h-[280px] flex items-center justify-center text-xs text-muted-foreground animate-pulse">
         Lade BTC Overlay…

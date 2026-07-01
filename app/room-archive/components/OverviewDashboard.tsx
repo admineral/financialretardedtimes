@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import Link from 'next/link'
 import { MessageSquareIcon, TrendingUpIcon, UsersIcon, ZapIcon } from 'lucide-react'
 import type { DateStats } from '@/app/newspaper/lib/types'
@@ -15,6 +16,7 @@ import { useTopUsersMulti } from '../hooks/use-top-users'
 import {
   chartSeriesFromDates,
   computeRangeMetrics,
+  datesStatsSignature,
   filterDatesLastNDays
 } from '../lib/range-utils'
 import { buildDailyActivityFromStats } from '../lib/activity-from-stats'
@@ -50,8 +52,14 @@ export function OverviewDashboard({
   onOpenStream,
   onOpenSync
 }: OverviewDashboardProps) {
-  const last30 = filterDatesLastNDays(dates, 30)
-  const last7 = filterDatesLastNDays(dates, 7)
+  const last30 = useMemo(
+    () => filterDatesLastNDays(dates, 30),
+    [datesStatsSignature(dates, { lastNDays: 30 })]
+  )
+  const last7 = useMemo(
+    () => filterDatesLastNDays(dates, 7),
+    [datesStatsSignature(dates, { lastNDays: 7 })]
+  )
   const metrics30 = computeRangeMetrics(last30)
   const metrics7 = computeRangeMetrics(last7)
   const { points, btcSpot, isLoading: btcLoading } = useBtcOverlay(last30, true)

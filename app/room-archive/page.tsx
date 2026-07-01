@@ -36,6 +36,7 @@ import {
   shouldUseCountsOnlyActivity
 } from './lib/activity-from-stats'
 import { cn } from '@/lib/utils'
+import type { DateStats } from '@/app/newspaper/lib/types'
 
 type ViewTab = 'overview' | 'timeline' | 'calendar' | 'stream' | 'users' | 'sync'
 
@@ -56,6 +57,7 @@ const RANGE_LABELS: Record<ArchiveTimeRange, string> = {
 }
 
 const DEFAULT_ROOM = 'bitcoin_de_DE'
+const EMPTY_DATES: DateStats[] = []
 
 const TABS: { id: ViewTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboardIcon },
@@ -73,7 +75,7 @@ export default function RoomArchivePage() {
 
   const { data: stats, isLoading, isRevalidating, refresh } = useArchiveStats(DEFAULT_ROOM)
 
-  const dates = stats?.dates ?? []
+  const dates = stats?.dates ?? EMPTY_DATES
   const totalMessages = stats?.totalMessages ?? 0
   const totalDays = stats?.totalDays ?? 0
   const maxDailyMessages = stats?.maxDailyMessages ?? 0

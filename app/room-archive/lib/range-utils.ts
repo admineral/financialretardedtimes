@@ -14,6 +14,29 @@ export interface RangeMetrics {
   to: string
 }
 
+/** Stable string key for React deps — avoids refetch loops when parent passes new array refs. */
+export function datesStatsSignature(
+  dates: DateStats[],
+  opts?: { lastNDays?: number; lastNEntries?: number }
+): string {
+  if (dates.length === 0) return ''
+
+  let list = [...dates].sort((a, b) => a.date.localeCompare(b.date))
+
+  if (opts?.lastNDays != null && opts.lastNDays > 0) {
+    const cutoff = addDaysToDateKey(getNewspaperDateKey(), -(opts.lastNDays - 1))
+    list = list.filter(d => d.date >= cutoff)
+  }
+
+  if (opts?.lastNEntries != null && opts.lastNEntries > 0) {
+    list = list.slice(-opts.lastNEntries)
+  }
+
+  if (list.length === 0) return ''
+
+  return list.map(d => `${d.date}|${d.messageCount}|${d.uniqueUsers}`).join(';')
+}
+
 export function filterDatesLastNDays(dates: DateStats[], days: number): DateStats[] {
   if (days <= 0 || dates.length === 0) return dates
   const cutoff = addDaysToDateKey(getNewspaperDateKey(), -(days - 1))
