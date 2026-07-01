@@ -1,9 +1,9 @@
 /**
  * Room Archive Activity API
  *
- * Hourly or daily message buckets for a date range.
- * ENDPOINT: GET /room-archive/api/activity?from=YYYY-MM-DD&to=YYYY-MM-DD
- *           GET /room-archive/api/activity?date=YYYY-MM-DD (single day)
+ * Daily ranges: instant from date_stats counts (?source=counts or auto).
+ * Hourly (≤7 days): cached message scan.
+ * ENDPOINT: GET /room-archive/api/activity?from=&to=
  */
 
 import { NextRequest } from 'next/server'
@@ -14,9 +14,14 @@ import {
   getNewspaperDateKey,
   NEWSPAPER_TIME_ZONE
 } from '@/app/newspaper/lib/timezone'
+import { loadDateStats } from '../../lib/date-stats'
+import {
+  buildDailyActivityFromStats,
+  shouldUseCountsOnlyActivity
+} from '../../lib/activity-from-stats'
 
 const DEFAULT_ROOM = 'bitcoin_de_DE'
-const HOURLY_RANGE_MAX_DAYS = 7
+const HOURLY_CACHE_MS = 10 * 60 * 1000
 
 interface ActivityBucket {
   hour: number
@@ -31,30 +36,62 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl
   const roomId = searchParams.get('room') || DEFAULT_ROOM
+  const forceRefresh = searchParams.get('refresh') === 'true'
   const singleDate = searchParams.get('date')
   const fromDate = searchParams.get('from') || singleDate
   const toDate = searchParams.get('to') || singleDate
 
-  if (!fromDate || !toDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+  if (!fromDate || !toDate) {
     return Response.json({ error: 'from and to date required (YYYY-MM-DD)' }, { status: 400 })
   }
 
   const rangeStart = fromDate <= toDate ? fromDate : toDate
   const rangeEnd = fromDate <= toDate ? toDate : fromDate
+  const dayCount = countDaysInclusive(rangeStart, rangeEnd)
 
   try {
     const supabase = await createClient()
+
+    if (shouldUseCountsOnlyActivity(dayCount)) {
+      const stats = await loadDateStats(supabase, { forceRefresh: false })
+      const rangeDates = stats.dates.filter(
+        d => d.date >= rangeStart && d.date <= rangeEnd
+      )
+      const result = buildDailyActivityFromStats(rangeDates)
+      if (!result) {
+        return Response.json({ error: 'No data in range' }, { status: 404 })
+      }
+
+      return Response.json(
+        { roomId, ...result, isFromCache: true, cacheState: stats.cacheState },
+        { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' } }
+      )
+    }
+
+    const cacheKey = `${roomId}:${rangeStart}:${rangeEnd}:hourly`
+
+    if (!forceRefresh) {
+      const { data: cached } = await supabase
+        .from('room_archive_activity_cache')
+        .select('payload, updated_at')
+        .eq('cache_key', cacheKey)
+        .maybeSingle()
+
+      if (cached?.payload && isHourlyCacheFresh(cached.updated_at)) {
+        return Response.json(
+          {
+            ...(cached.payload as Record<string, unknown>),
+            isFromCache: true,
+            cacheState: 'fresh'
+          },
+          { headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' } }
+        )
+      }
+    }
+
     const { startDate } = getNewspaperDayBounds(rangeStart)
     const { endDate } = getNewspaperDayBounds(rangeEnd)
-
-    const dayCount = countDaysInclusive(rangeStart, rangeEnd)
-    const mode = dayCount <= HOURLY_RANGE_MAX_DAYS ? 'hourly' : 'daily'
-
-    const buckets =
-      mode === 'hourly'
-        ? buildHourlyBuckets()
-        : buildDailyBuckets(rangeStart, rangeEnd)
-
+    const buckets = buildHourlyBuckets()
     const userSets: Set<string>[] = buckets.map(() => new Set())
 
     const pageSize = 1000
@@ -73,21 +110,17 @@ export async function GET(request: NextRequest) {
         .range(offset, offset + pageSize - 1)
 
       if (error) throw new Error(error.message)
-      if (!page || page.length === 0) {
+      if (!page?.length) {
         hasMore = false
         break
       }
 
       for (const msg of page) {
         totalMessages++
-        const bucketIndex =
-          mode === 'hourly'
-            ? getBerlinHour(msg.time)
-            : buckets.findIndex(b => b.label === getNewspaperDateKey(new Date(msg.time)))
-
-        if (bucketIndex >= 0 && bucketIndex < buckets.length) {
-          buckets[bucketIndex].count++
-          userSets[bucketIndex].add(msg.username)
+        const hour = getBerlinHour(msg.time)
+        if (hour >= 0 && hour < 24) {
+          buckets[hour].count++
+          userSets[hour].add(msg.username)
         }
       }
 
@@ -108,21 +141,40 @@ export async function GET(request: NextRequest) {
 
     const peakBucket = enrichedBuckets.reduce(
       (peak, bucket) => (bucket.count > peak.count ? bucket : peak),
-      enrichedBuckets[0] || { hour: 0, label: '00:00', count: 0, uniqueUsers: 0, intensity: 0 }
+      enrichedBuckets[0]
     )
 
-    return Response.json({
+    const payload = {
       from: rangeStart,
       to: rangeEnd,
       roomId,
-      mode,
+      mode: 'hourly' as const,
       dayCount,
       buckets: enrichedBuckets,
       totalMessages,
       peakIndex: peakBucket.hour,
       peakLabel: peakBucket.label,
-      peakCount: peakBucket.count
-    })
+      peakCount: peakBucket.count,
+      source: 'messages' as const
+    }
+
+    await supabase.from('room_archive_activity_cache').upsert(
+      {
+        cache_key: cacheKey,
+        room_id: roomId,
+        from_date: rangeStart,
+        to_date: rangeEnd,
+        mode: 'hourly',
+        payload,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'cache_key' }
+    )
+
+    return Response.json(
+      { ...payload, isFromCache: false, cacheState: 'miss' },
+      { headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' } }
+    )
   } catch (error) {
     console.error('[ROOM ARCHIVE ACTIVITY]', error)
     return Response.json(
@@ -130,6 +182,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+function isHourlyCacheFresh(updatedAt: string): boolean {
+  return Date.now() - new Date(updatedAt).getTime() < HOURLY_CACHE_MS
 }
 
 function buildHourlyBuckets(): ActivityBucket[] {
@@ -140,22 +196,6 @@ function buildHourlyBuckets(): ActivityBucket[] {
     uniqueUsers: 0,
     intensity: 0
   }))
-}
-
-function buildDailyBuckets(from: string, to: string): ActivityBucket[] {
-  const buckets: ActivityBucket[] = []
-  let index = 0
-  const cursor = new Date(`${from}T12:00:00`)
-  const end = new Date(`${to}T12:00:00`)
-
-  while (cursor <= end) {
-    const dateKey = cursor.toISOString().split('T')[0]
-    buckets.push({ hour: index, label: dateKey, count: 0, uniqueUsers: 0, intensity: 0 })
-    cursor.setDate(cursor.getDate() + 1)
-    index++
-  }
-
-  return buckets
 }
 
 function countDaysInclusive(from: string, to: string): number {

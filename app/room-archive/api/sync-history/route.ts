@@ -47,6 +47,8 @@ export async function GET(request: NextRequest) {
       totalCount,
       hasMore: nextOffset < totalCount,
       nextOffset
+    }, {
+      headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120' }
     })
   } catch (error) {
     console.error('[ROOM ARCHIVE SYNC HISTORY]', error)

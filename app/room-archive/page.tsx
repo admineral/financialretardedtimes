@@ -34,16 +34,14 @@ import {
   SyncHistoryList
 } from './components'
 import type { ArchiveTimeRange, ActivityBucket } from './components'
+import { useArchiveStats } from './hooks/use-archive-stats'
+import {
+  buildDailyActivityFromStats,
+  shouldUseCountsOnlyActivity
+} from './lib/activity-from-stats'
 import { cn } from '@/lib/utils'
 
 type ViewTab = 'timeline' | 'calendar' | 'stream' | 'users'
-
-interface SyncStatus {
-  last_sync_at: string
-  total_messages: number
-  is_full_history: boolean
-  newest_message_time: string | null
-}
 
 interface ActivityMeta {
   peakIndex: number
@@ -52,6 +50,13 @@ interface ActivityMeta {
   mode: 'hourly' | 'daily'
   from: string
   to: string
+}
+
+interface SyncStatus {
+  last_sync_at: string
+  total_messages: number
+  is_full_history: boolean
+  newest_message_time: string | null
 }
 
 const RANGE_LABELS: Record<ArchiveTimeRange, string> = {
@@ -72,15 +77,19 @@ const TABS: { id: ViewTab; label: string; icon: React.ComponentType<{ className?
 
 export default function RoomArchivePage() {
   const [activeTab, setActiveTab] = useState<ViewTab>('timeline')
-  const [dates, setDates] = useState<DateStats[]>([])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [timeRange, setTimeRange] = useState<ArchiveTimeRange>('1m')
-  const [cumulativeUsers, setCumulativeUsers] = useState<Record<number, number>>({})
-  const [totalMessages, setTotalMessages] = useState(0)
-  const [totalDays, setTotalDays] = useState(0)
-  const [maxDailyMessages, setMaxDailyMessages] = useState(0)
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [usersScope, setUsersScope] = useState<'day' | 'all'>('day')
+
+  const { data: stats, isLoading, isRevalidating, refresh } = useArchiveStats(DEFAULT_ROOM)
+
+  const dates = stats?.dates ?? []
+  const totalMessages = stats?.totalMessages ?? 0
+  const totalDays = stats?.totalDays ?? 0
+  const maxDailyMessages = stats?.maxDailyMessages ?? 0
+  const cumulativeUsers = stats?.cumulativeUsers ?? {}
+  const syncStatus = stats?.syncStatus ?? null
+
   const [activityBuckets, setActivityBuckets] = useState<ActivityBucket[]>([])
   const [activityMeta, setActivityMeta] = useState<ActivityMeta>({
     peakIndex: 0,
@@ -93,79 +102,12 @@ export default function RoomArchivePage() {
   const [isLoadingActivity, setIsLoadingActivity] = useState(false)
   const [topUsers, setTopUsers] = useState<Array<{ username: string; messageCount: number; user_pic?: string; is_moderator?: boolean }>>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
-  const [usersScope, setUsersScope] = useState<'day' | 'all'>('day')
-
-  const fetchStats = useCallback(async (refresh = false) => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(
-        `/room-archive/api/stats?room=${DEFAULT_ROOM}${refresh ? '&refresh=true' : ''}`
-      )
-      if (!response.ok) throw new Error('Failed to load stats')
-      const data = await response.json()
-
-      setDates(data.dates || [])
-      setTotalMessages(data.totalMessages || 0)
-      setTotalDays(data.totalDays || 0)
-      setMaxDailyMessages(data.maxDailyMessages || 0)
-      setCumulativeUsers(data.cumulativeUsers || {})
-      setSyncStatus(data.syncStatus)
-
-      setSelectedDate(prev => {
-        if (prev && data.dates?.some((d: DateStats) => d.date === prev)) return prev
-        return data.dates?.[0]?.date || null
-      })
-    } catch (err) {
-      console.error('Failed to fetch archive stats:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
 
   useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
-
-  const fetchRangeActivity = useCallback(async (rangeDates: DateStats[]) => {
-    if (rangeDates.length === 0) {
-      setActivityBuckets([])
-      setActivityMeta({
-        peakIndex: 0,
-        peakLabel: '00:00',
-        totalMessages: 0,
-        mode: 'hourly',
-        from: '',
-        to: ''
-      })
-      return
+    if (!selectedDate && dates[0]?.date) {
+      setSelectedDate(dates[0].date)
     }
-
-    setIsLoadingActivity(true)
-    const from = rangeDates[rangeDates.length - 1].date
-    const to = rangeDates[0].date
-
-    try {
-      const response = await fetch(
-        `/room-archive/api/activity?from=${from}&to=${to}&room=${DEFAULT_ROOM}`
-      )
-      if (response.ok) {
-        const data = await response.json()
-        setActivityBuckets(data.buckets || [])
-        setActivityMeta({
-          peakIndex: data.peakIndex ?? 0,
-          peakLabel: data.peakLabel || '00:00',
-          totalMessages: data.totalMessages || 0,
-          mode: data.mode === 'daily' ? 'daily' : 'hourly',
-          from: data.from || from,
-          to: data.to || to
-        })
-      }
-    } catch (err) {
-      console.error('Failed to fetch activity:', err)
-    } finally {
-      setIsLoadingActivity(false)
-    }
-  }, [])
+  }, [dates, selectedDate])
 
   const fetchUsers = useCallback(async (date: string | null, scope: 'day' | 'all') => {
     setIsLoadingUsers(true)
@@ -190,10 +132,53 @@ export default function RoomArchivePage() {
   )
 
   useEffect(() => {
-    if (activeTab === 'timeline') {
-      fetchRangeActivity(filteredDates)
+    if (activeTab !== 'timeline' || filteredDates.length === 0) return
+
+    if (shouldUseCountsOnlyActivity(filteredDates.length)) {
+      const instant = buildDailyActivityFromStats(filteredDates)
+      if (instant) {
+        setActivityBuckets(instant.buckets)
+        setActivityMeta({
+          peakIndex: instant.peakIndex,
+          peakLabel: instant.peakLabel,
+          totalMessages: instant.totalMessages,
+          mode: 'daily',
+          from: instant.from,
+          to: instant.to
+        })
+      }
+      setIsLoadingActivity(false)
+      return
     }
-  }, [activeTab, filteredDates, fetchRangeActivity])
+
+    const from = filteredDates[filteredDates.length - 1].date
+    const to = filteredDates[0].date
+    let cancelled = false
+    setIsLoadingActivity(true)
+
+    fetch(`/room-archive/api/activity?from=${from}&to=${to}&room=${DEFAULT_ROOM}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (cancelled || !data) return
+        setActivityBuckets(data.buckets || [])
+        setActivityMeta({
+          peakIndex: data.peakIndex ?? 0,
+          peakLabel: data.peakLabel || '00:00',
+          totalMessages: data.totalMessages || 0,
+          mode: 'hourly',
+          from: data.from || from,
+          to: data.to || to
+        })
+      })
+      .catch(err => console.error('Failed to fetch hourly activity:', err))
+      .finally(() => {
+        if (!cancelled) setIsLoadingActivity(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, filteredDates])
 
   useEffect(() => {
     if (activeTab === 'users') {
@@ -275,12 +260,12 @@ export default function RoomArchivePage() {
               </Link>
               <button
                 type="button"
-                onClick={() => fetchStats(true)}
-                disabled={isLoading}
+                onClick={() => refresh()}
+                disabled={isLoading || isRevalidating}
                 className="p-2 hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
                 title="Daten aktualisieren"
               >
-                <RefreshCwIcon className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+                <RefreshCwIcon className={cn('h-4 w-4', (isLoading || isRevalidating) && 'animate-spin')} />
               </button>
               <ThemeSwitcher />
             </div>
@@ -330,7 +315,7 @@ export default function RoomArchivePage() {
           <ArchiveDateTimeline
             availableDates={dates}
             selectedDate={selectedDate}
-            isLoadingDates={isLoading}
+            isLoadingDates={isLoading && dates.length === 0}
             timeRange={timeRange}
             onTimeRangeChange={setTimeRange}
             onDateSelect={handleDateSelect}
@@ -355,6 +340,9 @@ export default function RoomArchivePage() {
                     <span className="ml-2 font-mono text-muted-foreground/60">
                       {activityMeta.from} → {activityMeta.to}
                     </span>
+                  )}
+                  {filteredDates.length > 7 && (
+                    <span className="ml-2 text-primary/60">· instant counts</span>
                   )}
                 </p>
                 <DayActivityChart
@@ -416,7 +404,7 @@ export default function RoomArchivePage() {
               <ArchiveDateTimeline
                 availableDates={dates}
                 selectedDate={selectedDate}
-                isLoadingDates={isLoading}
+                isLoadingDates={isLoading && dates.length === 0}
                 timeRange={timeRange}
                 onTimeRangeChange={setTimeRange}
                 onDateSelect={handleCalendarDateSelect}
