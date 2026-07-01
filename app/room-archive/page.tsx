@@ -227,16 +227,10 @@ export default function RoomArchivePage() {
 
             <div className="flex items-center gap-2 flex-shrink-0">
               <Link
-                href="/Test/admin"
+                href="/chat-archive"
                 className="hidden md:inline text-xs text-muted-foreground hover:text-primary transition-colors px-2"
               >
-                Admin
-              </Link>
-              <Link
-                href="/newspaper/archive"
-                className="hidden md:inline text-xs text-muted-foreground hover:text-primary transition-colors px-2"
-              >
-                Raw DB
+                User Archive
               </Link>
               <button
                 type="button"

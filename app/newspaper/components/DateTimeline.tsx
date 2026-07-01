@@ -19,7 +19,8 @@ import {
   ChevronLeftIcon, 
   ChevronRightIcon, 
   RefreshCwIcon,
-  BarChart3Icon
+  BarChart3Icon,
+  ArchiveIcon
 } from 'lucide-react'
 import type { DateStats } from '../lib/types'
 
@@ -308,6 +309,14 @@ export function DateTimeline({
         
         {/* Actions */}
         <div className="flex items-center gap-1 flex-shrink-0">
+          <Link 
+            href="/room-archive"
+            onClick={() => track('newspaper_nav_link', { destination: 'room-archive', source: 'timeline' })}
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-xs rounded-sm transition-all border border-primary/30 text-primary/80 hover:text-primary hover:bg-primary/10 font-semibold"
+          >
+            <ArchiveIcon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Archiv</span>
+          </Link>
           {/* Rate-Chart - Always visible */}
           <Link 
             href="/Rate-Chart"
