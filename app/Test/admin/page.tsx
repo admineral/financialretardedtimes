@@ -290,6 +290,23 @@ export default function AdminDashboard() {
                   </div>
                 </Link>
 
+                <Link href="/room-archive" className="block">
+                  <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-amber-500/50 hover:bg-slate-800 transition-all group cursor-pointer">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-amber-500/20 rounded-lg">
+                          <CalendarIcon className="h-5 w-5 text-amber-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">Room Archive</p>
+                          <p className="text-sm text-slate-400">Timeline, calendar & infinite chat</p>
+                        </div>
+                      </div>
+                      <ArrowRightIcon className="h-5 w-5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                    </div>
+                  </div>
+                </Link>
+
                 <Link href="/chat-archive" className="block">
                   <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-green-500/50 hover:bg-slate-800 transition-all group cursor-pointer">
                     <div className="flex items-center justify-between">
