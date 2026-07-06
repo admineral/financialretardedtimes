@@ -429,6 +429,15 @@ export default function NewspaperPage() {
               </div>
               <div className="flex items-center gap-3">
                 <Link
+                  href="/newspaper/v2"
+                  onClick={() => track('newspaper_v2_click', { location: 'topbar' })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                >
+                  <Newspaper className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Monatsausgabe</span>
+                  <span className="sm:hidden">v2</span>
+                </Link>
+                <Link
                   href="/newspaper/prompt-inspector"
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
                 >
