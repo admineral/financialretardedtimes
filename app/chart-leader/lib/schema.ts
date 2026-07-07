@@ -16,12 +16,13 @@ export const LeaderboardEntrySchema = z.object({
     outcome: z.string(),
     timestamp: z.string()
   }),
+  // OpenAI structured outputs reject optional fields — nullable instead
   worstCall: z.object({
     quote: z.string(),
     priceAtCall: z.number(),
     outcome: z.string(),
     timestamp: z.string()
-  }).optional(),
+  }).nullable(),
   callHistory: z.array(z.object({
     quote: z.string(),
     direction: z.enum(['bullish', 'bearish', 'neutral']),

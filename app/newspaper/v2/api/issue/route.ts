@@ -5,12 +5,13 @@
  * POST /newspaper/v2/api/issue -> invalidate today's cached issue (force regen)
  */
 
-import { NextResponse } from 'next/server'
+import { connection, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getNewspaperDateKey } from '../../../lib/timezone'
 import { deleteV2Issue, readLatestV2Issue } from '../../lib/generate'
 
 export async function GET() {
+  await connection()
   try {
     const supabase = await createClient()
     const cached = await readLatestV2Issue(supabase)
@@ -40,6 +41,7 @@ export async function GET() {
 }
 
 export async function POST() {
+  await connection()
   try {
     const supabase = await createClient()
     await deleteV2Issue(supabase, getNewspaperDateKey())

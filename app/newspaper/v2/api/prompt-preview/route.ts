@@ -9,7 +9,7 @@
  * the real generation so the preview cannot drift.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { connection, NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { addDaysToDateKey, getNewspaperDateKey, getNewspaperDayBounds } from '../../../lib/timezone'
 import {
@@ -38,6 +38,7 @@ function totals(blocks: V2PromptBlock[]) {
 }
 
 export async function GET(request: NextRequest) {
+  await connection()
   try {
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)

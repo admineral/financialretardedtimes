@@ -7,11 +7,12 @@
  * is still running.
  */
 
-import { NextResponse } from 'next/server'
+import { connection, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { buildV2Data } from '../../lib/data'
 
 export async function GET() {
+  await connection()
   try {
     const supabase = await createClient()
     const data = await buildV2Data(supabase)

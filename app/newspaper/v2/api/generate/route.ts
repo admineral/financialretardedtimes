@@ -5,12 +5,14 @@
  * (ensures stage-1 digests exist, builds the global context, one generation).
  */
 
+import { connection } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createV2Stream } from '../../lib/generate'
 
 export const maxDuration = 300
 
 export async function POST() {
+  await connection()
   if (!process.env.OPENAI_API_KEY) {
     return new Response(
       JSON.stringify({ error: 'OpenAI API key not configured' }),

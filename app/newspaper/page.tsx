@@ -33,7 +33,7 @@ import {
 import type { EditionState } from './components/edition'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedDisplay } from '@/app/test-fg/components'
-import { ChartTimelineWidget, SentimentWidget, PredictionWidget } from '@/components/market-widgets'
+import { ChartTimelineWidget, SentimentWidget, PredictionWidget, TraderLeaderboardWidget } from '@/components/market-widgets'
 import { ChatTicker } from '@/app/components/ChatTicker'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats } from './lib/types'
@@ -643,6 +643,7 @@ export default function NewspaperPage() {
                       <ChartTimelineWidget />
                       <SentimentWidget />
                       <PredictionWidget />
+                      <TraderLeaderboardWidget />
                     </div>
                   </div>
                 </section>

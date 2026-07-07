@@ -88,11 +88,41 @@ interface LeaderboardData {
 
 interface LeaderboardWidgetProps {
   embedded?: boolean
+  /** Skip the section chrome + title row (when a parent frame provides them). */
+  hideHeader?: boolean
   dataOverride?: LeaderboardData | null
   isLoadingOverride?: boolean
   disableAutoFetch?: boolean
   refresh?: () => void
   isRefreshing?: boolean
+}
+
+function formatPrice(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `$${value.toLocaleString('de-DE')}`
+    : '—'
+}
+
+function isValidCallHistoryItem(call: CallHistoryItem | undefined): call is CallHistoryItem {
+  return Boolean(
+    call &&
+    typeof call.quote === 'string' &&
+    typeof call.priceAtCall === 'number' &&
+    Number.isFinite(call.priceAtCall)
+  )
+}
+
+function isRenderableEntry(entry: LeaderboardEntry | undefined): entry is LeaderboardEntry {
+  return Boolean(
+    entry &&
+    typeof entry.rank === 'number' &&
+    typeof entry.username === 'string' &&
+    typeof entry.score === 'number' &&
+    entry.bestCall &&
+    typeof entry.bestCall.quote === 'string' &&
+    typeof entry.bestCall.priceAtCall === 'number' &&
+    Number.isFinite(entry.bestCall.priceAtCall)
+  )
 }
 
 const BADGE_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
@@ -205,21 +235,21 @@ function ExpandableRow({
             </div>
             <p className="text-sm italic leading-snug mb-1.5">&bdquo;{entry.bestCall.quote}&ldquo;</p>
             <div className="flex items-center gap-3 text-xs">
-              <span className="text-muted-foreground">BTC: <span className="font-mono font-bold text-amber-400">${entry.bestCall.priceAtCall.toLocaleString()}</span></span>
+              <span className="text-muted-foreground">BTC: <span className="font-mono font-bold text-amber-400">{formatPrice(entry.bestCall.priceAtCall)}</span></span>
               {entry.bestCall.direction === 'bullish'
                 ? <TrendingUp className="w-3 h-3 text-emerald-400" />
                 : <TrendingDown className="w-3 h-3 text-red-400" />}
-              {entry.bestCall.priceTarget && (
-                <span className="text-muted-foreground">Ziel: <span className="font-mono text-emerald-400">${entry.bestCall.priceTarget.toLocaleString()}</span></span>
+              {typeof entry.bestCall.priceTarget === 'number' && (
+                <span className="text-muted-foreground">Ziel: <span className="font-mono text-emerald-400">{formatPrice(entry.bestCall.priceTarget)}</span></span>
               )}
             </div>
             <p className="text-xs text-emerald-400 font-medium mt-1">✓ {entry.bestCall.outcome}</p>
           </div>
 
           {/* Call History */}
-          {entry.callHistory && entry.callHistory.filter(c => c !== undefined).length > 0 && (
+          {entry.callHistory && entry.callHistory.filter(isValidCallHistoryItem).length > 0 && (
             <div className="space-y-1.5">
-              {entry.callHistory.filter(c => c !== undefined).map((call, i) => (
+              {entry.callHistory.filter(isValidCallHistoryItem).map((call, i) => (
                 <div key={i} className={`flex items-center justify-between p-2 rounded-lg text-sm ${
                   call.wasCorrect
                     ? 'bg-emerald-500/10 border border-emerald-500/30'
@@ -231,7 +261,7 @@ function ExpandableRow({
                     </span>
                     <span className="text-xs truncate">&bdquo;{call.quote}&ldquo;</span>
                   </div>
-                  <span className="font-mono text-xs text-muted-foreground flex-shrink-0 ml-2">${call.priceAtCall.toLocaleString()}</span>
+                  <span className="font-mono text-xs text-muted-foreground flex-shrink-0 ml-2">{formatPrice(call.priceAtCall)}</span>
                 </div>
               ))}
             </div>
@@ -246,7 +276,7 @@ function ExpandableRow({
               </div>
               <p className="text-sm italic leading-snug mb-1">&bdquo;{entry.worstCall.quote}&ldquo;</p>
               <div className="text-xs text-muted-foreground mb-1">
-                BTC: <span className="font-mono font-bold text-amber-400">${entry.worstCall.priceAtCall.toLocaleString()}</span>
+                BTC: <span className="font-mono font-bold text-amber-400">{formatPrice(entry.worstCall.priceAtCall)}</span>
               </div>
               <p className="text-xs text-red-400 font-medium">✗ {entry.worstCall.outcome}</p>
             </div>
@@ -269,6 +299,7 @@ export function TraderLeaderboardView(props: LeaderboardWidgetProps = {}) {
 
 export function LeaderboardWidget({
   embedded = false,
+  hideHeader = false,
   dataOverride,
   isLoadingOverride,
   disableAutoFetch = false,
@@ -304,13 +335,7 @@ export function LeaderboardWidget({
 
   const entries = useMemo(() => {
     if (!activeData?.leaderboard) return []
-    return activeData.leaderboard.filter(
-      (e): e is LeaderboardEntry =>
-        e !== undefined &&
-        typeof e.rank === 'number' &&
-        typeof e.username === 'string' &&
-        typeof e.score === 'number'
-    )
+    return activeData.leaderboard.filter(isRenderableEntry)
   }, [activeData])
 
   const visibleEntries = showAll ? entries : entries.slice(0, 5)
@@ -326,23 +351,29 @@ export function LeaderboardWidget({
     if (diffHours < 24) return `vor ${diffHours}h`
     return `vor ${Math.floor(diffHours / 24)}d`
   })() : null
-  const shellClassName = embedded
-    ? 'mt-10 rounded-sm border border-primary/10 bg-card/20 relative z-10 overflow-hidden'
-    : 'border-t border-primary/10 bg-card/20 relative z-10'
-  const innerClassName = embedded
-    ? 'p-5 sm:p-6'
-    : 'w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8'
+  const shellClassName = hideHeader
+    ? ''
+    : embedded
+      ? 'mt-10 rounded-sm border border-primary/10 bg-card/20 relative z-10 overflow-hidden'
+      : 'border-t border-primary/10 bg-card/20 relative z-10'
+  const innerClassName = hideHeader
+    ? ''
+    : embedded
+      ? 'p-5 sm:p-6'
+      : 'w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8'
 
   if (isLoading) {
     return (
       <section className={shellClassName}>
         <div className={innerClassName}>
-          <div className="flex items-center gap-3 mb-5">
-            <Trophy className="w-5 h-5 text-amber-400" />
-            <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">Trader Leaderboard</h2>
-            <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
-            <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
-          </div>
+          {!hideHeader && (
+            <div className="flex items-center gap-3 mb-5">
+              <Trophy className="w-5 h-5 text-amber-400" />
+              <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">Trader Leaderboard</h2>
+              <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
+              <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+            </div>
+          )}
           <div className="space-y-2">
             {[0, 1, 2, 3, 4].map((i) => (
               <div key={i} className="h-[72px] rounded-xl bg-muted/20 animate-pulse" />
@@ -357,23 +388,25 @@ export function LeaderboardWidget({
     return (
       <section className={shellClassName}>
         <div className={innerClassName}>
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
-              <Trophy className="w-5 h-5 text-amber-400" />
-              <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">Trader Leaderboard</h2>
-              <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
+          {!hideHeader && (
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <Trophy className="w-5 h-5 text-amber-400" />
+                <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">Trader Leaderboard</h2>
+                <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
+              </div>
+              {refresh && (
+                <button
+                  onClick={refresh}
+                  disabled={isRefreshing}
+                  className="p-1.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+                  aria-label="Trader Leaderboard aktualisieren"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                </button>
+              )}
             </div>
-            {refresh && (
-              <button
-                onClick={refresh}
-                disabled={isRefreshing}
-                className="p-1.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
-                aria-label="Trader Leaderboard aktualisieren"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              </button>
-            )}
-          </div>
+          )}
           <div className="rounded-sm border border-amber-500/15 bg-amber-500/5 px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Noch kein Leaderboard fuer diese Ausgabe</p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -389,48 +422,50 @@ export function LeaderboardWidget({
     <section className={shellClassName}>
       <div className={innerClassName}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-400" />
-              <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">
-                Trader Leaderboard
-              </h2>
+        {!hideHeader && (
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-400" />
+                <h2 className="font-headline text-lg uppercase tracking-wider text-foreground">
+                  Trader Leaderboard
+                </h2>
+              </div>
+              <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
+              {activeData?.dataRange && (
+                <span className="text-xs text-muted-foreground/60 hidden sm:block">
+                  {activeData.dataRange.uniqueTraders} Trader · {activeData.dataRange.totalMessages?.toLocaleString()} Nachrichten
+                </span>
+              )}
             </div>
-            <div className="flex-1 h-px w-16 bg-gradient-to-r from-amber-400/40 to-transparent" />
-            {activeData?.dataRange && (
-              <span className="text-xs text-muted-foreground/60 hidden sm:block">
-                {activeData.dataRange.uniqueTraders} Trader · {activeData.dataRange.totalMessages?.toLocaleString()} Nachrichten
-              </span>
-            )}
-          </div>
 
-          <div className="flex items-center gap-3">
-            {timeAgo && (
-              <span className="text-xs text-muted-foreground/60 font-mono hidden sm:block">
-                <Sparkles className="w-3 h-3 inline mr-1 text-amber-400" />
-                {timeAgo}
-              </span>
-            )}
-            {refresh && (
-              <button
-                onClick={refresh}
-                disabled={isRefreshing}
-                className="p-1.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
-                aria-label="Trader Leaderboard aktualisieren"
+            <div className="flex items-center gap-3">
+              {timeAgo && (
+                <span className="text-xs text-muted-foreground/60 font-mono hidden sm:block">
+                  <Sparkles className="w-3 h-3 inline mr-1 text-amber-400" />
+                  {timeAgo}
+                </span>
+              )}
+              {refresh && (
+                <button
+                  onClick={refresh}
+                  disabled={isRefreshing}
+                  className="p-1.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+                  aria-label="Trader Leaderboard aktualisieren"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                </button>
+              )}
+              <Link
+                href="/chart-leader"
+                className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500 transition-colors border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 rounded px-2 py-1"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              </button>
-            )}
-            <Link
-              href="/chart-leader"
-              className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500 transition-colors border border-amber-500/20 bg-amber-500/10 hover:bg-amber-500/20 rounded px-2 py-1"
-            >
-              <ExternalLink className="w-3 h-3" />
-              <span className="hidden sm:inline">Vollbild</span>
-            </Link>
+                <ExternalLink className="w-3 h-3" />
+                <span className="hidden sm:inline">Vollbild</span>
+              </Link>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Week Summary Banner */}
         {weekSummary && (
@@ -589,7 +624,7 @@ export function LeaderboardWidget({
                   </div>
                   <p className="text-[11px] italic text-muted-foreground line-clamp-2 mb-1">&bdquo;{entry.worstQuote}&ldquo;</p>
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="font-mono text-amber-400">${entry.priceAtCall.toLocaleString()}</span>
+                    <span className="font-mono text-amber-400">{formatPrice(entry.priceAtCall)}</span>
                     <span className="text-red-400 font-medium">{entry.outcome}</span>
                   </div>
                 </div>

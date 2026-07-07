@@ -6,13 +6,14 @@
  *                                    (call repeatedly until remaining === 0)
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { connection, NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { ensureDigests, getDigestStatus } from '../../lib/daily-digest'
 
 export const maxDuration = 300
 
 export async function GET() {
+  await connection()
   try {
     const supabase = await createClient()
     const status = await getDigestStatus(supabase)
@@ -27,6 +28,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  await connection()
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 })
   }

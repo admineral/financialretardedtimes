@@ -43,12 +43,13 @@ const LeaderboardEntrySchema = z.object({
     outcome: z.string(),
     timestamp: z.string(),
   }),
+  // Server emits null (OpenAI forbids optional), old caches may omit it
   worstCall: z.object({
     quote: z.string(),
     priceAtCall: z.number(),
     outcome: z.string(),
     timestamp: z.string(),
-  }).optional(),
+  }).nullish(),
   callHistory: z.array(z.object({
     quote: z.string(),
     direction: z.enum(['bullish', 'bearish', 'neutral']),

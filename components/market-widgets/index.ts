@@ -1,5 +1,6 @@
 export { ChartTimelineWidget } from './ChartTimelineWidget'
 export { SentimentWidget } from './SentimentWidget'
 export { PredictionWidget } from './PredictionWidget'
+export { TraderLeaderboardWidget } from './TraderLeaderboardWidget'
 export { WidgetFrame, WidgetEmptyState, ChartSkeleton } from './WidgetFrame'
 export * from './lib'
