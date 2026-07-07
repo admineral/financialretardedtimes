@@ -18,10 +18,11 @@ import { z } from 'zod'
 // SCHEMAS
 // ═══════════════════════════════════════════════════════════════════════
 
+// NOTE: OpenAI structured outputs reject optional fields — nullable instead
 const PredictionSchema = z.object({
   id: z.string(),
   username: z.string(),
-  avatar: z.string().optional(),
+  avatar: z.string().nullable(),
   originalText: z.string(),
   prediction: z.string().describe('Short prediction text (max 100 chars)'),
   targetPrice: z.number().nullable().describe('Target BTC price if mentioned'),
@@ -32,7 +33,7 @@ const PredictionSchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']),
   priceAtPrediction: z.number().describe('BTC price when prediction was made'),
   timestamp: z.string().describe('When the prediction was made'),
-  emoji: z.string().optional(),
+  emoji: z.string().nullable(),
 })
 
 const ExtractResponseSchema = z.object({

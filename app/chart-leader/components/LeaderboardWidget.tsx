@@ -45,7 +45,7 @@ interface LeaderboardEntry {
     priceAtCall: number
     outcome: string
     timestamp: string
-  }
+  } | null
   callHistory: CallHistoryItem[]
   badge: string
   badgeReason: string

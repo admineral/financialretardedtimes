@@ -1,103 +1,111 @@
 /**
  * route.ts (refresh-newspaper cron)
- * 
- * Cron endpoint to automatically refresh today's newspaper content.
- * 
- * LOCAL: Triggered by Vercel cron to pre-generate and cache today's newspaper.
- * Calls the summarize API internally and waits for completion.
- * 
- * GLOBAL: Ensures users always have fresh newspaper content available.
- * Reduces latency for first visitors by pre-caching the AI-generated content.
- * 
+ *
+ * Cron endpoint to pre-generate today's tri-edition newspaper (1D/3D/7D)
+ * so first visitors get an instant cached page.
+ *
+ * Uses the v3 edition pipeline directly (no internal HTTP hop):
+ * - checks the noon-freshness rule first and skips if today's edition
+ *   is already fresh
+ * - respects the single-flight generation lock (skips if another
+ *   generation is running)
+ * - drains the AI stream in-process and awaits persistence, so a cron
+ *   run only reports success once all three edition rows are written
+ *
  * ENDPOINT: GET /api/cron/refresh-newspaper
- * 
- * CRON: Runs daily at a configured time (see vercel.json)
- * 
- * RESPONSE:
- * - 200: Successfully refreshed newspaper
- * - 401: Unauthorized (missing cron secret in production)
- * - 500: Error during refresh
+ * CRON: see vercel.json
  */
 
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
+import { randomUUID } from 'crypto'
 import { cronLogger as log } from '@/lib/logger'
+import { createClient } from '@/lib/supabase/server'
 import { getNewspaperDateKey } from '@/app/newspaper/lib/timezone'
+import { createEditionStream } from '@/app/newspaper/edition/generate'
+import { getEditionFreshness } from '@/app/newspaper/edition/freshness'
+import {
+  acquireGenerationLock,
+  readEditionRow,
+  releaseGenerationLock
+} from '@/app/newspaper/edition/store'
 
-export const maxDuration = 60 // Allow up to 60 seconds for AI generation
+export const maxDuration = 800
 
 export async function GET() {
-  // Verify cron authorization in production
   const headersList = await headers()
   const authHeader = headersList.get('authorization')
-  
-  // In production, verify the cron secret
+
   if (process.env.VERCEL_ENV === 'production') {
     const cronSecret = process.env.CRON_SECRET
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }
-  
+
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json(
+      { success: false, error: 'OpenAI API key not configured' },
+      { status: 500 }
+    )
+  }
+
+  const today = getNewspaperDateKey()
+  const supabase = await createClient()
+
   try {
-    // Get today's date in YYYY-MM-DD format
-    const today = getNewspaperDateKey()
-    
-    log.info('Starting newspaper refresh', { date: today })
-    
-    // Get the base URL for internal API call
-    const protocol = process.env.VERCEL_ENV === 'production' ? 'https' : 'http'
-    const host = headersList.get('host') || 'localhost:3000'
-    const baseUrl = `${protocol}://${host}`
-    
-    // Call the summarize endpoint for today (1-day summary only)
-    
-    const response = await fetch(`${baseUrl}/newspaper/api/summarize`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        selectedDates: [today],
-        dayRange: 1,
-        timelineMode: '24h',
-        includeTicker: true,
-        includeTimeline: true,
-        includeFearGreed: true
-      }),
-    })
-    
-    if (!response.ok) {
-      const errorText = await response.text()
-      log.error('Newspaper refresh failed', new Error(errorText))
-      return NextResponse.json({ success: false, error: errorText }, { status: 500 })
-    }
-    
-    // Consume the streaming response to ensure it completes
-    // The summarize endpoint caches on completion via onFinish
-    const reader = response.body?.getReader()
-    if (reader) {
-      while (true) {
-        const { done } = await reader.read()
-        if (done) break
+    // Skip when today's 1D edition already satisfies the noon rule —
+    // the 3D/7D rows share the same generation, so 1D is representative.
+    const existing = await readEditionRow(supabase, today, 1)
+    if (existing.kind === 'edition') {
+      const freshness = getEditionFreshness(today, existing.row.generatedAt)
+      if (freshness.isFresh) {
+        log.info('Newspaper refresh skipped — edition fresh', {
+          date: today,
+          generatedAt: existing.row.generatedAt
+        })
+        return NextResponse.json({ success: true, skipped: true, reason: 'fresh', date: today })
       }
     }
-    
-    log.info('Newspaper refresh completed', { date: today })
-    
-    return NextResponse.json({
-      success: true,
-      date: today,
-      unifiedDailyAI: true
-    })
-    
+
+    const holder = `cron-${randomUUID()}`
+    const locked = await acquireGenerationLock(supabase, today, holder)
+    if (!locked) {
+      log.info('Newspaper refresh skipped — generation already in progress', { date: today })
+      return NextResponse.json({ success: true, skipped: true, reason: 'locked', date: today })
+    }
+
+    log.info('Starting newspaper tri-edition refresh', { date: today })
+
+    try {
+      const handle = await createEditionStream({ supabase, anchorDate: today })
+
+      // Drain the stream (single consumer) so onFinish fires, then wait
+      // for all three edition rows to be persisted.
+      for await (const _chunk of handle.result.textStream) {
+        // drain only
+      }
+      const { editions } = await handle.persisted
+
+      log.info('Newspaper refresh completed', {
+        date: today,
+        generationId: handle.generationId,
+        editions: editions.length
+      })
+
+      return NextResponse.json({
+        success: true,
+        date: today,
+        generationId: handle.generationId,
+        editions: editions.map(edition => edition.meta.dayRange)
+      })
+    } finally {
+      await releaseGenerationLock(supabase, today, holder)
+    }
   } catch (error) {
     log.error('Newspaper refresh error', error)
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      },
+      { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

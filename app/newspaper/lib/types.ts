@@ -214,7 +214,7 @@ export const DailyAIResponseSchema = z.object({
 /**
  * Unified newspaper schema.
  * Complete structure for AI-generated newspaper content.
- * Used by the summarize API and NewspaperContent component.
+ * Kept for legacy cache rows (pre-edition-v3) and the archive adapter.
  */
 export const UnifiedNewspaperSchema = z.object({
   topContributors: z.array(TopContributorSchema.extend({

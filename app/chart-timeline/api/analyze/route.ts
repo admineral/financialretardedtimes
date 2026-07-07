@@ -16,6 +16,7 @@ import { streamObject } from 'ai'
 import { z } from 'zod'
 
 // Schema for price-correlated quotes (lenient validation for streaming)
+// NOTE: OpenAI structured outputs reject optional fields — nullable instead
 const ChartQuoteSchema = z.object({
   id: z.string(),
   timestamp: z.string(),
@@ -28,9 +29,9 @@ const ChartQuoteSchema = z.object({
     'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
   ]),
   sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-  wasCorrect: z.boolean().optional(),
+  wasCorrect: z.boolean().nullable(),
   priceAtQuote: z.number(),
-  hasTimeframe: z.boolean().optional(),
+  hasTimeframe: z.boolean().nullable(),
 })
 
 const AnalysisResponseSchema = z.object({
@@ -47,18 +48,18 @@ const AnalysisResponseSchema = z.object({
     username: z.string(),
     quote: z.string(),
     context: z.string()
-  }).optional(),
+  }).nullable(),
   worstCall: z.object({
     username: z.string(),
     quote: z.string(),
     context: z.string()
-  }).optional(),
+  }).nullable(),
   // Metadata about data sent to AI
   dataRange: z.object({
     messagesFrom: z.string(),
     messagesTo: z.string(),
     messageCount: z.number(),
-  }).optional()
+  }).nullable()
 })
 
 type AnalysisResponse = z.infer<typeof AnalysisResponseSchema>

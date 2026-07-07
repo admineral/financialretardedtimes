@@ -16,14 +16,7 @@ import {
   AlertTriangle
 } from 'lucide-react'
 
-type PromptBlockGroup =
-  | 'system'
-  | 'context'
-  | 'registry'
-  | 'specs'
-  | 'input'
-  | 'contract'
-  | 'validation'
+type PromptBlockGroup = 'system' | 'context' | 'input' | 'task' | 'contract'
 
 interface PromptBlockMeta {
   label: string
@@ -47,12 +40,13 @@ interface PromptBlock {
 
 interface PromptPreview {
   meta: {
-    cacheDate: string
-    selectedDates: string[]
+    anchorDate: string
+    view: string
     dayRange: number
-    timelineMode: string
-    modules: Record<string, boolean>
-    counts: Record<string, number>
+    windowDays: number
+    dateKeys: string[]
+    messageCount: number
+    sampledDays: number
     generatedAt: string
     model: string
   }
@@ -67,28 +61,33 @@ interface PromptPreview {
 const GROUP_ORDER: PromptBlockGroup[] = [
   'system',
   'context',
-  'registry',
-  'specs',
   'input',
-  'contract',
-  'validation'
+  'task',
+  'contract'
 ]
 
 const GROUP_LABELS: Record<PromptBlockGroup, string> = {
-  system: 'System & Regeln',
-  context: 'Request-Kontext',
-  registry: 'Modul-Registry',
-  specs: 'Modul-Specs',
-  input: 'Input-Daten (Chat-Verlauf)',
-  contract: 'Output-Contract',
-  validation: 'Validierung'
+  system: 'System & Redaktion',
+  context: 'Ausgabe-Kontext',
+  input: 'Globaler Kontext (Chat + Markt)',
+  task: 'Auftrag',
+  contract: 'Output-Contract'
 }
 
+const VIEW_OPTIONS = [
+  { value: 'edition', label: 'Tri-Edition (Mega-Call)' },
+  { value: 'ticker', label: 'Widget: Ticker' },
+  { value: 'timeline', label: 'Widget: Timeline' },
+  { value: 'fearGreed', label: 'Widget: Fear & Greed' },
+  { value: 'traderLeaderboard', label: 'Widget: Leaderboard' }
+] as const
+
 const REFRESH_LABELS: Record<string, string> = {
-  'full-issue': 'Volle Ausgabe',
-  widget: 'Widget',
-  'widget:fear-greed': 'Widget: Fear & Greed',
-  'widget:trader-leaderboard': 'Widget: Leaderboard'
+  'mega-generation': 'Mega-Generierung',
+  'widget:ticker': 'Widget: Ticker',
+  'widget:timeline': 'Widget: Timeline',
+  'widget:fearGreed': 'Widget: Fear & Greed',
+  'widget:traderLeaderboard': 'Widget: Leaderboard'
 }
 
 function formatTokens(value: number): string {
@@ -261,6 +260,7 @@ function BlockCard({
 
 export default function PromptInspectorPage() {
   const [date, setDate] = useState('')
+  const [view, setView] = useState<string>('edition')
   const [dayRange, setDayRange] = useState(1)
   const [preview, setPreview] = useState<PromptPreview | null>(null)
   const [loading, setLoading] = useState(false)
@@ -271,7 +271,7 @@ export default function PromptInspectorPage() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ date, dayRange: String(dayRange) })
+      const params = new URLSearchParams({ date, view, dayRange: String(dayRange) })
       const response = await fetch(`/newspaper/api/prompt-preview?${params.toString()}`)
       const json = await response.json()
       if (!response.ok) {
@@ -284,7 +284,7 @@ export default function PromptInspectorPage() {
     } finally {
       setLoading(false)
     }
-  }, [date, dayRange])
+  }, [date, view, dayRange])
 
   useEffect(() => {
     // Read current date only on the client (avoids new Date() during render).
@@ -355,17 +355,31 @@ export default function PromptInspectorPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-muted-foreground/60">
-              Zeitraum
+              Ansicht
               <select
-                value={dayRange}
-                onChange={event => setDayRange(Number(event.target.value))}
+                value={view}
+                onChange={event => setView(event.target.value)}
                 className="rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1.5 text-sm font-mono text-foreground focus:border-primary/50 focus:outline-none"
               >
-                <option value={1}>1 Tag</option>
-                <option value={3}>3 Tage</option>
-                <option value={7}>7 Tage</option>
+                {VIEW_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </label>
+            {(view === 'ticker' || view === 'timeline') && (
+              <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                Zeitraum
+                <select
+                  value={dayRange}
+                  onChange={event => setDayRange(Number(event.target.value))}
+                  className="rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1.5 text-sm font-mono text-foreground focus:border-primary/50 focus:outline-none"
+                >
+                  <option value={1}>1 Tag</option>
+                  <option value={3}>3 Tage</option>
+                  <option value={7}>7 Tage</option>
+                </select>
+              </label>
+            )}
             <button
               onClick={fetchPreview}
               disabled={loading}
@@ -414,7 +428,7 @@ export default function PromptInspectorPage() {
                 icon={<Cpu className="h-5 w-5" />}
                 label="Modell"
                 value={preview.meta.model}
-                hint={`${preview.meta.dayRange}d · ${preview.meta.selectedDates.join(', ')}`}
+                hint={`${preview.meta.windowDays} Tage Kontext · ${preview.meta.messageCount.toLocaleString('de-DE')} Nachrichten${preview.meta.sampledDays > 0 ? ` · ${preview.meta.sampledDays} Tage ausgeduennt` : ''}`}
               />
             </div>
 

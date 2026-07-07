@@ -250,19 +250,35 @@
 
   /* === GLASSMORPHISM CARDS === */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-md border border-primary/10;
-    box-shadow: 
+    @apply bg-card/70 backdrop-blur-xl border border-primary/10;
+    position: relative;
+    box-shadow:
+      0 8px 24px -8px hsl(0 0% 0% / 0.35),
       0 4px 6px -1px hsl(var(--primary) / 0.05),
       0 2px 4px -2px hsl(var(--primary) / 0.05),
-      inset 0 1px 0 hsl(var(--foreground) / 0.05);
+      inset 0 1px 0 hsl(var(--foreground) / 0.06);
   }
 
   .glass-card-gold {
-    @apply bg-card/90 backdrop-blur-md border border-primary/30;
-    box-shadow: 
-      0 0 20px hsl(var(--primary) / 0.1),
+    @apply bg-card/80 backdrop-blur-xl border border-primary/30;
+    position: relative;
+    box-shadow:
+      0 0 32px hsl(var(--primary) / 0.12),
+      0 12px 32px -12px hsl(0 0% 0% / 0.5),
       0 4px 6px -1px hsl(0 0% 0% / 0.3),
-      inset 0 1px 0 hsl(var(--primary) / 0.1);
+      inset 0 1px 0 hsl(var(--primary) / 0.15),
+      inset 0 0 0 1px hsl(var(--primary) / 0.04);
+  }
+
+  /* Subtle paper grain overlay for glass surfaces */
+  .glass-grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   /* === TICKER TAPE STYLE === */

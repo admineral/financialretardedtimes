@@ -14,22 +14,24 @@ const ChartJSCandlestick = dynamic(
   { ssr: false, loading: () => <ChartSkeleton /> }
 )
 
-// Schema for AI analysis (must match API)
+// Schema for AI analysis (must match API — server emits null for absent
+// fields since OpenAI structured outputs forbid optional, old caches may
+// omit them → nullish accepts both)
 const ChartQuoteSchema = z.object({
   id: z.string(),
   timestamp: z.string(),
   username: z.string(),
   title: z.string(), // Short title for chart labels - "LONG bei 92K!"
   fullQuote: z.string(), // The exact quote from the user - verbatim!
-  story: z.string().optional(), // 2-4 sentences about the prediction context and outcome
+  story: z.string().nullish(), // 2-4 sentences about the prediction context and outcome
   priceContext: z.enum([
     'pump_call', 'dump_call', 'top_call', 'bottom_call',
     'fomo', 'panic', 'diamond_hands', 'reversal', 'sideways', 'analysis'
   ]),
   sentiment: z.enum(['bullish', 'bearish', 'neutral']),
-  wasCorrect: z.boolean().optional(),
+  wasCorrect: z.boolean().nullish(),
   priceAtQuote: z.number(),
-  hasTimeframe: z.boolean().optional(), // Did they specify a timeframe?
+  hasTimeframe: z.boolean().nullish(), // Did they specify a timeframe?
 })
 
 const AnalysisResponseSchema = z.object({
@@ -46,17 +48,17 @@ const AnalysisResponseSchema = z.object({
     username: z.string(),
     quote: z.string(),
     context: z.string()
-  }).optional(),
+  }).nullish(),
   worstCall: z.object({
     username: z.string(),
     quote: z.string(),
     context: z.string()
-  }).optional(),
+  }).nullish(),
   dataRange: z.object({
     messagesFrom: z.string(),
     messagesTo: z.string(),
     messageCount: z.number()
-  }).optional()
+  }).nullish()
 })
 
 type ChartQuote = z.infer<typeof ChartQuoteSchema>
@@ -386,15 +388,15 @@ export default function ChartTimelinePage() {
           time,
           title: q.title,
           fullQuote: q.fullQuote || q.title, // Fallback to title if no fullQuote
-          story: q.story,
+          story: q.story ?? undefined,
           description: `@${q.username} • $${q.priceAtQuote?.toLocaleString() || '?'}`,
           type: mapContextToType(q.priceContext),
           participants: [q.username],
           priceContext: q.priceContext,
           sentiment: q.sentiment,
-          wasCorrect: q.wasCorrect,
+          wasCorrect: q.wasCorrect ?? undefined,
           priceAtQuote: q.priceAtQuote,
-          hasTimeframe: q.hasTimeframe
+          hasTimeframe: q.hasTimeframe ?? undefined
         }
       })
   }, [aiAnalysis])

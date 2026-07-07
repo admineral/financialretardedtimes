@@ -31,7 +31,7 @@ const SentimentBucketSchema = z.object({
   messageCount: z.number(),
   fearGreed: z.enum(['extreme_fear', 'fear', 'neutral', 'greed', 'extreme_greed']),
   dominantKeywords: z.array(z.string()).max(3),
-  priceAtBucket: z.number().optional(),
+  priceAtBucket: z.number().nullish(),
 })
 
 const SentimentResponseSchema = z.object({
@@ -52,7 +52,7 @@ const SentimentResponseSchema = z.object({
     timestamp: z.string(),
     type: z.enum(['price_up_sentiment_down', 'price_down_sentiment_up', 'capitulation', 'euphoria']),
     description: z.string(),
-    priceChange: z.number().optional(),
+    priceChange: z.number().nullish(),
   })).max(5),
 })
 

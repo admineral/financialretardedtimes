@@ -28,7 +28,6 @@ import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
 import { z } from 'zod'
-import { generateDailyAIObject, toLegacyFearGreedResponse } from '@/app/newspaper/lib/daily-ai'
 import { pruneFearGreedHistoryForDate } from '@/app/newspaper/lib/cache-writers'
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -358,20 +357,6 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body (no params needed, but consume the body)
     await request.json().catch(() => ({}))
-
-    if (process.env.UNIFIED_DAILY_AI_DELEGATE === 'true') {
-      const { object } = await generateDailyAIObject({
-        includeNewspaper: false,
-        includeTicker: false,
-        includeTimeline: false,
-        includeFearGreed: true,
-        source: 'fear-greed'
-      })
-      return new Response(
-        JSON.stringify(toLegacyFearGreedResponse(object)),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
 
     // Initialize Supabase client early for parallel fetches
     const supabase = await createClient()

@@ -6,7 +6,7 @@ import { useAvatarContext } from '@/app/newspaper/components/AvatarContext'
 
 /**
  * Same fetching logic as ContributorAvatar:
- * 1. AvatarContext (populated by NewspaperSidebar on /newspaper)
+ * 1. AvatarContext (populated by the /newspaper page)
  * 2. Module-level cache (shared across instances)
  * 3. Fallback: /Test/api/user-profile
  *

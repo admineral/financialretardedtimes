@@ -27,7 +27,7 @@ import { z } from 'zod'
 const PredictionSchema = z.object({
   id: z.string(),
   username: z.string(),
-  avatar: z.string().optional(),
+  avatar: z.string().nullish(),
   originalText: z.string(),
   prediction: z.string(),
   targetPrice: z.number().nullable(),
@@ -38,7 +38,7 @@ const PredictionSchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']),
   priceAtPrediction: z.number(),
   timestamp: z.string(),
-  emoji: z.string().optional(),
+  emoji: z.string().nullish(),
 })
 
 const ExtractResponseSchema = z.object({
