@@ -185,6 +185,81 @@ export function formatRawChatSection(days: EditionChatDay[]): string {
 // ═══════════════════════════════════════════════════════════════════════
 
 type RawCandle = EditionCandle
+type BinanceKline = [number, string, string, string, string, ...unknown[]]
+
+function normalizeRawCandles(candles: RawCandle[]): RawCandle[] {
+  return candles
+    .map(candle => ({
+      timestamp: Number(candle.timestamp),
+      open: Number(candle.open),
+      high: Number(candle.high),
+      low: Number(candle.low),
+      close: Number(candle.close)
+    }))
+    .filter(candle =>
+      Number.isFinite(candle.timestamp) &&
+      Number.isFinite(candle.open) &&
+      Number.isFinite(candle.high) &&
+      Number.isFinite(candle.low) &&
+      Number.isFinite(candle.close)
+    )
+    .sort((a, b) => a.timestamp - b.timestamp)
+}
+
+async function fetchCandlesFromBinance(timeframe: '1H' | '4H'): Promise<RawCandle[]> {
+  const interval = timeframe === '1H' ? '1h' : '4h'
+  const mirrors = [
+    `https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=1000`,
+    `https://api2.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=1000`,
+    `https://api3.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=1000`,
+    `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=1000`
+  ]
+
+  for (const url of mirrors) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' })
+      if (!res.ok) continue
+      const raw: BinanceKline[] = await res.json()
+      return normalizeRawCandles(raw.map(k => ({
+        timestamp: k[0],
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4])
+      })))
+    } catch {
+      continue
+    }
+  }
+  return []
+}
+
+async function fetchCandlesFromKraken(timeframe: '1H' | '4H'): Promise<RawCandle[]> {
+  const interval = timeframe === '1H' ? 60 : 240
+  const since = Math.floor((Date.now() - 45 * 24 * 60 * 60 * 1000) / 1000)
+  const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=${interval}&since=${since}`
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+    if (!res.ok) return []
+
+    const json = await res.json()
+    if (Array.isArray(json.error) && json.error.length > 0) return []
+
+    const pairData: (string | number)[][] = json.result?.XXBTZUSD ?? json.result?.XBTUSD ?? []
+    if (!Array.isArray(pairData)) return []
+
+    return normalizeRawCandles(pairData.map(k => ({
+      timestamp: Number(k[0]) * 1000,
+      open: parseFloat(String(k[1])),
+      high: parseFloat(String(k[2])),
+      low: parseFloat(String(k[3])),
+      close: parseFloat(String(k[4]))
+    })))
+  } catch {
+    return []
+  }
+}
 
 async function fetchCachedCandles(
   supabase: SupabaseServerClient,
@@ -199,7 +274,7 @@ async function fetchCachedCandles(
       .eq('timeframe', timeframe)
       .single()
     if (data?.candles && Array.isArray(data.candles) && data.candles.length > 0) {
-      const candles = data.candles as RawCandle[]
+      const candles = normalizeRawCandles(data.candles as RawCandle[])
       const newest = Math.max(...candles.map(c => c.timestamp))
       if (minNewestMs === undefined || newest >= minNewestMs) {
         return candles
@@ -210,29 +285,10 @@ async function fetchCachedCandles(
     // fall through to Binance
   }
 
-  const interval = timeframe === '1H' ? '1h' : '4h'
-  const mirrors = [
-    `https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=1000`,
-    `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=1000`
-  ]
-  type BinanceKline = [number, string, string, string, string, ...unknown[]]
-  for (const url of mirrors) {
-    try {
-      const res = await fetch(url, { cache: 'no-store' })
-      if (!res.ok) continue
-      const raw: BinanceKline[] = await res.json()
-      return raw.map(k => ({
-        timestamp: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4])
-      }))
-    } catch {
-      continue
-    }
-  }
-  return []
+  const binanceCandles = await fetchCandlesFromBinance(timeframe)
+  if (binanceCandles.length > 0) return binanceCandles
+
+  return fetchCandlesFromKraken(timeframe)
 }
 
 const RANGE_CONFIG: Record<EditionChartRange, { hours: number; timeframe: '1H' | '4H' }> = {

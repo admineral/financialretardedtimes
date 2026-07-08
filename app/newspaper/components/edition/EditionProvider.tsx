@@ -27,6 +27,7 @@ import { parsePartialJson } from 'ai'
 import { shouldAcceptIncomingEdition } from '../../edition/freshness'
 import type { EditionWidgetId } from '../../edition/prompt'
 import type {
+  EditionData,
   EditionCacheInfo,
   EditionDayRange,
   NewspaperEdition,
@@ -48,6 +49,10 @@ interface EditionApiResponse extends EditionApiPayload {
   editions?: Partial<Record<EditionDayRange, EditionApiPayload>>
   lockActive?: boolean
   today?: string
+}
+
+interface EditionDataResponse {
+  data?: EditionData
 }
 
 export interface EditionState {
@@ -141,6 +146,40 @@ export function EditionProvider({
     })
   }, [])
 
+  const hydrateDeterministicData = useCallback(async (
+    date: string,
+    payloads: Partial<Record<EditionDayRange, EditionApiPayload>>
+  ) => {
+    const hasHydratableEdition = ([1, 3, 7] as EditionDayRange[]).some(key => {
+      const payload = payloads[key]
+      return Boolean(payload?.edition && !payload.legacy)
+    })
+    if (!hasHydratableEdition) return
+
+    try {
+      const response = await fetch(`/newspaper/api/edition/data?date=${date}`, { cache: 'no-store' })
+      if (!response.ok) return
+
+      const payload: EditionDataResponse = await response.json()
+      if (!payload.data || loadedDateRef.current !== date) return
+      const data = payload.data
+
+      setEditions(prev => {
+        const next = { ...prev }
+        for (const key of [1, 3, 7] as EditionDayRange[]) {
+          const edition = next[key]
+          const loadedPayload = payloads[key]
+          if (edition && loadedPayload?.edition && !loadedPayload.legacy) {
+            next[key] = { ...edition, data }
+          }
+        }
+        return next
+      })
+    } catch (err) {
+      console.warn('[EDITION-PROVIDER] Deterministic data refresh failed:', err)
+    }
+  }, [])
+
   /** Loads all three ranges for a date in one round-trip. */
   const loadDate = useCallback(async (date: string): Promise<EditionApiResponse | null> => {
     try {
@@ -149,7 +188,10 @@ export function EditionProvider({
         throw new Error(`Edition read failed (${response.status})`)
       }
       const payload: EditionApiResponse = await response.json()
-      if (payload.editions) applyPayloads(payload.editions)
+      if (payload.editions) {
+        applyPayloads(payload.editions)
+        void hydrateDeterministicData(date, payload.editions)
+      }
       setFreshnessReason(payload.freshness?.reason ?? null)
       return payload
     } catch (err) {
@@ -157,8 +199,7 @@ export function EditionProvider({
       setError(err instanceof Error ? err.message : 'Laden fehlgeschlagen')
       return null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyPayloads, dayRange])
+  }, [applyPayloads, dayRange, hydrateDeterministicData])
 
   /**
    * Polls the read API after a stream until rows from a NEWER generation
