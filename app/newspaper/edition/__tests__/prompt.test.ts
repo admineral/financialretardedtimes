@@ -49,8 +49,8 @@ describe('buildEditionPromptBlocks (mega call)', () => {
     expect(prompt).toContain('<market>')
     expect(prompt).toContain('AUFTRAG/')
     expect(prompt).toContain('OUTPUT_CONTRACT/')
-    // Raw chat lines keep the exact original text.
-    expect(prompt).toContain('@bulldude | mod=false] long')
+    // Compact Berlin stamp + original text (no ISO / mod= prefix).
+    expect(prompt).toContain('[2026-07-07 11:00] @bulldude (BTC:$?): long')
   })
 
   it('editorial briefing exposes genui catalog + rules but no caching/widget plumbing', () => {

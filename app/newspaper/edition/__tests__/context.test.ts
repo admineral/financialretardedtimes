@@ -4,7 +4,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildChatDays, getEditionDateKeys, type EditionChatMessage } from '../context'
+import {
+  buildChatDays,
+  formatChatLine,
+  formatRawChatSection,
+  getEditionDateKeys,
+  type EditionChatMessage
+} from '../context'
 import { EDITION_PROTECTED_RECENT_DAYS, EDITION_WINDOW_DAYS } from '../types'
 import { ANCHOR_DATE } from './fixtures'
 
@@ -56,7 +62,7 @@ describe('buildChatDays', () => {
     const perDay = 200
     const messages = dateKeys.flatMap(key => messagesForDay(key, perDay))
     // Force a budget roughly half the total size.
-    const total = messages.reduce((sum, m) => sum + m.text.length + 70, 0)
+    const total = messages.reduce((sum, m) => sum + m.text.length + 50, 0)
     const days = buildChatDays(dateKeys, messages, Math.floor(total / 2))
 
     const protectedDays = days.slice(-EDITION_PROTECTED_RECENT_DAYS)
@@ -80,5 +86,48 @@ describe('buildChatDays', () => {
     expect(sampledDay).toBeDefined()
     expect(sampledDay!.messages[0].text).toContain('nachricht 0 ')
     expect(sampledDay!.messages[sampledDay!.messages.length - 1].text).toContain(`nachricht ${perDay - 1} `)
+  })
+})
+
+describe('formatChatLine', () => {
+  it('uses a compact Berlin stamp, username, and BTC price like Marktdaten', () => {
+    const line = formatChatLine(
+      {
+        username: 'TofuZz',
+        text: 'in dem fall meinte ich den RSI',
+        time: '2026-08-19T22:05:09.000Z',
+        is_moderator: false
+      },
+      [{ timestamp: Date.parse('2026-08-19T22:00:00.000Z'), open: 71_000, high: 72_000, low: 70_500, close: 71_724 }]
+    )
+
+    expect(line).toBe('[2026-08-20 00:05] @TofuZz (BTC:$71724): in dem fall meinte ich den RSI')
+    expect(line).not.toContain('T22:')
+    expect(line).not.toContain('mod=')
+  })
+
+  it('falls back to BTC:$? when no candles are available', () => {
+    expect(formatChatLine({
+      username: 'bulldude',
+      text: 'long',
+      time: '2026-07-07T09:00:00.000Z',
+      is_moderator: false
+    })).toBe('[2026-07-07 11:00] @bulldude (BTC:$?): long')
+  })
+})
+
+describe('formatRawChatSection', () => {
+  it('emits compact lines inside the day wrapper', () => {
+    const days = buildChatDays(
+      ['2026-08-20'],
+      [{ username: 'werkannderwird', text: 'es reimt iss fett!', time: '2026-08-20T08:54:00.000Z', is_moderator: false }]
+    )
+    const section = formatRawChatSection(days, [
+      { timestamp: Date.parse('2026-08-20T08:00:00.000Z'), open: 71_700, high: 71_800, low: 71_600, close: 71_724 }
+    ])
+
+    expect(section).toContain('<day date="2026-08-20"')
+    expect(section).toContain('[2026-08-20 10:54] @werkannderwird (BTC:$71724): es reimt iss fett!')
+    expect(section).not.toContain('mod=false')
   })
 })

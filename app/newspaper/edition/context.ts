@@ -20,6 +20,7 @@ import {
   buildLeaderboardUserPrompt,
   fetchLeaderboardMessagesForRange,
   fetchLeaderboardOHLC,
+  getPriceAtTime,
   sampleLeaderboardMessages,
   type LeaderboardChatMessage,
   type OHLCData
@@ -82,18 +83,36 @@ export interface EditionChatDay {
   sampled: boolean
 }
 
-function formatChatLine(message: EditionChatMessage): string {
-  const time = new Date(message.time)
-  const berlinTime = time.toLocaleTimeString('de-DE', {
+/** Berlin wall-clock stamp, matching Marktdaten: `YYYY-MM-DD HH:MM`. */
+function formatBerlinStamp(date: Date): string {
+  const dateKey = getNewspaperDateKey(date)
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: TIMEZONE
-  })
-  return `[${time.toISOString()} | Berlin ${berlinTime} | @${message.username} | mod=${Boolean(message.is_moderator)}] ${message.text}`
+    hourCycle: 'h23'
+  }).formatToParts(date)
+  const hour = parts.find(part => part.type === 'hour')?.value ?? '00'
+  const minute = parts.find(part => part.type === 'minute')?.value ?? '00'
+  return `${dateKey} ${hour}:${minute}`
 }
 
+/**
+ * Compact chat line for the mega prompt.
+ * `[2026-08-20 10:54] @werkannderwird (BTC:$71724): text`
+ */
+export function formatChatLine(message: EditionChatMessage, ohlcData: OHLCData[] = []): string {
+  const time = new Date(message.time)
+  const price = getPriceAtTime(message.time, ohlcData)
+  const priceLabel = price > 0 ? `$${Math.round(price)}` : '$?'
+  return `[${formatBerlinStamp(time)}] @${message.username} (BTC:${priceLabel}): ${message.text}`
+}
+
+/** Prefix overhead of `formatChatLine` (stamp + user + BTC tag), used for budget estimates. */
+const CHAT_LINE_PREFIX_CHARS = 50
+
 function dayCharSize(messages: EditionChatMessage[]): number {
-  return messages.reduce((sum, m) => sum + m.text.length + 70, 0)
+  return messages.reduce((sum, m) => sum + m.text.length + CHAT_LINE_PREFIX_CHARS, 0)
 }
 
 /** Evenly spaced sample keeping first/last messages of the day. */
@@ -149,7 +168,7 @@ export function buildChatDays(
   return days
 }
 
-export function formatRawChatSection(days: EditionChatDay[]): string {
+export function formatRawChatSection(days: EditionChatDay[], ohlcData: OHLCData[] = []): string {
   const total = days.reduce((sum, day) => sum + day.messages.length, 0)
   const lines: string[] = [
     `<chat-history timezone="Europe/Berlin" days="${days.length}" messages="${total}" order="aeltester Tag zuerst">`
@@ -170,7 +189,7 @@ export function formatRawChatSection(days: EditionChatDay[]): string {
       lines.push('[keine Nachrichten]')
     } else {
       for (const message of day.messages) {
-        lines.push(formatChatLine(message))
+        lines.push(formatChatLine(message, ohlcData))
       }
     }
     lines.push('</day>')

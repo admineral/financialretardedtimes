@@ -178,7 +178,10 @@ function formatBerlinRange(dateKeys: string[]): string {
 }
 
 export function buildEditionPromptBlocks(inputs: EditionGenerationInputs): EditionPromptBlock[] {
-  const chatSection = formatRawChatSection(inputs.chatDays)
+  const chatOhlc = inputs.leaderboardOhlc.length > 0
+    ? inputs.leaderboardOhlc
+    : inputs.data.btc.candlesByRange['14d']
+  const chatSection = formatRawChatSection(inputs.chatDays, chatOhlc)
   const marketSection = formatMarketSection(inputs)
   const sampledDays = inputs.chatDays.filter(day => day.sampled).length
   const totalMessages = inputs.chatDays.reduce((sum, day) => sum + day.messages.length, 0)
