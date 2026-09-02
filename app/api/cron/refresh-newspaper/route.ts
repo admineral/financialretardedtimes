@@ -13,7 +13,12 @@
  *   run only reports success once all three edition rows are written
  *
  * ENDPOINT: GET /api/cron/refresh-newspaper
- * CRON: see vercel.json
+ * CRON: see vercel.json — `5 4,5,10,11 * * *` (UTC). Vercel cron has no
+ * timezone, so each Berlin print time is scheduled at both its CET and
+ * CEST UTC offsets and the noon rule skips the duplicate:
+ *   06:05 Berlin → Morgenausgabe (first paper of the new Berlin day)
+ *   12:05 Berlin → Mittagsausgabe (the after-noon paper)
+ * Result: at most two AI print runs per day, regardless of DST.
  */
 
 import { NextResponse } from 'next/server'

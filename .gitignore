@@ -43,3 +43,7 @@ next-env.d.ts
 
 /lib/generated/prisma
 profile-data
+
+# local experiments that must never land in the web repo
+.venv*/
+*.stl

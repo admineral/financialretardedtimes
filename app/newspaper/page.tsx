@@ -14,7 +14,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import {
   SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon,
-  ExternalLink, Clock3, MessageSquare, Users, Layers, Archive
+  ExternalLink, Clock3, MessageSquare, Users, Layers, Archive, Download, Share2
 } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
@@ -29,11 +29,13 @@ import {
   EditionBlockList,
   EditionSidebar,
   streamingContentForRange,
+  LATEST_EDITION,
 } from './components/edition'
-import type { EditionState } from './components/edition'
+import type { EditionState, GenerationMode } from './components/edition'
 import { ChatHistoryTimeline } from '@/app/test-timeline/components'
 import { FearGreedDisplay } from '@/app/test-fg/components'
-import { ChartTimelineWidget, SentimentWidget, PredictionWidget, TraderLeaderboardWidget } from '@/components/market-widgets'
+import { MarketSection } from './components/MarketSection'
+import { LazySection } from './components/ui/LazySection'
 import { ChatTicker } from '@/app/components/ChatTicker'
 import type { DayRange } from './components/DateTimeline'
 import type { DateStats } from './lib/types'
@@ -50,10 +52,55 @@ interface BTCData {
   cachedAt: number
 }
 
-interface CachedDateBootstrap {
-  date: string
-  messageCount: number
-  uniqueUsers: number
+/** UI preference only (never edition data): how a fresh paper gets printed. */
+const PRINT_MODE_STORAGE_KEY = 'frt:newspaper:print-mode'
+
+function readStoredPrintMode(): GenerationMode {
+  try {
+    return window.localStorage.getItem(PRINT_MODE_STORAGE_KEY) === 'background' ? 'background' : 'stream'
+  } catch {
+    return 'stream'
+  }
+}
+
+function PrintModeToggle({
+  mode,
+  onChange,
+  disabled
+}: {
+  mode: GenerationMode
+  onChange: (mode: GenerationMode) => void
+  disabled: boolean
+}) {
+  const options: { id: GenerationMode; label: string; title: string }[] = [
+    { id: 'stream', label: 'Live', title: 'Neue Ausgaben streamen live in die Seite' },
+    { id: 'background', label: 'Leise', title: 'Neue Ausgaben werden im Hintergrund gedruckt; die Seite bleibt ruhig' }
+  ]
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Druckmodus"
+      className="hidden md:inline-flex items-center rounded-sm border border-primary/30 text-[11px] font-headline font-semibold uppercase tracking-wide overflow-hidden"
+    >
+      {options.map(option => (
+        <button
+          key={option.id}
+          role="radio"
+          aria-checked={mode === option.id}
+          title={option.title}
+          disabled={disabled}
+          onClick={() => onChange(option.id)}
+          className={`px-2.5 py-1.5 transition-colors disabled:opacity-50 ${
+            mode === option.id
+              ? 'bg-primary/15 text-primary'
+              : 'text-primary/60 hover:text-primary hover:bg-primary/10'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function formatTimeAgo(dateString: string): string {
@@ -172,7 +219,7 @@ function WidgetRefreshButton({
   state: EditionState
 }) {
   const isActive = state.refreshingWidget === widgetId
-  const disabled = Boolean(state.refreshingWidget) || state.isStreaming || !state.edition || state.isLegacy
+  const disabled = Boolean(state.refreshingWidget) || state.isStreaming || state.isPrinting || !state.edition || state.isLegacy
 
   return (
     <button
@@ -238,15 +285,36 @@ const TIMELINE_MODES: Record<DayRange, '24h' | '3d' | '7d'> = { 1: '24h', 3: '3d
 export default function NewspaperPage() {
   const [availableDates, setAvailableDates] = useState<DateStats[]>([])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
-  const [selectedDates, setSelectedDates] = useState<string[]>([])
   const [dayRange, setDayRange] = useState<DayRange>(1)
   const [isLoadingDates, setIsLoadingDates] = useState(true)
   const [cumulativeUsers, setCumulativeUsers] = useState<Record<number, number> | undefined>(undefined)
   const [btcData, setBtcData] = useState<BTCData | null>(null)
+  const [printMode, setPrintMode] = useState<GenerationMode>('stream')
   const userSelectedDateRef = useRef(false)
 
   useEffect(() => {
     track('newspaper_page_view', { source: 'direct' })
+    setPrintMode(readStoredPrintMode())
+  }, [])
+
+  const handlePrintModeChange = useCallback((mode: GenerationMode) => {
+    setPrintMode(mode)
+    try {
+      window.localStorage.setItem(PRINT_MODE_STORAGE_KEY, mode)
+    } catch {
+      // preference only; ignore quota/private-mode errors
+    }
+    track('newspaper_print_mode', { mode })
+  }, [])
+
+  /**
+   * The provider loads the newest cached paper first (one request). If that
+   * paper is not today's, a new Berlin day has begun: select today so the
+   * provider prints the new edition. Otherwise just pin the resolved date.
+   */
+  const handleDateResolved = useCallback((resolved: string | null, today: string) => {
+    if (userSelectedDateRef.current) return
+    setSelectedDate(prev => prev ?? (resolved === today ? resolved : today))
   }, [])
 
   useEffect(() => {
@@ -266,31 +334,8 @@ export default function NewspaperPage() {
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    const bootstrapLatestCachedDate = async () => {
-      try {
-        const response = await fetch('/newspaper/api/cache-list?dayRange=1&limit=1', { cache: 'no-store' })
-        if (!response.ok) return
-
-        const data: { dates?: CachedDateBootstrap[] } = await response.json()
-        const latest = data.dates?.[0]
-        if (!latest) return
-
-        setAvailableDates(prev => prev.length > 0 ? prev : [{
-          date: latest.date,
-          messageCount: latest.messageCount,
-          uniqueUsers: latest.uniqueUsers
-        }])
-        setSelectedDate(prev => prev || latest.date)
-        setSelectedDates(prev => prev.length > 0 ? prev : [latest.date])
-      } catch (err) {
-        console.error('Failed to bootstrap latest cached newspaper:', err)
-      }
-    }
-
-    bootstrapLatestCachedDate()
-  }, [])
-
+  // The date rail is decoration for navigation; it never decides which paper
+  // is shown (the edition request does), so it loads in parallel and late.
   useEffect(() => {
     const fetchDates = async () => {
       try {
@@ -299,13 +344,6 @@ export default function NewspaperPage() {
           const data = await response.json()
           setAvailableDates(data.dates || [])
           if (data.cumulativeUsers) setCumulativeUsers(data.cumulativeUsers)
-          if (data.dates && data.dates.length > 0) {
-            const latestDate = data.dates[0].date
-            if (!userSelectedDateRef.current) {
-              setSelectedDate(latestDate)
-              setSelectedDates([latestDate])
-            }
-          }
         }
       } catch (err) {
         console.error('Failed to fetch available dates:', err)
@@ -319,23 +357,26 @@ export default function NewspaperPage() {
   const handleDateSelect = useCallback((date: string) => {
     userSelectedDateRef.current = true
     setSelectedDate(date)
-    if (dayRange === 1) setSelectedDates([date])
     track('newspaper_date_select', { date, dayRange, source: 'timeline' })
   }, [dayRange])
 
   const handleDayRangeChange = useCallback((days: DayRange, dates: string[]) => {
     setDayRange(days)
-    setSelectedDates(dates)
     track('newspaper_day_range_change', { dayRange: days, datesCount: dates.length })
   }, [])
 
   return (
     <AvatarProvider>
-      <EditionProvider selectedDate={selectedDate} dayRange={dayRange}>
+      <EditionProvider
+        selectedDate={selectedDate ?? LATEST_EDITION}
+        dayRange={dayRange}
+        generationMode={printMode}
+        onDateResolved={handleDateResolved}
+      >
         {(state) => {
           const edition = state.edition
           const isInitialLoading = state.isLoading && !edition
-          const isBusy = isInitialLoading || state.isStreaming
+          const isBusy = isInitialLoading || state.isStreaming || state.isPrinting
           const streamingContent = streamingContentForRange(state.streamingObject, dayRange)
           const streamingBlocks = Array.isArray(streamingContent?.blocks) ? streamingContent.blocks : null
 
@@ -401,15 +442,40 @@ export default function NewspaperPage() {
                       <Link
                         href="/openclaw"
                         onClick={() => track('newspaper_openclaw_click', { location: 'topbar' })}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                        className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                         <span>OpenClaw</span>
                       </Link>
+                      <Link
+                        href="/newspaper/export"
+                        onClick={() => track('newspaper_export_click', { location: 'topbar' })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                        title="Chat-Verlauf eines Nutzers exportieren"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Export</span>
+                      </Link>
+                      <Link
+                        href="/newspaper/people"
+                        onClick={() => track('newspaper_people_click', { location: 'topbar' })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                        title="Wer spricht mit wem: Netzwerk eines Nutzers"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Netzwerk</span>
+                      </Link>
+                      <PrintModeToggle mode={printMode} onChange={handlePrintModeChange} disabled={state.isStreaming} />
                       {isBusy && (
                         <span className="flex items-center gap-1.5 text-xs text-primary animate-pulse">
                           <SparklesIcon className="h-3.5 w-3.5" />
-                          <span className="hidden sm:inline">{state.isStreaming ? 'Druckt frische Ausgaben…' : 'Lade…'}</span>
+                          <span className="hidden sm:inline">
+                            {state.isStreaming
+                              ? 'Druckt frische Ausgaben…'
+                              : state.isPrinting
+                                ? 'Druckt im Hintergrund…'
+                                : 'Lade…'}
+                          </span>
                         </span>
                       )}
                       <div className="flex items-center gap-1.5">
@@ -622,32 +688,8 @@ export default function NewspaperPage() {
                 </div>
               </div>
 
-              {/* Below the fold: self-contained market widgets (their data feeds the main prompt) */}
-              {!isInitialLoading && (
-                <section className="border-t border-primary/10 mt-8 bg-card/20 relative z-10">
-                  <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-10">
-                    <div className="text-center mb-10">
-                      <div className="inline-flex items-center gap-4 mb-3">
-                        <div className="w-16 h-px bg-gradient-to-r from-transparent to-primary/40" />
-                        <TrendingUp className="w-5 h-5 text-primary/60" />
-                        <div className="w-16 h-px bg-gradient-to-l from-transparent to-primary/40" />
-                      </div>
-                      <h2 className="font-masthead text-3xl sm:text-4xl gold-text mb-2">
-                        Der Marktteil
-                      </h2>
-                      <p className="text-sm text-muted-foreground font-body max-w-md mx-auto">
-                        Chart-Chronik, Stimmungsbarometer und Wettbüro — live aus dem Chat analysiert
-                      </p>
-                    </div>
-                    <div className="space-y-8">
-                      <ChartTimelineWidget />
-                      <SentimentWidget />
-                      <PredictionWidget />
-                      <TraderLeaderboardWidget />
-                    </div>
-                  </div>
-                </section>
-              )}
+              {/* Below the fold: live market tools, code-split and mounted on scroll */}
+              {!isInitialLoading && <MarketSection />}
 
               {/* Archive */}
               {!isInitialLoading && (
@@ -668,10 +710,12 @@ export default function NewspaperPage() {
                     </div>
 
                     <div className="max-w-5xl mx-auto">
-                      <NewspaperTimeline
-                        currentDate={selectedDate}
-                        refreshKey={state.cacheInfo?.updatedAt ?? null}
-                      />
+                      <LazySection minHeight={480}>
+                        <NewspaperTimeline
+                          currentDate={selectedDate}
+                          refreshKey={state.cacheInfo?.updatedAt ?? null}
+                        />
+                      </LazySection>
                     </div>
                   </div>
                 </section>

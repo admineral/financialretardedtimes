@@ -103,6 +103,29 @@ export async function readEditionRow(
   return mapRow(data as RawCacheRow)
 }
 
+/**
+ * Newest cache_date that has a 1D row. The three ranges of a mega
+ * generation share a generation_id, so the 1D row is representative and
+ * a single-column query is enough to answer `date=latest`.
+ */
+export async function readLatestCacheDate(
+  supabase: SupabaseServerClient
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('newspaper_cache')
+    .select('cache_date')
+    .eq('day_range', 1)
+    .order('cache_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Latest edition lookup failed: ${error.message}`)
+  }
+  const cacheDate = (data as { cache_date?: string | null } | null)?.cache_date
+  return typeof cacheDate === 'string' && cacheDate.length > 0 ? cacheDate : null
+}
+
 export async function readAllEditionRows(
   supabase: SupabaseServerClient,
   date: string

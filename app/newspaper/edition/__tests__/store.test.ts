@@ -8,6 +8,7 @@ import {
   acquireGenerationLock,
   patchEditionRow,
   readEditionRow,
+  readLatestCacheDate,
   writeEditionRow,
   writeEditionRows
 } from '../store'
@@ -22,7 +23,7 @@ type QueryResult = { data?: unknown; error: { message: string } | null }
  */
 function makeChain(result: QueryResult) {
   const chain: Record<string, unknown> = {}
-  for (const method of ['insert', 'upsert', 'update', 'delete', 'select', 'eq', 'lt', 'in']) {
+  for (const method of ['insert', 'upsert', 'update', 'delete', 'select', 'eq', 'lt', 'in', 'order', 'limit']) {
     chain[method] = vi.fn(() => chain)
   }
   chain.maybeSingle = vi.fn(async () => result)
@@ -112,6 +113,26 @@ describe('readEditionRow — format detection', () => {
 
     const { client: broken } = makeSupabase({ newspaper_cache: [{ data: null, error: { message: 'boom' } }] })
     await expect(readEditionRow(broken, ANCHOR_DATE, 1)).rejects.toThrow('Edition read failed')
+  })
+})
+
+describe('readLatestCacheDate — date=latest resolution', () => {
+  it('returns the newest cache_date when a 1D row exists', async () => {
+    const { client, from } = makeSupabase({
+      newspaper_cache: [{ data: { cache_date: ANCHOR_DATE }, error: null }]
+    })
+    expect(await readLatestCacheDate(client)).toBe(ANCHOR_DATE)
+    expect(from).toHaveBeenCalledWith('newspaper_cache')
+  })
+
+  it('returns null on an empty table', async () => {
+    const { client } = makeSupabase({ newspaper_cache: [{ data: null, error: null }] })
+    expect(await readLatestCacheDate(client)).toBeNull()
+  })
+
+  it('throws on read errors instead of silently reporting no editions', async () => {
+    const { client } = makeSupabase({ newspaper_cache: [boom] })
+    await expect(readLatestCacheDate(client)).rejects.toThrow('Latest edition lookup failed')
   })
 })
 

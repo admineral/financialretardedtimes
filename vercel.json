@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/refresh-newspaper",
-      "schedule": "0 */4 * * *"
+      "schedule": "5 4,5,10,11 * * *"
     }
   ]
 }

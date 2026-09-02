@@ -1,7 +1,10 @@
 /**
  * Edition read API (Newspaper edition v3)
  *
- * GET /newspaper/api/edition?date=YYYY-MM-DD&range=1|3|7[&all=1]
+ * GET /newspaper/api/edition?date=YYYY-MM-DD|latest&range=1|3|7[&all=1]
+ *
+ * `date=latest` resolves to the newest cached paper in the same request;
+ * every response echoes the resolved `date` and Berlin `today`.
  *
  * Serves cached edition rows with the noon-freshness rule applied at read
  * time (never a flat TTL):
@@ -23,6 +26,7 @@ import {
   isGenerationLocked,
   readAllEditionRows,
   readEditionRow,
+  readLatestCacheDate,
   type EditionReadResult
 } from '../../edition/store'
 import {
@@ -112,20 +116,42 @@ function toPayload(
   return { cached: false, edition: null, cacheInfo: null, freshness: null, legacy: false }
 }
 
+const EMPTY_PAYLOAD: EditionPayload = { cached: false, edition: null, cacheInfo: null, freshness: null, legacy: false }
+
 export async function GET(request: NextRequest) {
-  const date = request.nextUrl.searchParams.get('date') || getNewspaperDateKey()
+  const requestedDate = request.nextUrl.searchParams.get('date') || getNewspaperDateKey()
   const rangeParam = Number(request.nextUrl.searchParams.get('range') || request.nextUrl.searchParams.get('dayRange') || '1')
   const includeAll = request.nextUrl.searchParams.get('all') === '1'
 
   if (!isEditionDayRange(rangeParam)) {
     return NextResponse.json({ error: 'Invalid range. Must be 1, 3, or 7' }, { status: 400 })
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (requestedDate !== 'latest' && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
     return NextResponse.json({ error: 'Invalid date' }, { status: 400 })
   }
 
   try {
     const supabase = await createClient()
+    const today = getNewspaperDateKey()
+
+    // `date=latest` collapses "which paper is newest?" and "give me that
+    // paper" into one round-trip. The client learns the resolved `date`
+    // and `today` from the response and decides whether a newer paper
+    // has to be printed.
+    let date = requestedDate
+    if (requestedDate === 'latest') {
+      const latest = await readLatestCacheDate(supabase)
+      if (!latest) {
+        return NextResponse.json({
+          ...EMPTY_PAYLOAD,
+          editions: includeAll ? {} : undefined,
+          lockActive: await isGenerationLocked(supabase, today),
+          date: null,
+          today
+        }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+      }
+      date = latest
+    }
 
     if (includeAll) {
       const [rows, lockActive] = await Promise.all([
@@ -143,7 +169,8 @@ export async function GET(request: NextRequest) {
         ...active,
         editions,
         lockActive,
-        today: getNewspaperDateKey()
+        date,
+        today
       }, { headers: { 'Cache-Control': 'no-store' } })
     }
 
@@ -156,7 +183,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ...payload,
       lockActive,
-      today: getNewspaperDateKey()
+      date,
+      today
     }, {
       status: payload.cached ? 200 : 404,
       headers: { 'Cache-Control': 'no-store' }

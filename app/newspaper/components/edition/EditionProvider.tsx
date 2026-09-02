@@ -3,21 +3,25 @@
 /**
  * EditionProvider.tsx (Newspaper edition v3 — client state)
  *
- * Replaces NewspaperIssueProvider. One provider owns:
+ * One provider owns:
  *
  * - All three cached editions (1D/3D/7D) for the selected date, loaded in
  *   ONE request → switching ranges or archive days is instant, never a
- *   regeneration.
+ *   regeneration. `selectedDate="latest"` asks the read API for the newest
+ *   cached paper and reports the resolved date back via onDateResolved, so
+ *   first paint needs exactly one edition request.
  * - The noon-freshness decision comes from the server (read API). Stale
- *   editions are shown immediately while a background mega generation
- *   streams fresh content.
- * - Streaming: the generate route streams the tri-edition JSON; partial
- *   blocks of the ACTIVE range render live.
- * - Race-free reload: after a stream, the provider polls the read API and
- *   only accepts a row whose generation is NEWER than what it had before
- *   the stream started (shouldAcceptIncomingEdition) — the old
- *   "regenerated but didn't save / older row overwrote fresh content"
- *   bug is structurally impossible.
+ *   editions are shown immediately while a mega generation prints fresh
+ *   content.
+ * - Two print modes. `stream`: the generate route streams the tri-edition
+ *   JSON and partial blocks of the ACTIVE range render live. `background`:
+ *   the route answers 202 and prints server-side; the page stays calm and
+ *   polls the read API until the single-flight lock clears.
+ * - Race-free reload: after a print run the provider only accepts a row
+ *   whose generation is NEWER than what it had before (see
+ *   shouldAcceptIncomingEdition). The lock doubles as the queue: if another
+ *   visitor or the cron is already printing, we never start a second run,
+ *   we wait for theirs.
  * - Widget single-mode refreshes patch state from the widget route's
  *   response.
  */
@@ -37,6 +41,11 @@ import type {
 type DeepPartial<T> = { [K in keyof T]?: DeepPartial<T[K]> }
 export type PartialTriEdition = DeepPartial<TriEditionAI>
 
+export type GenerationMode = 'stream' | 'background'
+
+/** Sentinel accepted by `selectedDate`: load the newest cached paper. */
+export const LATEST_EDITION = 'latest'
+
 interface EditionApiPayload {
   cached: boolean
   edition: NewspaperEdition | null
@@ -48,6 +57,8 @@ interface EditionApiPayload {
 interface EditionApiResponse extends EditionApiPayload {
   editions?: Partial<Record<EditionDayRange, EditionApiPayload>>
   lockActive?: boolean
+  /** Resolved Berlin date key of the returned rows (null when nothing is cached). */
+  date?: string | null
   today?: string
 }
 
@@ -60,15 +71,21 @@ export interface EditionState {
   edition: NewspaperEdition | null
   /** All loaded ranges for the selected date. */
   editions: Partial<Record<EditionDayRange, NewspaperEdition>>
+  /** Berlin date key the loaded editions belong to. */
+  date: string | null
   cacheInfo: EditionCacheInfo | null
   freshnessReason: string | null
   isLegacy: boolean
   isLoading: boolean
+  /** A stream-mode print run is rendering live into the page. */
   isStreaming: boolean
+  /** A print run is happening somewhere (background mode, cron, or another visitor). */
+  isPrinting: boolean
   /** Live partial object while the mega call streams. */
   streamingObject: PartialTriEdition | null
   refreshingWidget: EditionWidgetId | null
   error: string | null
+  generationMode: GenerationMode
   generate: () => Promise<void>
   refreshWidget: (widgetId: EditionWidgetId) => Promise<void>
 }
@@ -94,21 +111,50 @@ export function streamingContentForRange(
   return (content as DeepPartial<TriEditionAI['edition1d']> | undefined) ?? null
 }
 
+const RANGES: EditionDayRange[] = [1, 3, 7]
+
+/** The 1D row is representative: all ranges of a mega generation share one generation_id. */
+function representative(payload: EditionApiResponse | null): EditionApiPayload | undefined {
+  return payload?.editions?.[1] ?? payload?.editions?.[3] ?? payload?.editions?.[7]
+}
+
+interface PollOptions {
+  /** Upper bound on polls. */
+  attempts: number
+  /** Delay before each poll in ms. */
+  delayMs: number
+  /** Stop early once the server lock is gone and no newer row appeared. */
+  followLock: boolean
+}
+
+/** Short poll after a stream: rows land within seconds of the stream ending. */
+const AFTER_STREAM_POLL: PollOptions = { attempts: 10, delayMs: 1500, followLock: false }
+/** Long poll for background prints and other people's runs: up to ~10 minutes. */
+const BACKGROUND_POLL: PollOptions = { attempts: 120, delayMs: 5000, followLock: true }
+
 export function EditionProvider({
   selectedDate,
   dayRange,
+  generationMode = 'stream',
+  onDateResolved,
   children
 }: {
+  /** Berlin date key, `LATEST_EDITION`, or null while the page has no date yet. */
   selectedDate: string | null
   dayRange: EditionDayRange
+  generationMode?: GenerationMode
+  /** Fired after a `latest` load with the resolved date (null when nothing is cached) and Berlin today. */
+  onDateResolved?: (resolved: string | null, today: string) => void
   children: (state: EditionState) => React.ReactNode
 }) {
   const [editions, setEditions] = useState<Partial<Record<EditionDayRange, NewspaperEdition>>>({})
   const [cacheInfos, setCacheInfos] = useState<Partial<Record<EditionDayRange, EditionCacheInfo | null>>>({})
   const [freshnessReason, setFreshnessReason] = useState<string | null>(null)
   const [legacyFlags, setLegacyFlags] = useState<Partial<Record<EditionDayRange, boolean>>>({})
+  const [loadedDate, setLoadedDate] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
   const [streamingObject, setStreamingObject] = useState<PartialTriEdition | null>(null)
   const [refreshingWidget, setRefreshingWidget] = useState<EditionWidgetId | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -117,11 +163,16 @@ export function EditionProvider({
   const streamAbortRef = useRef<AbortController | null>(null)
   const autoGenerateTriggeredRef = useRef<string | null>(null)
   const generateRef = useRef<() => Promise<void>>(async () => {})
+  const onDateResolvedRef = useRef(onDateResolved)
+  onDateResolvedRef.current = onDateResolved
+
+  /** Concrete date the provider works on (selectedDate unless it is the `latest` sentinel). */
+  const activeDate = selectedDate === LATEST_EDITION ? loadedDate : selectedDate
 
   const applyPayloads = useCallback((payloads: Partial<Record<EditionDayRange, EditionApiPayload>>) => {
     setEditions(prev => {
       const next = { ...prev }
-      for (const key of [1, 3, 7] as EditionDayRange[]) {
+      for (const key of RANGES) {
         const payload = payloads[key]
         if (payload?.edition) next[key] = payload.edition
         else if (payload && !payload.cached) delete next[key]
@@ -130,7 +181,7 @@ export function EditionProvider({
     })
     setCacheInfos(prev => {
       const next = { ...prev }
-      for (const key of [1, 3, 7] as EditionDayRange[]) {
+      for (const key of RANGES) {
         const payload = payloads[key]
         if (payload) next[key] = payload.cacheInfo
       }
@@ -138,7 +189,7 @@ export function EditionProvider({
     })
     setLegacyFlags(prev => {
       const next = { ...prev }
-      for (const key of [1, 3, 7] as EditionDayRange[]) {
+      for (const key of RANGES) {
         const payload = payloads[key]
         if (payload) next[key] = payload.legacy
       }
@@ -150,7 +201,7 @@ export function EditionProvider({
     date: string,
     payloads: Partial<Record<EditionDayRange, EditionApiPayload>>
   ) => {
-    const hasHydratableEdition = ([1, 3, 7] as EditionDayRange[]).some(key => {
+    const hasHydratableEdition = RANGES.some(key => {
       const payload = payloads[key]
       return Boolean(payload?.edition && !payload.legacy)
     })
@@ -166,7 +217,7 @@ export function EditionProvider({
 
       setEditions(prev => {
         const next = { ...prev }
-        for (const key of [1, 3, 7] as EditionDayRange[]) {
+        for (const key of RANGES) {
           const edition = next[key]
           const loadedPayload = payloads[key]
           if (edition && loadedPayload?.edition && !loadedPayload.legacy) {
@@ -180,17 +231,25 @@ export function EditionProvider({
     }
   }, [])
 
-  /** Loads all three ranges for a date in one round-trip. */
-  const loadDate = useCallback(async (date: string): Promise<EditionApiResponse | null> => {
+  /**
+   * Loads all three ranges for a date (or the newest cached paper) in one
+   * round-trip. Independent of dayRange on purpose: range switches must
+   * never hit the network.
+   */
+  const loadDate = useCallback(async (dateOrLatest: string): Promise<EditionApiResponse | null> => {
     try {
-      const response = await fetch(`/newspaper/api/edition?date=${date}&range=${dayRange}&all=1`, { cache: 'no-store' })
+      const response = await fetch(`/newspaper/api/edition?date=${dateOrLatest}&range=1&all=1`, { cache: 'no-store' })
       if (!response.ok && response.status !== 404) {
         throw new Error(`Edition read failed (${response.status})`)
       }
       const payload: EditionApiResponse = await response.json()
-      if (payload.editions) {
+      const resolved = payload.date ?? (dateOrLatest === LATEST_EDITION ? null : dateOrLatest)
+
+      loadedDateRef.current = resolved
+      setLoadedDate(resolved)
+      if (payload.editions && resolved) {
         applyPayloads(payload.editions)
-        void hydrateDeterministicData(date, payload.editions)
+        void hydrateDeterministicData(resolved, payload.editions)
       }
       setFreshnessReason(payload.freshness?.reason ?? null)
       return payload
@@ -199,48 +258,90 @@ export function EditionProvider({
       setError(err instanceof Error ? err.message : 'Laden fehlgeschlagen')
       return null
     }
-  }, [applyPayloads, dayRange, hydrateDeterministicData])
+  }, [applyPayloads, hydrateDeterministicData])
 
   /**
-   * Polls the read API after a stream until rows from a NEWER generation
-   * than `previous` appear (the freshly persisted ones), then accepts them.
+   * Polls the read API until rows from a NEWER generation than `previous`
+   * appear (the freshly persisted ones), then accepts them. With
+   * `followLock` the poll also gives up once the server lock is released
+   * without a newer row (the run failed) instead of waiting out the clock.
    */
   const reloadNewerThan = useCallback(async (
     date: string,
-    previous: { generationId: string | null; updatedAt: string | null }
+    previous: { generationId: string | null; updatedAt: string | null },
+    options: PollOptions = AFTER_STREAM_POLL
   ) => {
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const response = await fetch(`/newspaper/api/edition?date=${date}&range=${dayRange}&all=1`, { cache: 'no-store' })
-      if (response.ok) {
-        const payload: EditionApiResponse = await response.json()
-        const active = payload.editions?.[dayRange]
-        if (
-          active?.cacheInfo &&
-          shouldAcceptIncomingEdition(previous, {
-            generationId: active.cacheInfo.generationId,
-            updatedAt: active.cacheInfo.updatedAt
-          }) &&
-          active.cacheInfo.generationId !== previous.generationId
-        ) {
-          if (payload.editions) applyPayloads(payload.editions)
-          setFreshnessReason(payload.freshness?.reason ?? null)
-          return true
-        }
-      }
-      await new Promise(resolve => setTimeout(resolve, 1500 + attempt * 500))
-    }
-    console.warn('[EDITION-PROVIDER] No newer generation appeared after stream; keeping current state')
-    return false
-  }, [applyPayloads, dayRange])
+    let lockSeen = false
+    for (let attempt = 0; attempt < options.attempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, options.delayMs + (options.followLock ? 0 : attempt * 500)))
+      if (loadedDateRef.current !== date) return false
 
-  /** Fires the mega generation and streams the active edition live. */
+      const response = await fetch(`/newspaper/api/edition?date=${date}&range=1&all=1`, { cache: 'no-store' })
+      if (!response.ok && response.status !== 404) continue
+
+      const payload: EditionApiResponse = await response.json()
+      const active = representative(payload)
+      if (
+        active?.cacheInfo &&
+        shouldAcceptIncomingEdition(previous, {
+          generationId: active.cacheInfo.generationId,
+          updatedAt: active.cacheInfo.updatedAt
+        }) &&
+        active.cacheInfo.generationId !== previous.generationId
+      ) {
+        if (payload.editions) {
+          applyPayloads(payload.editions)
+          void hydrateDeterministicData(date, payload.editions)
+        }
+        setFreshnessReason(payload.freshness?.reason ?? null)
+        return true
+      }
+
+      if (options.followLock) {
+        if (payload.lockActive) lockSeen = true
+        // Lock released (or never observed after a few tries) and still no
+        // newer row: the print run is over without output. Stop waiting.
+        else if (lockSeen || attempt >= 2) break
+      }
+    }
+    console.warn('[EDITION-PROVIDER] No newer generation appeared; keeping current state')
+    return false
+  }, [applyPayloads, hydrateDeterministicData])
+
+  /** Fires the mega generation: live stream or quiet background print. */
   const generate = useCallback(async () => {
-    const date = selectedDate
-    if (!date || isStreaming) return
+    const date = activeDate
+    if (!date || isStreaming || isPrinting) return
 
     const previous = {
-      generationId: cacheInfos[dayRange]?.generationId ?? null,
-      updatedAt: cacheInfos[dayRange]?.updatedAt ?? null
+      generationId: cacheInfos[1]?.generationId ?? cacheInfos[dayRange]?.generationId ?? null,
+      updatedAt: cacheInfos[1]?.updatedAt ?? cacheInfos[dayRange]?.updatedAt ?? null
+    }
+
+    setError(null)
+
+    if (generationMode === 'background') {
+      setIsPrinting(true)
+      try {
+        const response = await fetch('/newspaper/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ anchorDate: date, mode: 'background' })
+        })
+        // 202 = our run was queued, 409 = someone else is printing already.
+        // Either way the lock is the queue: wait for whichever run finishes.
+        if (response.status !== 202 && response.status !== 409) {
+          const body = await response.json().catch(() => null)
+          throw new Error(body?.error ?? `Generierung fehlgeschlagen (${response.status})`)
+        }
+        await reloadNewerThan(date, previous, BACKGROUND_POLL)
+      } catch (err) {
+        console.error('[EDITION-PROVIDER] Background generation failed:', err)
+        setError(err instanceof Error ? err.message : 'Generierung fehlgeschlagen')
+      } finally {
+        setIsPrinting(false)
+      }
+      return
     }
 
     streamAbortRef.current?.abort()
@@ -249,19 +350,24 @@ export function EditionProvider({
 
     setIsStreaming(true)
     setStreamingObject(null)
-    setError(null)
 
     try {
       const response = await fetch('/newspaper/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anchorDate: date }),
+        body: JSON.stringify({ anchorDate: date, mode: 'stream' }),
         signal: abort.signal
       })
 
       if (response.status === 409) {
         // Another visitor/cron is already generating — poll for its result.
-        await reloadNewerThan(date, previous)
+        setIsStreaming(false)
+        setIsPrinting(true)
+        try {
+          await reloadNewerThan(date, previous, BACKGROUND_POLL)
+        } finally {
+          setIsPrinting(false)
+        }
         return
       }
       if (!response.ok || !response.body) {
@@ -294,7 +400,7 @@ export function EditionProvider({
       }
 
       // The server persists in its own time; only accept a NEWER row.
-      await reloadNewerThan(date, previous)
+      await reloadNewerThan(date, previous, AFTER_STREAM_POLL)
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return
       console.error('[EDITION-PROVIDER] Generation failed:', err)
@@ -305,24 +411,25 @@ export function EditionProvider({
         setStreamingObject(null)
       }
     }
-  }, [selectedDate, isStreaming, cacheInfos, dayRange, reloadNewerThan])
+  }, [activeDate, isStreaming, isPrinting, cacheInfos, dayRange, generationMode, reloadNewerThan])
 
   generateRef.current = generate
 
-  /** Initial load + noon-rule auto regeneration. */
+  /** Initial load + noon-rule auto regeneration. Runs once per selected date. */
   useEffect(() => {
     if (!selectedDate) return
+    // The `latest` load already resolved to this date: nothing to do. This
+    // is what keeps first paint at a single edition request.
+    if (selectedDate !== LATEST_EDITION && loadedDateRef.current === selectedDate) return
+
     let cancelled = false
 
     const run = async () => {
-      const isNewDate = loadedDateRef.current !== selectedDate
-      if (isNewDate) {
-        loadedDateRef.current = selectedDate
-        setEditions({})
-        setCacheInfos({})
-        setLegacyFlags({})
-        setIsLoading(true)
-      }
+      loadedDateRef.current = selectedDate
+      setEditions({})
+      setCacheInfos({})
+      setLegacyFlags({})
+      setIsLoading(true)
 
       const payload = await loadDate(selectedDate)
       if (cancelled) return
@@ -330,19 +437,36 @@ export function EditionProvider({
 
       if (!payload) return
 
-      const active = payload.editions?.[dayRange]
-      const isToday = payload.today === selectedDate
+      const today = payload.today ?? null
+      const resolved = payload.date ?? (selectedDate === LATEST_EDITION ? null : selectedDate)
+
+      if (selectedDate === LATEST_EDITION) {
+        if (today) onDateResolvedRef.current?.(resolved, today)
+        // A newest paper that is not today's means a new Berlin day started.
+        // The page will select today and this effect prints it; do not
+        // regenerate the archived paper we just showed.
+        if (!resolved || resolved !== today) return
+      }
+
+      if (!resolved) return
+      const active = representative(payload)
+      const isToday = today === resolved
       const needsGeneration = isToday && (!active?.cached || active.freshness?.isFresh === false || active.legacy)
 
-      if (needsGeneration && !payload.lockActive && autoGenerateTriggeredRef.current !== selectedDate) {
-        autoGenerateTriggeredRef.current = selectedDate
+      if (needsGeneration && !payload.lockActive && autoGenerateTriggeredRef.current !== resolved) {
+        autoGenerateTriggeredRef.current = resolved
         void generateRef.current()
       } else if (needsGeneration && payload.lockActive) {
-        // Someone else is generating; pick up their result when it lands.
-        void reloadNewerThan(selectedDate, {
-          generationId: active?.cacheInfo?.generationId ?? null,
-          updatedAt: active?.cacheInfo?.updatedAt ?? null
-        })
+        // Someone else (cron, another reader) is printing; pick up their result.
+        setIsPrinting(true)
+        try {
+          await reloadNewerThan(resolved, {
+            generationId: active?.cacheInfo?.generationId ?? null,
+            updatedAt: active?.cacheInfo?.updatedAt ?? null
+          }, BACKGROUND_POLL)
+        } finally {
+          if (!cancelled) setIsPrinting(false)
+        }
       }
     }
 
@@ -350,11 +474,11 @@ export function EditionProvider({
     return () => {
       cancelled = true
     }
-  }, [selectedDate, dayRange, loadDate, reloadNewerThan])
+  }, [selectedDate, loadDate, reloadNewerThan])
 
   /** Widget single-mode refresh — patches state from the route response. */
   const refreshWidget = useCallback(async (widgetId: EditionWidgetId) => {
-    const date = selectedDate
+    const date = activeDate
     if (!date || refreshingWidget) return
     setRefreshingWidget(widgetId)
     setError(null)
@@ -378,22 +502,25 @@ export function EditionProvider({
     } finally {
       setRefreshingWidget(null)
     }
-  }, [selectedDate, dayRange, refreshingWidget, loadDate])
+  }, [activeDate, dayRange, refreshingWidget, loadDate])
 
   const state = useMemo<EditionState>(() => ({
     edition: editions[dayRange] ?? null,
     editions,
+    date: loadedDate,
     cacheInfo: cacheInfos[dayRange] ?? null,
     freshnessReason,
     isLegacy: legacyFlags[dayRange] ?? false,
     isLoading,
     isStreaming,
+    isPrinting,
     streamingObject,
     refreshingWidget,
     error,
+    generationMode,
     generate,
     refreshWidget
-  }), [editions, cacheInfos, freshnessReason, legacyFlags, dayRange, isLoading, isStreaming, streamingObject, refreshingWidget, error, generate, refreshWidget])
+  }), [editions, loadedDate, cacheInfos, freshnessReason, legacyFlags, dayRange, isLoading, isStreaming, isPrinting, streamingObject, refreshingWidget, error, generationMode, generate, refreshWidget])
 
   return <EditionContext.Provider value={state}>{children(state)}</EditionContext.Provider>
 }
