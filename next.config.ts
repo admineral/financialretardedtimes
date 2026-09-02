@@ -2,6 +2,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  async redirects() {
+    // Short URLs for the newspaper side tools.
+    return [
+      { source: '/export', destination: '/newspaper/export', permanent: false },
+      { source: '/people', destination: '/newspaper/people', permanent: false },
+    ]
+  },
   cacheLife: {
     // Custom profile for OpenClaw - 24 hour revalidation
     daily: {

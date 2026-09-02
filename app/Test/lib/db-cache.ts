@@ -504,6 +504,12 @@ export interface DBActivityMessage {
   text: string
   time: string
   avatar?: string
+  permalink?: string
+  quotes?: Array<{ username: string; content: string }>
+  mentions?: string[]
+  ideaUrls?: string[]
+  chartUrls?: string[]
+  externalUrls?: string[]
 }
 
 export interface DBActivityWithMessages {
@@ -573,6 +579,76 @@ export async function getCachedActivityForDates(
     })
   }
   
+  return result
+}
+
+/**
+ * Load every cached activity day for a user (no rolling 365-day window).
+ */
+export async function getAllCachedActivityForUser(
+  roomId: string,
+  username: string
+): Promise<Map<string, DBActivityWithMessages>> {
+  const supabase = await createClient()
+  const page = 1000
+  const activityRows: Array<{
+    room_id: string
+    username: string
+    date: string
+    message_count: number
+    fetched_at?: string
+    updated_at?: string
+  }> = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('tv_user_activity_daily')
+      .select('*')
+      .eq('room_id', roomId)
+      .eq('username', username)
+      .order('date', { ascending: true })
+      .range(offset, offset + page - 1)
+    if (error) {
+      log.error('Error getting all cached activity', error)
+      return new Map()
+    }
+    if (!data?.length) break
+    activityRows.push(...data)
+    if (data.length < page) break
+    offset += page
+  }
+
+  const messageRows: Array<{ date: string; messages: DBActivityMessage[] }> = []
+  offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('tv_user_activity_messages')
+      .select('date, messages')
+      .eq('room_id', roomId)
+      .eq('username', username)
+      .order('date', { ascending: true })
+      .range(offset, offset + page - 1)
+    if (error) break
+    if (!data?.length) break
+    messageRows.push(...data)
+    if (data.length < page) break
+    offset += page
+  }
+
+  const messagesMap = new Map<string, DBActivityMessage[]>()
+  for (const row of messageRows) messagesMap.set(row.date, row.messages || [])
+
+  const result = new Map<string, DBActivityWithMessages>()
+  for (const activity of activityRows) {
+    result.set(activity.date, {
+      room_id: activity.room_id,
+      username: activity.username,
+      date: activity.date,
+      message_count: activity.message_count,
+      messages: messagesMap.get(activity.date) || [],
+      fetched_at: activity.fetched_at || activity.updated_at || ''
+    })
+  }
   return result
 }
 

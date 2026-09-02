@@ -1,6 +1,7 @@
 import {
 cacheActivityData,
 DBActivityMessage,
+getAllCachedActivityForUser,
 getCachedActivityForDates,
 getMissingActivityDates,
 isActivityStale
@@ -8,6 +9,7 @@ isActivityStale
 import * as cheerio from 'cheerio'
 import { format,subDays } from 'date-fns'
 import { NextRequest,NextResponse } from 'next/server'
+import { tvHistoryHeaders, tvHistoryUrl } from '@/lib/tv-history'
 
 // Progress bar helper for terminal logging
 function createProgressBar(current: number, total: number, width: number = 30): string {
@@ -20,7 +22,16 @@ function createProgressBar(current: number, total: number, width: number = 30): 
 
 // Helper function to generate URL for a specific page
 function generatePageUrl(room: string, date: string, username: string, pageIndex: number = 1): string {
-  return `https://de.tradingview.com/chat/history/?room=${room}&date=${date}&timefrom=00%3A00&timeto=00%3A00&usernames=${username}&order=asc&tzoffset=-120&msgid=&pageindex=${pageIndex}`
+  return tvHistoryUrl(room, date, username, pageIndex)
+}
+
+function pageHeaders(room: string) {
+  return {
+    ...tvHistoryHeaders(room),
+    DNT: '1',
+    Connection: 'keep-alive',
+    'Upgrade-Insecure-Requests': '1'
+  }
 }
 
 // Helper function to parse messages from HTML
@@ -99,19 +110,7 @@ function hasMessagesOnPage(html: string, username: string): boolean {
 
 // Helper function to discover all pages by checking sequentially (simplified for activity tracker)
 async function discoverPagesForActivity(room: string, date: string, username: string, maxPages: number = 30): Promise<number> {
-  const fetchHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'DNT': '1',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Cache-Control': 'max-age=0'
-  }
+  const fetchHeaders = pageHeaders(room)
 
   let totalPages = 1
   let pageIndex = 2
@@ -149,19 +148,7 @@ async function discoverPagesForActivity(room: string, date: string, username: st
 async function fetchAllMessagesForDay(room: string, date: string, username: string): Promise<Array<{ id: string; text: string; time: string }>> {
   const allMessages: Array<{ id: string; text: string; time: string }> = []
   
-  const fetchHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'DNT': '1',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Cache-Control': 'max-age=0'
-  }
+  const fetchHeaders = pageHeaders(room)
 
   try {
     // Fetch first page
@@ -237,7 +224,7 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json()
-    const { room, username, days = 30, dates, forceRefresh = false, cacheOnly = false } = body
+    const { room, username, days = 30, dates, forceRefresh = false, cacheOnly = false, allCached = false } = body
 
     if (!room || !username) {
       return NextResponse.json(
@@ -266,16 +253,15 @@ export async function POST(request: NextRequest) {
 
     // CACHE-ONLY MODE: Return only cached data immediately (no TradingView fetch)
     if (cacheOnly) {
-      console.log(`📋 [CACHE-ONLY] ${username}: Returning cached data for ${datesToFetch.length} days`)
-      
       try {
-        const cached = await getCachedActivityForDates(room, username, datesToFetch)
+        const cached = allCached
+          ? await getAllCachedActivityForUser(room, username)
+          : await getCachedActivityForDates(room, username, datesToFetch)
         const activities: ActivityData[] = []
         let totalMessages = 0
-        
-        for (const date of datesToFetch) {
-          const cachedEntry = cached.get(date)
-          if (cachedEntry) {
+
+        if (allCached) {
+          for (const [date, cachedEntry] of cached) {
             activities.push({
               date,
               count: cachedEntry.message_count,
@@ -287,22 +273,36 @@ export async function POST(request: NextRequest) {
             })
             totalMessages += cachedEntry.message_count
           }
+        } else {
+          for (const date of datesToFetch) {
+            const cachedEntry = cached.get(date)
+            if (cachedEntry) {
+              activities.push({
+                date,
+                count: cachedEntry.message_count,
+                messages: cachedEntry.messages.map(m => ({
+                  ...m,
+                  avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
+                })),
+                fromCache: true
+              })
+              totalMessages += cachedEntry.message_count
+            }
+          }
         }
-        
-        // Sort by date (newest first)
+
         activities.sort((a, b) => b.date.localeCompare(a.date))
-        
-        console.log(`📋 [CACHE-ONLY] ${username}: Found ${activities.length} cached days with ${totalMessages} messages`)
-        
+
         return NextResponse.json({
           activities,
           room,
           username,
-          totalDays: datesToFetch.length,
+          totalDays: allCached ? activities.length : datesToFetch.length,
           totalMessages,
           cachedCount: activities.length,
           fetchedCount: 0,
-          cacheOnly: true
+          cacheOnly: true,
+          allCached
         })
       } catch (dbError) {
         console.warn('⚠️ [CACHE-ONLY] Database error:', dbError)

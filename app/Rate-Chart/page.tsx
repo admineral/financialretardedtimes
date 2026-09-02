@@ -8,6 +8,9 @@ import { ChatMessage } from '../Test/types'
 import PredictionMarket from './components/PredictionMarket'
 import CreditsDisplay from './components/CreditsDisplay'
 
+/** TradingView handle allowed to issue `//reset`; unset disables the command. */
+const RESET_MODERATOR = process.env.NEXT_PUBLIC_RATE_CHART_MODERATOR?.trim() || null
+
 interface PriceGuess {
   username: string
   avatar?: string
@@ -748,7 +751,8 @@ export default function RateChartPage() {
     return () => clearInterval(refreshInterval)
   }, [fetchBitcoinPrice, messages.length])
 
-  // Detect reset command from BigBangTheory
+  // Detect the game-master's //reset command. The moderator handle comes
+  // from the environment so no account name lives in the public repo.
   const resetTimestamp = useMemo<Date | null>(() => {
     if (!isMounted) return null
     
@@ -793,7 +797,7 @@ export default function RateChartPage() {
       const messageViennaTime = new Date(messageDate.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
       
       if (messageViennaTime >= gameDayStart && messageViennaTime < gameDayEnd) {
-        if (message.username === 'BigBangTheory' && message.text.includes('//reset')) {
+        if (RESET_MODERATOR && message.username === RESET_MODERATOR && message.text.includes('//reset')) {
           if (!reset || messageDate > reset) {
             reset = messageDate
           }
