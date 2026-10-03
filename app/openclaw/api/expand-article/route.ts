@@ -12,7 +12,7 @@
 import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { OpenClawExpandedArticleSchema } from '../../lib/schemas'
 import { CONFIG } from '../../lib/config'
 
@@ -217,15 +217,15 @@ Keep it factual and concise. Let the commits speak for themselves.`
     console.log(`[OPENCLAW EXPAND] 📝 Generating article for: "${theme.title || theme}"`)
     console.log(`[OPENCLAW EXPAND]    Commits: ${commits.length}, Language: ${language}`)
     
-    const result = streamObject({
+    const result = streamText({
       model: openai(CONFIG.ai.model),
-      schema: OpenClawExpandedArticleSchema,
-      system: EXPAND_ARTICLE_PROMPT,
+      output: Output.object({ schema: OpenClawExpandedArticleSchema }),
+      instructions: EXPAND_ARTICLE_PROMPT,
       prompt,
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
+      providerOptions: { openai: { reasoningEffort: 'high' } },
     })
     
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     console.error('[OPENCLAW EXPAND API] Error:', error)

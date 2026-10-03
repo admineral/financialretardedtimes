@@ -8,7 +8,7 @@
 import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { CONFIG, detectLanguage } from '../../lib/config'
 import { OpenClawIssuesNewspaperSchema } from '../../lib/schemas'
 import { getIssuesPrompts, type Language } from '../../lib/prompts'
@@ -18,6 +18,7 @@ import {
   calculateIssueStats,
   formatIssuesForPrompt,
 } from '../../actions/github'
+import { AI_MODEL } from '@/lib/ai/model'
 
 export const maxDuration = 120
 
@@ -80,15 +81,15 @@ export async function POST(request: NextRequest) {
     
     console.log(`[OPENCLAW-ISSUES] Generating analysis with AI...`)
     
-    const result = streamObject({
-      model: openai('gpt-5.4'),
-      schema: OpenClawIssuesNewspaperSchema,
-      system: prompts.system,
+    const result = streamText({
+      model: openai(AI_MODEL),
+      output: Output.object({ schema: OpenClawIssuesNewspaperSchema }),
+      instructions: prompts.system,
       prompt: prompts.generatePrompt(today, CONFIG.repo.fullName, formattedIssues),
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
+      providerOptions: { openai: { reasoningEffort: 'high' } },
     })
     
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     console.error('[OPENCLAW-ISSUES API] Error:', error)

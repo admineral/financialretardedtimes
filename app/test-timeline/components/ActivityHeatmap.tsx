@@ -11,7 +11,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Loader2, Flame } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Rectangle, type BarShapeProps } from 'recharts'
 
 // ═══════════════════════════════════════════════════════════════════════
 // TYPES
@@ -244,11 +244,10 @@ export function ActivityHeatmap({
                   dataKey="count" 
                   radius={[4, 4, 0, 0]}
                   maxBarSize={20}
-                >
-                  {buckets.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={getBarColor(entry.intensity)} />
-                  ))}
-                </Bar>
+                  shape={(props: BarShapeProps) => (
+                    <Rectangle {...props} fill={getBarColor(buckets[props.index].intensity)} />
+                  )}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>

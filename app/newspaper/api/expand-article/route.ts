@@ -30,9 +30,10 @@ import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { z } from 'zod'
 import { addDaysToDateKey, getNewspaperDayBounds } from '../../lib/timezone'
+import { AI_MODEL } from '@/lib/ai/model'
 
 /**
  * Schema for chart/image references
@@ -422,15 +423,15 @@ Erweitere die obige Zusammenfassung zu einem vollständigen Artikel.
     }
     
     // Stream AI response
-    const result = streamObject({
-      model: openai('gpt-5.4'),
-      schema: ExpandedArticleSchema,
-      system: EXPAND_ARTICLE_PROMPT,
+    const result = streamText({
+      model: openai(AI_MODEL),
+      output: Output.object({ schema: ExpandedArticleSchema }),
+      instructions: EXPAND_ARTICLE_PROMPT,
       prompt: articleContext,
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
+      providerOptions: { openai: { reasoningEffort: 'high' } },
     })
     
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     console.error('[EXPAND-ARTICLE API] Error:', error)

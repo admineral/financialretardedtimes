@@ -17,8 +17,9 @@ import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { z } from 'zod'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
@@ -429,23 +430,22 @@ ${chatContext}`
     
     console.log(`[TIMELINE-AI] 🤖 Generating for ${mode} (streaming: ${wantsStream})...`)
     
-    // Use streamObject for real-time event streaming
-    const result = streamObject({
-      model: openai('gpt-5.4'),
-      schema: TimelineResponseSchema,
-      system: TIMELINE_PROMPT,
+    // Use streamText with structured output for real-time event streaming
+    const result = streamText({
+      model: openai(AI_MODEL),
+      output: Output.object({ schema: TimelineResponseSchema }),
+      instructions: TIMELINE_PROMPT,
       prompt: aiPrompt,
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
-      temperature: 0.7,
-      onFinish: async ({ object }) => {
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+      onEnd: async ({ output }) => {
         // Save to cache when stream completes
-        if (object && object.events && object.events.length > 0) {
-          console.log(`[TIMELINE-AI] ✅ Stream complete: ${object.events.length} events`)
+        if (output && output.events && output.events.length > 0) {
+          console.log(`[TIMELINE-AI] ✅ Stream complete: ${output.events.length} events`)
           try {
             const cacheData = {
               cache_key: `timeline-${mode}`,
-              events: object.events,
-              event_count: object.events.length,
+              events: output.events,
+              event_count: output.events.length,
               date_range_start: startDate.toISOString().split('T')[0],
               date_range_end: endDate.toISOString().split('T')[0],
               updated_at: new Date().toISOString(),
@@ -453,9 +453,9 @@ ${chatContext}`
                 mode,
                 messageCount: allMessages.length,
                 uniqueUsers,
-                summary: object.summary,
-                activityLevel: object.activityLevel,
-                dominantSentiment: object.dominantSentiment
+                summary: output.summary,
+                activityLevel: output.activityLevel,
+                dominantSentiment: output.dominantSentiment
               }
             }
             
@@ -463,7 +463,7 @@ ${chatContext}`
               .from('chat_timeline_cache')
               .upsert(cacheData, { onConflict: 'cache_key' })
             
-            console.log(`[TIMELINE-AI] 💾 Cached ${object.events.length} events for ${mode}`)
+            console.log(`[TIMELINE-AI] 💾 Cached ${output.events.length} events for ${mode}`)
           } catch (cacheError) {
             console.error(`[TIMELINE-AI] ⚠️ Cache error:`, cacheError)
           }
@@ -472,7 +472,7 @@ ${chatContext}`
     })
     
     // Return streaming response
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     console.error('[TIMELINE-AI] Error:', error)

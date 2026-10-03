@@ -12,7 +12,7 @@
  *    (with resolved chat excerpts) — reload it.
  */
 
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MonthlyIssueAISchema,

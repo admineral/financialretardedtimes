@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { openai } from '@ai-sdk/openai'
-import { generateObject } from 'ai'
+import { generateText, Output } from 'ai'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { writeFearGreedCache, writeTickerCache, writeTimelineCache } from '../../../lib/cache-writers'
@@ -124,11 +124,11 @@ export async function POST(
 
     console.log('[EDITION-WIDGET] Refreshing widget', { widgetId, date, dayRange, promptChars: prompt.length })
 
-    const { object } = await generateObject({
+    const { output } = await generateText({
       model: openai(EDITION_MODEL),
-      schema: WIDGET_SCHEMAS[widgetId] as z.ZodType,
-      system: EDITION_SYSTEM_PROMPT,
-      providerOptions: { openai: { reasoning: { effort: 'medium' } } },
+      output: Output.object({ schema: WIDGET_SCHEMAS[widgetId] as z.ZodType }),
+      instructions: EDITION_SYSTEM_PROMPT,
+      providerOptions: { openai: { reasoningEffort: 'medium' } },
       prompt
     })
 
@@ -144,7 +144,7 @@ export async function POST(
     }
 
     if (widgetId === 'ticker') {
-      const parsed = TickerWidgetSchema.parse(object)
+      const parsed = TickerWidgetSchema.parse(output)
       await applyPatch(dayRange, edition => ({
         ...edition,
         content: {
@@ -167,7 +167,7 @@ export async function POST(
         )
       }
     } else if (widgetId === 'timeline') {
-      const parsed = TimelineWidgetSchema.parse(object)
+      const parsed = TimelineWidgetSchema.parse(output)
       await applyPatch(dayRange, edition => ({
         ...edition,
         content: {
@@ -203,7 +203,7 @@ export async function POST(
         )
       }
     } else if (widgetId === 'fearGreed') {
-      const parsed = FearGreedWidgetSchema.parse(object)
+      const parsed = FearGreedWidgetSchema.parse(output)
       const dateRange = {
         oldestDate: inputs.dateKeys[0],
         newestDate: date,
@@ -228,7 +228,7 @@ export async function POST(
         )
       }
     } else {
-      const parsed = LeaderboardWidgetSchema.parse(object)
+      const parsed = LeaderboardWidgetSchema.parse(output)
       for (const range of EDITION_DAY_RANGES) {
         await applyPatch(range, edition => ({
           ...edition,

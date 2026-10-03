@@ -20,13 +20,14 @@ import {
   DailyTickerEventSchema,
   DailyTimelineEventSchema
 } from '../lib/types'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // ═══════════════════════════════════════════════════════════════════════
 // Constants
 // ═══════════════════════════════════════════════════════════════════════
 
 export const EDITION_FORMAT_VERSION = '2026-07-07.edition-v3'
-export const EDITION_MODEL = 'gpt-5.4'
+export const EDITION_MODEL = AI_MODEL
 /** Raw chat window fed to the mega generation (Berlin days). */
 export const EDITION_WINDOW_DAYS = 14
 export const EDITION_DAY_RANGES = [1, 3, 7] as const

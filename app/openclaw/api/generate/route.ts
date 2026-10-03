@@ -8,7 +8,7 @@
 import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { CONFIG, detectLanguage } from '../../lib/config'
 import { isGitHubRateLimitError } from '../../lib/github-api'
 import { OpenClawNewspaperSchema } from '../../lib/schemas'
@@ -245,23 +245,23 @@ export async function POST(request: NextRequest) {
         promptCharacters: promptText.length,
       })
       
-      const result = streamObject({
+      const result = streamText({
         model: openai(CONFIG.ai.model),
-        schema: OpenClawNewspaperSchema,
-        system: prompts.system,
+        output: Output.object({ schema: OpenClawNewspaperSchema }),
+        instructions: prompts.system,
         prompt: promptText,
-        providerOptions: { openai: { reasoning: { effort: 'high' } } },
-        async onFinish({ object }) {
-          if (object) {
+        providerOptions: { openai: { reasoningEffort: 'high' } },
+        async onEnd({ output }) {
+          if (output) {
             logAttempt(attemptId, 'AI stream finished; saving generated newspaper to cache', {
               durationMs: Date.now() - startedAt,
-              headline: typeof object.headline === 'string' ? object.headline : null,
+              headline: typeof output.headline === 'string' ? output.headline : null,
               cacheDate,
             }, true)
             logAttempt(attemptId, 'AI stream finished; saving cache')
             await saveNewspaperToCache(
               cacheDate, dayRange, language, 
-              object as Record<string, unknown>,
+              output as Record<string, unknown>,
               githubCommits.length, uniqueContributors
             )
             logAttempt(attemptId, 'Saved generated newspaper to cache', {
@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
         },
       })
       
-      return result.toTextStreamResponse()
+      return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     }
     
     // Use cached commits
@@ -315,23 +315,23 @@ export async function POST(request: NextRequest) {
       promptCharacters: promptText.length,
     })
     
-    const result = streamObject({
+    const result = streamText({
       model: openai(CONFIG.ai.model),
-      schema: OpenClawNewspaperSchema,
-      system: prompts.system,
+      output: Output.object({ schema: OpenClawNewspaperSchema }),
+      instructions: prompts.system,
       prompt: promptText,
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
-      async onFinish({ object }) {
-        if (object) {
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+      async onEnd({ output }) {
+        if (output) {
           logAttempt(attemptId, 'AI stream finished; saving generated newspaper to cache', {
             durationMs: Date.now() - startedAt,
-            headline: typeof object.headline === 'string' ? object.headline : null,
+            headline: typeof output.headline === 'string' ? output.headline : null,
             cacheDate,
           }, true)
           logAttempt(attemptId, 'AI stream finished; saving cache')
           await saveNewspaperToCache(
             cacheDate, dayRange, language,
-            object as Record<string, unknown>,
+            output as Record<string, unknown>,
             commits.length, uniqueContributors
           )
           logAttempt(attemptId, 'Saved generated newspaper to cache', {
@@ -341,7 +341,7 @@ export async function POST(request: NextRequest) {
       },
     })
     
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     if (isGitHubRateLimitError(error)) {

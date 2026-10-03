@@ -5,6 +5,7 @@
  * (ensures stage-1 digests exist, builds the global context, one generation).
  */
 
+import { createTextStreamResponse, toTextStream } from 'ai'
 import { connection } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createV2Stream } from '../../lib/generate'
@@ -23,7 +24,7 @@ export async function POST() {
   try {
     const supabase = await createClient()
     const { result } = await createV2Stream({ supabase })
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
   } catch (error) {
     console.error('[V2 GENERATE] Error:', error)
     return new Response(

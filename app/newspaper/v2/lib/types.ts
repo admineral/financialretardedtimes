@@ -16,6 +16,7 @@
 
 import { z } from 'zod'
 import { LeaderboardEntrySchema, LeaderboardResponseSchema } from '@/app/chart-leader/lib/schema'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // OpenAI strict structured outputs require every key to be present, so the
 // v2 leaderboard variant replaces `.optional()` with `.nullable()`.
@@ -332,6 +333,6 @@ export interface V2Issue {
 
 export const V2_ISSUE_VERSION = '2026-07-06.v2-monthly-1'
 export const V2_ISSUE_TTL_SECONDS = 24 * 60 * 60
-export const V2_MODEL = 'gpt-5.4'
+export const V2_MODEL = AI_MODEL
 export const V2_DAYS = 30
 export const V2_RAW_DAYS = 3

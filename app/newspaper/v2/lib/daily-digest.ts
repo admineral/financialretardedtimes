@@ -8,7 +8,7 @@
  */
 
 import { openai } from '@ai-sdk/openai'
-import { generateObject } from 'ai'
+import { generateText, Output } from 'ai'
 import type { createClient } from '@/lib/supabase/server'
 import {
   addDaysToDateKey,
@@ -270,15 +270,15 @@ export async function generateDailyDigest(
     }
   } else {
     const prompt = buildDigestPrompt({ dateKey, messages, btc })
-    const { object } = await generateObject({
+    const { output } = await generateText({
       model: openai(V2_MODEL),
-      schema: DigestAISchema,
-      providerOptions: { openai: { reasoning: { effort: 'low' } } },
+      output: Output.object({ schema: DigestAISchema }),
+      providerOptions: { openai: { reasoningEffort: 'low' } },
       prompt
     })
 
     digestData = {
-      ai: object,
+      ai: output,
       stats: { messageCount: messages.length, uniqueUsers },
       btc
     }

@@ -9,7 +9,7 @@
  */
 
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -20,6 +20,7 @@ import {
   LEADERBOARD_SYSTEM_PROMPT
 } from '../../lib/analysis'
 import { LeaderboardResponseSchema } from '../../lib/schema'
+import { AI_MODEL } from '@/lib/ai/model'
 
 const CACHE_KEY = 'leaderboard_7d'
 const DAYS_BACK = 7
@@ -90,20 +91,20 @@ export async function POST() {
     daysBack: DAYS_BACK
   })
 
-  const result = streamObject({
-    model: openai('gpt-5.4'),
-    schema: LeaderboardResponseSchema,
-    system: LEADERBOARD_SYSTEM_PROMPT,
-    providerOptions: { openai: { reasoning: { effort: 'high' } } },
+  const result = streamText({
+    model: openai(AI_MODEL),
+    output: Output.object({ schema: LeaderboardResponseSchema }),
+    instructions: LEADERBOARD_SYSTEM_PROMPT,
+    providerOptions: { openai: { reasoningEffort: 'high' } },
     prompt,
-    onFinish: async ({ object }) => {
-      if (!object) return
+    onEnd: async ({ output }) => {
+      if (!output) return
       try {
         await supabase.from('leaderboard_analysis_cache').upsert(
           {
             cache_key: CACHE_KEY,
-            data: object,
-            entry_count: object.leaderboard?.length ?? 0,
+            data: output,
+            entry_count: output.leaderboard?.length ?? 0,
             message_count: messages.length,
             updated_at: new Date().toISOString()
           },
@@ -115,5 +116,5 @@ export async function POST() {
     }
   })
 
-  return result.toTextStreamResponse()
+  return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
 }

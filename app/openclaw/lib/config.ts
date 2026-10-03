@@ -6,6 +6,7 @@
  */
 
 import type { Language } from './prompts'
+import { AI_MODEL } from '@/lib/ai/model'
 export type { Language }
 
 export const CONFIG = {
@@ -32,7 +33,7 @@ export const CONFIG = {
   
   // AI settings
   ai: {
-    model: 'gpt-5.4' as const,
+    model: AI_MODEL,
   },
   
   // Cache settings (in seconds)

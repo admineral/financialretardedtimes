@@ -26,9 +26,10 @@ import { NextRequest } from 'next/server'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { z } from 'zod'
 import { pruneFearGreedHistoryForDate } from '@/app/newspaper/lib/cache-writers'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
@@ -516,11 +517,11 @@ export async function POST(request: NextRequest) {
     }
     
     // Stream AI response using GPT-5.2
-    const result = streamObject({
-      model: openai('gpt-5.4'),
-      schema: FearGreedSchema,
-      system: FEAR_GREED_PROMPT,
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
+    const result = streamText({
+      model: openai(AI_MODEL),
+      output: Output.object({ schema: FearGreedSchema }),
+      instructions: FEAR_GREED_PROMPT,
+      providerOptions: { openai: { reasoningEffort: 'high' } },
       prompt: `Analysiere den folgenden Chat und erstelle Fear & Greed Indices für alle drei Zeiträume.
 
 HEUTE ist der ${todayStr}
@@ -534,9 +535,9 @@ Nachrichten-Statistik:
 Chat-Protokoll (chronologisch, älteste zuerst):
 
 ${formattedChat}`,
-      onFinish: async ({ object, error: finishError }) => {
-        if (object) {
-          console.log(`[FEAR-GREED] ✅ Analysis complete: Today=${object.today?.index}, 3d=${object.last3Days?.index}, 7d=${object.last7Days?.index}`)
+      onEnd: async ({ output }) => {
+        if (output) {
+          console.log(`[FEAR-GREED] ✅ Analysis complete: Today=${output.today?.index}, 3d=${output.last3Days?.index}, 7d=${output.last7Days?.index}`)
           
           // Auto-save to BOTH cache (for fast retrieval) AND history (for tracking over time)
           try {
@@ -548,21 +549,21 @@ ${formattedChat}`,
               .from('fear_greed_cache')
               .upsert({
                 cache_date: cacheDate,
-                today_index: object.today.index,
-                today_classification: object.today.classification,
-                today_classification_de: object.today.classificationDE,
-                last_3_days_index: object.last3Days.index,
-                last_3_days_classification: object.last3Days.classification,
-                last_3_days_classification_de: object.last3Days.classificationDE,
-                last_7_days_index: object.last7Days.index,
-                last_7_days_classification: object.last7Days.classification,
-                last_7_days_classification_de: object.last7Days.classificationDE,
-                trend: object.trend,
-                insight: object.insight,
-                top_drivers: object.topDrivers,
+                today_index: output.today.index,
+                today_classification: output.today.classification,
+                today_classification_de: output.today.classificationDE,
+                last_3_days_index: output.last3Days.index,
+                last_3_days_classification: output.last3Days.classification,
+                last_3_days_classification_de: output.last3Days.classificationDE,
+                last_7_days_index: output.last7Days.index,
+                last_7_days_classification: output.last7Days.classification,
+                last_7_days_classification_de: output.last7Days.classificationDE,
+                trend: output.trend,
+                insight: output.insight,
+                top_drivers: output.topDrivers,
                 full_data: {
-                  insight: object.insight,
-                  topDrivers: object.topDrivers,
+                  insight: output.insight,
+                  topDrivers: output.topDrivers,
                   dateRange: dateRangeInfo
                 },
                 message_count: allMessages.length,
@@ -577,18 +578,18 @@ ${formattedChat}`,
               .from('fear_greed_history')
               .insert({
                 analysis_date: cacheDate,
-                today_index: object.today.index,
-                today_classification: object.today.classification,
-                today_classification_de: object.today.classificationDE,
-                last_3_days_index: object.last3Days.index,
-                last_3_days_classification: object.last3Days.classification,
-                last_3_days_classification_de: object.last3Days.classificationDE,
-                last_7_days_index: object.last7Days.index,
-                last_7_days_classification: object.last7Days.classification,
-                last_7_days_classification_de: object.last7Days.classificationDE,
-                trend: object.trend,
-                insight: object.insight,
-                top_drivers: object.topDrivers,
+                today_index: output.today.index,
+                today_classification: output.today.classification,
+                today_classification_de: output.today.classificationDE,
+                last_3_days_index: output.last3Days.index,
+                last_3_days_classification: output.last3Days.classification,
+                last_3_days_classification_de: output.last3Days.classificationDE,
+                last_7_days_index: output.last7Days.index,
+                last_7_days_classification: output.last7Days.classification,
+                last_7_days_classification_de: output.last7Days.classificationDE,
+                trend: output.trend,
+                insight: output.insight,
+                top_drivers: output.topDrivers,
                 message_count: allMessages.length,
                 unique_users: uniqueUsers,
                 oldest_message_date: dateRangeInfo.oldestDate,
@@ -613,16 +614,16 @@ ${formattedChat}`,
           } catch (saveError) {
             console.error(`[FEAR-GREED] ⚠️ Failed to save:`, saveError)
           }
-        } else if (finishError) {
-          console.error(`[FEAR-GREED] ❌ Schema error:`, String(finishError))
+        } else {
+          console.error(`[FEAR-GREED] ❌ Schema error: no valid output (schema validation failed)`)
         }
       },
-      onError: (error) => {
+      onError: ({ error }) => {
         console.error('[FEAR-GREED] ❌ Stream error:', error)
       }
     })
     
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     console.error('[FEAR-GREED API] Error:', error)

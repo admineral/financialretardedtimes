@@ -7,9 +7,9 @@
  * mode the route answers 202 immediately and finishes the print run in
  * after(); clients poll GET /newspaper/api/edition until lockActive clears.
  *
- * Persistence guarantee: streamObject's streams are single-consumer, so
+ * Persistence guarantee: streamText's streams are single-consumer, so
  * this route drains the AI text stream itself and forwards chunks to the
- * client. If the client disconnects, the server keeps draining, onFinish
+ * client. If the client disconnects, the server keeps draining, onEnd
  * still fires, and all three edition rows are written. `after()` keeps
  * the serverless function alive until persistence settles and surfaces
  * any write error in the logs. A single-flight lock
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       // and let the client poll the read API until the lock clears.
       after(async () => {
         try {
-          // Drain only: onFinish persists all three rows.
+          // Drain only: onEnd persists all three rows.
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           for await (const _delta of handle.result.textStream) { /* drain */ }
           await handle.persisted
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     // Forward the AI stream to the client while draining it server-side:
     // the drain loop below is the single consumer of the AI stream, so it
-    // completes (and onFinish persists) even if the client disconnects.
+    // completes (and onEnd persists) even if the client disconnects.
     const encoder = new TextEncoder()
     // start() runs synchronously during construction, so the definite
     // assignment is safe.

@@ -28,7 +28,7 @@
 import React, { useEffect, useRef, use, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import { ArrowLeft, Clock, Users, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, Quote, ImageIcon, ImageOff, ExternalLink } from 'lucide-react'
 import { ThemeSwitcher } from '@/components/theme-switcher'

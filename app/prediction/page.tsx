@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { PredictionCard, PredictionCardSkeleton, type Prediction } from './components'
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 
 // Schema must match API

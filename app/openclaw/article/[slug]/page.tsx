@@ -21,7 +21,7 @@
 import React, { useEffect, useRef, useState, use, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { 
   ArrowLeft, 
   Clock, 

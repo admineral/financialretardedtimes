@@ -93,7 +93,7 @@ export default function GitHistoryPage() {
     }
   }, [repoUrl])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.SubmitEvent) => {
     e.preventDefault()
     fetchCommits(1)
   }

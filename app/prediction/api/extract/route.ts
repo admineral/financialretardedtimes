@@ -11,8 +11,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { z } from 'zod'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCHEMAS
@@ -274,11 +275,11 @@ export async function POST() {
     })
     .join('\n')
 
-  const result = streamObject({
-    model: openai('gpt-5.4'),
-    schema: ExtractResponseSchema,
-    system: EXTRACTION_PROMPT,
-    providerOptions: { openai: { reasoning: { effort: 'high' } } },
+  const result = streamText({
+    model: openai(AI_MODEL),
+    output: Output.object({ schema: ExtractResponseSchema }),
+    instructions: EXTRACTION_PROMPT,
+    providerOptions: { openai: { reasoningEffort: 'high' } },
     prompt: `Aktueller BTC Preis: $${currentPrice.toLocaleString()}
 Heutiges Datum: ${endDate.toISOString().split('T')[0]}
 Zeitraum: ${startDate.toISOString().split('T')[0]} bis ${endDate.toISOString().split('T')[0]}
@@ -292,25 +293,25 @@ Extrahiere zeitbasierte Preis-Vorhersagen aus diesem Chat:
 ${chatContext}
 
 Finde 15-25 konkrete Vorhersagen mit Zeitzielen, verteilt über die gesamte Woche.`,
-    onFinish: async ({ object }) => {
-      if (!object) return
+    onEnd: async ({ output }) => {
+      if (!output) return
       try {
         await supabase.from('prediction_analysis_cache').upsert({
           cache_key: CACHE_KEY,
-          data: object,
-          prediction_count: object.predictions?.length ?? 0,
+          data: output,
+          prediction_count: output.predictions?.length ?? 0,
           message_count: messages.length,
           current_price: currentPrice,
           date_range_start: startDate.toISOString().split('T')[0],
           date_range_end: endDate.toISOString().split('T')[0],
           updated_at: new Date().toISOString(),
         }, { onConflict: 'cache_key' })
-        console.log(`[PREDICTIONS] Cached ${object.predictions?.length} predictions`)
+        console.log(`[PREDICTIONS] Cached ${output.predictions?.length} predictions`)
       } catch (err) {
         console.error('[PREDICTIONS] Cache save error:', err)
       }
     },
   })
 
-  return result.toTextStreamResponse()
+  return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
 }

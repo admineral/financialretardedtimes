@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
     const page = await browser.newPage()
     
     // Set user agent to avoid detection
-    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    await page.setUserAgent({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' })
     
     // Always start from the main profile page
     const profileUrl = `https://de.tradingview.com/u/${username}/`

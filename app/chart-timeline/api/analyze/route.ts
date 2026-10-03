@@ -12,8 +12,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { z } from 'zod'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // Schema for price-correlated quotes (lenient validation for streaming)
 // NOTE: OpenAI structured outputs reject optional fields — nullable instead
@@ -756,40 +757,33 @@ export async function POST(request: NextRequest) {
       console.log('[ANALYZE] Deleted old cache entries')
     }
     
-    // Use streamObject for streaming response
-    // Note: gpt-5.4 is a reasoning model and doesn't support temperature
-    const result = streamObject({
-      model: openai('gpt-5.4'),
-      schema: AnalysisResponseSchema,
-      system: ANALYSIS_PROMPT,
+    // Use streamText with structured output for streaming response
+    const result = streamText({
+      model: openai(AI_MODEL),
+      output: Output.object({ schema: AnalysisResponseSchema }),
+      instructions: ANALYSIS_PROMPT,
       prompt: fullContext,
-      providerOptions: { openai: { reasoning: { effort: 'high' } } },
+      providerOptions: { openai: { reasoningEffort: 'high' } },
       onError(event) {
         console.error('[ANALYZE] ❌ Stream onError:', event.error)
       },
-      async onFinish({ object, error, usage }) {
+      async onEnd({ output, usage }) {
         // Store in cache when streaming completes
         // IMPORTANT: Create a fresh supabase client for the async callback
         // The original client may have stale connection in streaming context
         console.log('[ANALYZE] 🏁 Stream finished:', { 
-          hasObject: !!object, 
-          hasError: !!error,
+          hasOutput: !!output, 
           usage 
         })
         
-        if (error) {
-          console.error('[ANALYZE] ❌ Stream error:', error)
-          return
-        }
-        
-        if (!object) {
-          console.error('[ANALYZE] ❌ Stream finished but no object returned! This usually means schema validation failed.')
+        if (!output) {
+          console.error('[ANALYZE] ❌ Stream finished but no valid output (schema validation failed)')
           return
         }
         
         try {
           const freshSupabase = await createClient()
-          const analysisData = object as AnalysisResponse
+          const analysisData: AnalysisResponse = output
           
           console.log('[ANALYZE] Analysis complete:', {
             headline: analysisData.headline,
@@ -832,7 +826,7 @@ export async function POST(request: NextRequest) {
       }
     })
     
-    return result.toTextStreamResponse()
+    return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
     
   } catch (error) {
     console.error('[ANALYZE] Error:', error)

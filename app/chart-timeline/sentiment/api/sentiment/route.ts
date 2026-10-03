@@ -2,7 +2,7 @@
  * route.ts (Sentiment Analysis API)
  *
  * AI-powered sentiment scoring of BTC chat messages over time.
- * Uses streamObject for live streaming to the client.
+ * Uses streamText with structured output for live streaming to the client.
  *
  * ENDPOINT:
  * - GET  /chart-timeline/sentiment/api/sentiment          → cached data
@@ -13,8 +13,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { createTextStreamResponse, Output, streamText, toTextStream } from 'ai'
 import { z } from 'zod'
+import { AI_MODEL } from '@/lib/ai/model'
 
 // ------- Schemas -------
 
@@ -291,17 +292,17 @@ ${bucketSummaries.join('\n\n')}
 
 Gib eine vollständige Sentiment-Analyse zurück. Analysiere JEDEN Bucket. Starte sofort mit dem timeRange und dann den buckets.`
 
-  const result = streamObject({
-    model: openai('gpt-5.4'),
-    schema: SentimentResponseSchema,
+  const result = streamText({
+    model: openai(AI_MODEL),
+    output: Output.object({ schema: SentimentResponseSchema }),
     prompt,
-    providerOptions: { openai: { reasoning: { effort: 'high' } } },
-    onFinish: async ({ object }) => {
-      if (!object) return
+    providerOptions: { openai: { reasoningEffort: 'high' } },
+    onEnd: async ({ output }) => {
+      if (!output) return
       // Enrich with prices and cache
       const enriched = {
-        ...object,
-        buckets: object.buckets.map((b) => ({
+        ...output,
+        buckets: output.buckets.map((b) => ({
           ...b,
           priceAtBucket: getPriceAtTime(b.timestamp, ohlcData) ?? b.priceAtBucket,
         })),
@@ -323,5 +324,5 @@ Gib eine vollständige Sentiment-Analyse zurück. Analysiere JEDEN Bucket. Start
     },
   })
 
-  return result.toTextStreamResponse()
+  return createTextStreamResponse({ stream: toTextStream({ stream: result.stream }) })
 }

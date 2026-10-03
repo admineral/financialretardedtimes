@@ -43,7 +43,7 @@ function getUserId(): string {
   
   let id = localStorage.getItem('market_user_id')
   if (!id) {
-    id = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    id = `user_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
     localStorage.setItem('market_user_id', id)
   }
   return id

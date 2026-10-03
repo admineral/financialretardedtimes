@@ -19,7 +19,7 @@ import {
   BarChart2,
 } from 'lucide-react'
 import Link from 'next/link'
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { z } from 'zod'
 import { UserAvatar } from './components/UserAvatar'
 

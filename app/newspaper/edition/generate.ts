@@ -1,8 +1,8 @@
 /**
  * generate.ts (Newspaper edition v3 — mega generation engine)
  *
- * One streamObject call returns all three editions (1D/3D/7D) plus shared
- * modules. onFinish builds three NewspaperEdition envelopes (per-edition
+ * One streamText call (Output.object) returns all three editions (1D/3D/7D)
+ * plus shared modules. onEnd builds three NewspaperEdition envelopes (per-edition
  * activity buckets, resolved chat excerpts, id-enriched ticker/timeline)
  * and persists them — write errors are THROWN into a persistence promise
  * that the route awaits via `after()`, so failures surface even when the
@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'crypto'
 import { openai } from '@ai-sdk/openai'
-import { streamObject, type DeepPartial, type StreamObjectResult } from 'ai'
+import { Output, streamText, type StreamTextResult, type ToolSet } from 'ai'
 import type { createClient } from '@/lib/supabase/server'
 import { writeFearGreedCache, writeTickerCache, writeTimelineCache } from '../lib/cache-writers'
 import type { DailyFearGreedData } from '../lib/types'
@@ -41,6 +41,9 @@ import {
 } from './types'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+
+/** Structured-output spec for the single tri-edition streamText call. */
+const triEditionOutput = Output.object({ schema: TriEditionAISchema })
 
 // ═══════════════════════════════════════════════════════════════════════
 // Chat excerpt resolution — replace AI refs with authentic messages
@@ -329,7 +332,7 @@ async function writeSideCaches(
 // ═══════════════════════════════════════════════════════════════════════
 
 export interface EditionStreamHandle {
-  result: StreamObjectResult<DeepPartial<TriEditionAI>, TriEditionAI, never>
+  result: StreamTextResult<ToolSet, Record<string, unknown>, typeof triEditionOutput>
   inputs: EditionGenerationInputs
   generationId: string
   generatedAt: string
@@ -372,16 +375,16 @@ export async function createEditionStream(options: {
   // prevents unhandled-rejection noise if it does not.
   persisted.catch(() => {})
 
-  const result = streamObject({
+  const result = streamText({
     model: openai(EDITION_MODEL),
-    schema: TriEditionAISchema,
-    system: EDITION_SYSTEM_PROMPT,
-    providerOptions: { openai: { reasoning: { effort: 'high' } } },
+    output: triEditionOutput,
+    instructions: EDITION_SYSTEM_PROMPT,
+    providerOptions: { openai: { reasoningEffort: 'high' } },
     prompt,
-    onFinish: async ({ object, error, usage, response }) => {
+    onEnd: async ({ output: object, usage, finalStep, finishReason }) => {
       if (!object) {
         const reason = new Error(
-          `Tri-edition generation returned no valid object: ${error instanceof Error ? error.message : String(error ?? 'schema validation failed')}`
+          `Tri-edition generation returned no valid object: schema validation failed or no output (finishReason: ${finishReason})`
         )
         console.error('[EDITION-GENERATE]', reason.message)
         rejectPersisted(reason)
@@ -394,7 +397,7 @@ export async function createEditionStream(options: {
           object,
           generationId,
           generatedAt,
-          aiUsage: summarizeUsage(usage as UsageInput, (response as { modelId?: string } | undefined)?.modelId)
+          aiUsage: summarizeUsage(usage as UsageInput, finalStep.response.modelId)
         })
 
         await writeEditionRows(supabase, editions)

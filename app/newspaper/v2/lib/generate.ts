@@ -7,7 +7,7 @@
  */
 
 import { openai } from '@ai-sdk/openai'
-import { streamObject } from 'ai'
+import { Output, streamText } from 'ai'
 import type { createClient } from '@/lib/supabase/server'
 import { prepareV2Inputs, type V2GenerationInputs } from './context'
 import { buildStage2Blocks, renderPromptBlocks, V2_SYSTEM_PROMPT } from './prompt'
@@ -255,20 +255,20 @@ export async function createV2Stream(options: {
     promptChars: prompt.length
   })
 
-  const result = streamObject({
+  const result = streamText({
     model: openai(V2_MODEL),
-    schema: MonthlyIssueAISchema,
-    system: V2_SYSTEM_PROMPT,
-    providerOptions: { openai: { reasoning: { effort: 'high' } } },
+    output: Output.object({ schema: MonthlyIssueAISchema }),
+    instructions: V2_SYSTEM_PROMPT,
+    providerOptions: { openai: { reasoningEffort: 'high' } },
     prompt,
-    onFinish: async ({ object, error, usage, response }) => {
-      if (!object) {
-        if (error) console.error('[V2-GENERATE] Schema error:', error)
+    onEnd: async ({ output, usage, finalStep }) => {
+      if (!output) {
+        console.error('[V2-GENERATE] Schema error: no valid output (schema validation failed)')
         return
       }
 
       try {
-        const chatExcerpts = await resolveChatExcerpts(supabase, object)
+        const chatExcerpts = await resolveChatExcerpts(supabase, output)
         const updatedAt = new Date().toISOString()
 
         const issue: V2Issue = {
@@ -284,9 +284,9 @@ export async function createV2Stream(options: {
             source: 'generated',
             version: V2_ISSUE_VERSION,
             model: V2_MODEL,
-            aiUsage: summarizeUsage(usage as UsageInput, (response as { modelId?: string } | undefined)?.modelId)
+            aiUsage: summarizeUsage(usage as UsageInput, finalStep.response.modelId)
           },
-          content: object,
+          content: output,
           data: inputs.v2Data,
           chatExcerpts
         }
@@ -294,7 +294,7 @@ export async function createV2Stream(options: {
         await writeV2Issue(supabase, issue)
         console.log('[V2-GENERATE] Issue cached', {
           issueDate: inputs.issueDate,
-          blocks: object.blocks.length,
+          blocks: output.blocks.length,
           excerpts: Object.keys(chatExcerpts).length
         })
       } catch (cacheError) {

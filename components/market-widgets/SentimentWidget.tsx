@@ -7,7 +7,7 @@
  * as /chart-timeline/sentiment).
  */
 
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { AlertTriangle, BarChart2, Minus, Sparkles, TrendingDown, TrendingUp } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'

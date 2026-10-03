@@ -19,7 +19,7 @@ export function ChatInput({
   const [message, setMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault()
     
     if (!message.trim() || isSending || disabled) return

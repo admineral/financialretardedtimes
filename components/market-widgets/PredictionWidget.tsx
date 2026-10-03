@@ -7,7 +7,7 @@
  * streaming regenerate (same endpoint as /prediction).
  */
 
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { Brain, ChartBar, Clock, Crosshair, Flame, Sparkles, Target, TrendingDown, TrendingUp, X } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'

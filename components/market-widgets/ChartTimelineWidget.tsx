@@ -10,7 +10,7 @@
  * endpoint as the /chart-timeline page).
  */
 
-import { experimental_useObject as useObject } from '@ai-sdk/react'
+import { useObject } from '@ai-sdk/react'
 import { Clock, Quote, Skull, Sparkles, TrendingUp, Trophy, X } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
