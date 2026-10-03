@@ -23,15 +23,12 @@ async function Front() {
     [latest, editions] = await Promise.all([latestEditionId(), listEditions()]);
   } catch (error) {
     console.error("[newspaper-v4] editions unavailable:", error);
-    const code =
-      (error as { code?: string })?.code ??
-      (error instanceof Error ? error.message.slice(0, 80) : "unknown");
     return (
       <>
         <Studio defaults={defaultEditionInput()} startOpen />
         <p className="v4-error">
           Die Ausgaben-Datenbank ist gerade nicht erreichbar. Bitte später
-          erneut laden. (Fehler: {code})
+          erneut laden.
         </p>
       </>
     );
