@@ -21,13 +21,14 @@ async function Front() {
   let latest, editions;
   try {
     [latest, editions] = await Promise.all([latestEditionId(), listEditions()]);
-  } catch {
+  } catch (error) {
+    console.error("[newspaper-v4] editions unavailable:", error);
     return (
       <>
         <Studio defaults={defaultEditionInput()} startOpen />
         <p className="v4-error">
-          Die Ausgaben-Tabelle ist nicht erreichbar. Wurde die Migration
-          20261003000000_newspaper_v4_editions.sql eingespielt?
+          Die Ausgaben-Datenbank ist gerade nicht erreichbar. Bitte später
+          erneut laden.
         </p>
       </>
     );
