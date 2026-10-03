@@ -144,6 +144,14 @@ async function discoverPagesForActivity(room: string, date: string, username: st
   return totalPages
 }
 
+/** TradingView removed the public chat history; its pages now answer 404. */
+class HistoryUnavailableError extends Error {
+  constructor(status: number) {
+    super(`TradingView chat history unavailable (${status})`)
+    this.name = 'HistoryUnavailableError'
+  }
+}
+
 // Helper function to fetch all messages for a specific day (with pagination)
 async function fetchAllMessagesForDay(room: string, date: string, username: string): Promise<Array<{ id: string; text: string; time: string }>> {
   const allMessages: Array<{ id: string; text: string; time: string }> = []
@@ -155,6 +163,9 @@ async function fetchAllMessagesForDay(room: string, date: string, username: stri
     const firstPageUrl = generatePageUrl(room, date, username, 1)
     const firstPageResponse = await fetch(firstPageUrl, { headers: fetchHeaders })
     
+    if (firstPageResponse.status === 404 || firstPageResponse.status === 410) {
+      throw new HistoryUnavailableError(firstPageResponse.status)
+    }
     if (!firstPageResponse.ok) {
       return allMessages
     }
@@ -190,6 +201,7 @@ async function fetchAllMessagesForDay(room: string, date: string, username: stri
       }
     }
   } catch (error) {
+    if (error instanceof HistoryUnavailableError) throw error
     console.error(`Error fetching messages for ${date}:`, error)
   }
 
@@ -328,6 +340,7 @@ export async function POST(request: NextRequest) {
     let totalMessages = 0
     let cachedCount = 0
     let fetchedCount = 0
+    let historyUnavailable = false
     const startTime = Date.now()
 
     // Step 1: Check Supabase cache for existing data
@@ -466,6 +479,12 @@ export async function POST(request: NextRequest) {
           // Small delay to avoid overwhelming TradingView
           await new Promise(resolve => setTimeout(resolve, 100))
         } catch (error) {
+          if (error instanceof HistoryUnavailableError) {
+            // Nothing to fetch any more: keep what is stored, write nothing.
+            console.warn(`📭 ${username}: ${error.message}; serving stored days only`)
+            historyUnavailable = true
+            break
+          }
           console.error(`❌ Error fetching ${dateStr}:`, error)
           
           // Cache empty activity for errors too (so we don't retry)
@@ -507,6 +526,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // History gone: answer with every stored day of the request instead of an empty refresh.
+    if (historyUnavailable) {
+      try {
+        const have = new Set(activities.map(a => a.date))
+        const stored = await getCachedActivityForDates(room, username, datesToFetch)
+        for (const [date, entry] of stored) {
+          if (have.has(date)) continue
+          activities.push({
+            date,
+            count: entry.message_count,
+            messages: entry.messages.map(m => ({
+              ...m,
+              avatar: `https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`
+            })),
+            fromCache: true
+          })
+          totalMessages += entry.message_count
+          cachedCount++
+        }
+      } catch (dbError) {
+        console.warn('⚠️ [Activity] Could not read stored days after history 404:', dbError)
+      }
+    }
+
     // Sort activities by date (newest first)
     activities.sort((a, b) => b.date.localeCompare(a.date))
 
@@ -526,7 +569,7 @@ export async function POST(request: NextRequest) {
       fetchedCount
     }
 
-    return NextResponse.json(response)
+    return NextResponse.json(historyUnavailable ? { ...response, historyUnavailable } : response)
   } catch (error) {
     console.error('Error fetching chat activity:', error)
     return NextResponse.json(

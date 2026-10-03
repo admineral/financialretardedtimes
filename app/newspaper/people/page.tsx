@@ -3,8 +3,8 @@ import type { Metadata } from 'next'
 import { PeopleApp } from './PeopleApp'
 
 export const metadata: Metadata = {
-  title: 'Netzwerk · Financial Retarded Times',
-  description: 'Aktivität, Tagesnachrichten und Zitat-Netzwerk eines TradingView-Nutzers.'
+  title: 'Netzwerk & Export · Financial Retarded Times',
+  description: 'Netzwerk, Aktivität und KI-fertiger JSON-Export der gespeicherten Chatgeschichte eines TradingView-Nutzers.'
 }
 
 export default function PeoplePage() {

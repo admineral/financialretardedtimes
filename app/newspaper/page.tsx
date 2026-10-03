@@ -14,7 +14,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import {
   SparklesIcon, TrendingUp, TrendingDown, Zap, Newspaper, RefreshCwIcon,
-  ExternalLink, Clock3, MessageSquare, Users, Layers, Archive, Download, Share2
+  ExternalLink, Clock3, MessageSquare, Users, Layers, Archive, Share2
 } from 'lucide-react'
 import { track } from '@vercel/analytics'
 import { ThemeSwitcher } from '@/components/theme-switcher'
@@ -448,22 +448,22 @@ export default function NewspaperPage() {
                         <span>OpenClaw</span>
                       </Link>
                       <Link
-                        href="/newspaper/export"
-                        onClick={() => track('newspaper_export_click', { location: 'topbar' })}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
-                        title="Chat-Verlauf eines Nutzers exportieren"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Export</span>
-                      </Link>
-                      <Link
                         href="/newspaper/people"
                         onClick={() => track('newspaper_people_click', { location: 'topbar' })}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
-                        title="Wer spricht mit wem: Netzwerk eines Nutzers"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/60 bg-primary/10 text-primary hover:bg-primary/20 transition-all rounded-sm"
+                        title="Netzwerk, Aktivität und KI-Export jeder Stimme aus dem Archiv"
                       >
                         <Share2 className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Netzwerk</span>
+                        <span className="hidden sm:inline">Netzwerk &amp; Export</span>
+                      </Link>
+                      <Link
+                        href="/newspaper/export"
+                        onClick={() => track('newspaper_export_click', { location: 'topbar' })}
+                        className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-headline font-semibold uppercase tracking-wide border border-primary/30 text-primary/80 hover:text-primary hover:border-primary/60 hover:bg-primary/10 transition-all rounded-sm"
+                        title="Ganzer Chatraum als Archiv durchsuchen und exportieren"
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                        <span>Archiv</span>
                       </Link>
                       <PrintModeToggle mode={printMode} onChange={handlePrintModeChange} disabled={state.isStreaming} />
                       {isBusy && (

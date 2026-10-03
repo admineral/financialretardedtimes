@@ -3,22 +3,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { DownloadIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react'
+import { Loader2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MessageBody } from './MessageBody'
 import { MESSAGE_LIST_PAGE } from '@/lib/tv-chat/types'
 import { timeMs } from '@/lib/tv-chat/messages'
+import { resolveAvatar } from '@/lib/tv-chat/client'
 import type { ListedMessage } from '@/lib/tv-chat/types'
 
 interface MessageListProps {
   username: string
   messages: ListedMessage[]
+  avatar?: string | null
+  title?: string
   loading: boolean
-  refreshing: boolean
+  /** Shown next to the count while older years stream in. */
+  progress?: string | null
   selectedDate: string | null
-  onRefresh: () => void
-  onExportJson: () => void
-  onExportMd: () => void
   onMention?: (username: string) => void
   emptyHint?: string
 }
@@ -29,37 +30,16 @@ function stamp(time: string) {
   return new Date(ms).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 }
 
-function download(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-export function downloadJson(filename: string, payload: unknown) {
-  download(filename, JSON.stringify(payload, null, 2), 'application/json; charset=utf-8')
-}
-
-export function downloadText(filename: string, content: string, type: string) {
-  download(filename, content, type)
-}
-
 export function MessageList({
   username,
   messages,
+  avatar,
+  title = 'Nachrichten',
   loading,
-  refreshing,
+  progress,
   selectedDate,
-  onRefresh,
-  onExportJson,
-  onExportMd,
   onMention,
-  emptyHint = 'Noch keine Nachrichten. „Frisch laden“ holt die fehlenden Tage aus dem TradingView-Archiv.'
+  emptyHint = 'Für diese Person sind keine Nachrichten gespeichert.'
 }: MessageListProps) {
   const [visible, setVisible] = useState(MESSAGE_LIST_PAGE)
 
@@ -96,33 +76,17 @@ export function MessageList({
   const empty = !loading && messages.length === 0
 
   return (
-    <section className="rounded-2xl border bg-card/40 overflow-hidden flex flex-col min-h-[520px]">
+    <section className="rounded-sm border border-primary/15 bg-card/40 overflow-hidden flex flex-col min-h-[520px]">
       <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border/60">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Nachrichten</div>
+          <div className="text-sm font-semibold">{title}</div>
           <div className="text-[11px] text-muted-foreground tabular-nums">
             {loading && messages.length === 0
               ? 'Lade Nachrichten…'
               : `${messages.length.toLocaleString('de-DE')} Nachrichten`}
-            {refreshing ? ' · hole frische Tage vom TV-Archiv' : ''}
+            {progress ? ` · ${progress}` : ''}
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading || refreshing}>
-          {refreshing ? (
-            <Loader2Icon className="h-3.5 w-3.5 animate-spin mr-1" />
-          ) : (
-            <RefreshCwIcon className="h-3.5 w-3.5 mr-1" />
-          )}
-          Frisch laden
-        </Button>
-        <Button size="sm" variant="outline" onClick={onExportMd} disabled={messages.length === 0}>
-          <DownloadIcon className="h-3.5 w-3.5 mr-1" />
-          Markdown
-        </Button>
-        <Button size="sm" onClick={onExportJson} disabled={messages.length === 0}>
-          <DownloadIcon className="h-3.5 w-3.5 mr-1" />
-          Export
-        </Button>
       </div>
 
       <div className="flex-1 overflow-auto max-h-[70vh] px-4 py-4">
@@ -150,7 +114,7 @@ export function MessageList({
                     <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0 mt-0.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={`https://s3.tradingview.com/userpics/${username.toLowerCase()}_50.png`}
+                        src={resolveAvatar(avatar, username)}
                         alt=""
                         className="w-full h-full object-cover"
                       />

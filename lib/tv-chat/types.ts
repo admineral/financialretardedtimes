@@ -6,7 +6,7 @@
  */
 
 export const DEFAULT_ROOM = 'bitcoin_de_DE'
-export const ARCHIVE_WINDOW_DAYS = 365
+export const ARCHIVE_WINDOW_DAYS = 3650
 export const MESSAGE_LIST_PAGE = 250
 
 export const ROOM_OPTIONS: { id: string; label: string }[] = [
@@ -45,22 +45,6 @@ export interface ListedMessage extends RecoveredMessage {
   username: string
   date: string
   source: MessageSource
-}
-
-export interface GraphNode {
-  username: string
-  hop: 0 | 1 | 2
-  inArchive: boolean
-  avatar?: string | null
-  joinYear?: number | null
-  messageCount?: number
-}
-
-export interface GraphEdge {
-  from: string
-  to: string
-  kind: EdgeKind | 'both'
-  weight: number
 }
 
 /** One calendar day of a user's activity (heatmap cell). */

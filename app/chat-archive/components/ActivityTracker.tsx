@@ -28,25 +28,27 @@ export function ActivityTracker({ onDateClick }: ActivityTrackerProps) {
     }
   }
 
-  // Generate monthly calendar data for year view
-  const generateMonthlyCalendars = () => {
+  // Monthly calendars: the selected window, plus every older month that has
+  // stored messages (TradingView no longer serves history, so older data is
+  // whatever we kept — show all of it).
+  const monthlyCalendars = useMemo(() => {
     const today = new Date()
-    const calendars = []
-    
+    const keys = new Set<string>()
     const monthsToShow = Math.ceil(selectedDays / 30)
-    
     for (let i = 0; i < monthsToShow; i++) {
       const monthDate = new Date(today.getFullYear(), today.getMonth() - i, 1)
-      calendars.push({
-        year: monthDate.getFullYear(),
-        month: monthDate.getMonth() + 1
-      })
+      keys.add(`${monthDate.getFullYear()}-${monthDate.getMonth() + 1}`)
     }
-    
-    return calendars
-  }
-
-  const monthlyCalendars = useMemo(generateMonthlyCalendars, [selectedDays])
+    for (const day of activities) {
+      if (day.count > 0) keys.add(`${Number(day.date.slice(0, 4))}-${Number(day.date.slice(5, 7))}`)
+    }
+    return Array.from(keys)
+      .map(key => {
+        const [year, month] = key.split('-').map(Number)
+        return { year, month }
+      })
+      .sort((a, b) => b.year - a.year || b.month - a.month)
+  }, [selectedDays, activities])
 
   return (
     <div className="space-y-6">

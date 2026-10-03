@@ -184,7 +184,8 @@ export function WeeklyActivityGrid({
       const monthDate = new Date(showMonth.year, showMonth.month - 1, 1)
       // For compact mode (year view), only show month name
       if (compactMode) {
-        return format(monthDate, 'MMMM', { locale: de })
+        // Older years are listed too now, so the year is part of the title.
+        return format(monthDate, 'MMMM yyyy', { locale: de })
       }
       // For regular mode, show month and year
       return format(monthDate, 'MMMM yyyy', { locale: de })

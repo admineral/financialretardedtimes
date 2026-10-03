@@ -103,3 +103,23 @@ export function edgesFromMessage(
   }
   return edges
 }
+/**
+ * Preview image for a TradingView link, as the chat archive renders it:
+ * snapshot PNGs as-is, `/x/<id>` snapshots and `/chart/<symbol>/<id>` ideas
+ * mapped to their S3 images. Null for anything else.
+ */
+export function chartImageFor(url: string): { image: string; kind: 'snapshot' | 'idea' } | null {
+  const clean = url.replace(/[.,;:!?)]+$/, '')
+  if (/s3\.tradingview\.com\/snapshots\/.+\.(png|jpe?g|webp)$/i.test(clean)) return { image: clean, kind: 'snapshot' }
+  const snapshot = clean.match(/tradingview\.com\/x\/([A-Za-z0-9]+)/i)
+  if (snapshot) {
+    const id = snapshot[1]
+    return { image: `https://s3.tradingview.com/snapshots/${id.charAt(0).toLowerCase()}/${id}.png`, kind: 'snapshot' }
+  }
+  const idea = clean.match(/tradingview\.com\/chart\/[^/\s]+\/([A-Za-z0-9]+)/i)
+  if (idea) {
+    const id = idea[1]
+    return { image: `https://s3.tradingview.com/${id.charAt(0).toLowerCase()}/${id}_mid.webp`, kind: 'idea' }
+  }
+  return null
+}

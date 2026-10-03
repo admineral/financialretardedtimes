@@ -1,16 +1,18 @@
-import { Suspense } from 'react'
-import type { Metadata } from 'next'
-import { ExportApp } from './ExportApp'
-
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import { Workspace } from "@/components/archive/Workspace";
+import { ExportApp } from "./ExportApp";
 export const metadata: Metadata = {
-  title: 'Export · Financial Retarded Times',
-  description: 'Chat-Verlauf eines TradingView-Nutzers als Markdown oder JSON exportieren.'
-}
-
+  title: "Archiv & Export · Financial Retarded Times",
+  description:
+    "Gespeicherte Chatgeschichte mit Bitcoin-Kursen als JSON oder Markdown exportieren.",
+};
 export default function ExportPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background" />}>
-      <ExportApp />
-    </Suspense>
-  )
+    <Workspace active="archive">
+      <Suspense fallback={<div className="aw-loading">Archiv öffnen …</div>}>
+        <ExportApp />
+      </Suspense>
+    </Workspace>
+  );
 }

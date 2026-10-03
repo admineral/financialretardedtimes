@@ -85,6 +85,8 @@ export function ActivityProvider({
   
   // Track current fetch to prevent duplicate requests (React Strict Mode fix)
   const currentFetchKeyRef = useRef<string | null>(null)
+  /** Every stored day of the current user (cache read), merged under fetch results. */
+  const storedRef = useRef<ActivityData[]>([])
   const fetchPromiseRef = useRef<Promise<void> | null>(null)
 
   // Calculate activity patterns from messages
@@ -165,6 +167,7 @@ export function ActivityProvider({
       return fetchPromiseRef.current
     }
 
+    if (!forceRefresh) storedRef.current = []
     const today = new Date()
     
     // Generate list of dates we need
@@ -189,13 +192,16 @@ export function ActivityProvider({
             room,
             username,
             dates: neededDates,
-            cacheOnly: true
+            cacheOnly: true,
+            // Every stored day, not only the rolling window: older years stay visible.
+            allCached: true
           })
         })
 
         if (cachedResponse.ok) {
           const cachedData = await cachedResponse.json()
           if (cachedData.activities && cachedData.activities.length > 0) {
+            storedRef.current = cachedData.activities
             setActivities(cachedData.activities)
             const patterns = calculatePatterns(cachedData.activities)
             setActivityPatterns(patterns)
@@ -260,8 +266,13 @@ export function ActivityProvider({
         const data = await response.json()
         
         if (data.activities) {
-          setActivities(data.activities)
-          const patterns = calculatePatterns(data.activities)
+          // The fetch answers for the window only; keep stored days outside it.
+          const merged = new Map<string, ActivityData>()
+          for (const day of storedRef.current) merged.set(day.date, day)
+          for (const day of data.activities as ActivityData[]) merged.set(day.date, day)
+          const all = Array.from(merged.values()).sort((a, b) => b.date.localeCompare(a.date))
+          setActivities(all)
+          const patterns = calculatePatterns(all)
           setActivityPatterns(patterns)
           setLastSyncTime(new Date())
           

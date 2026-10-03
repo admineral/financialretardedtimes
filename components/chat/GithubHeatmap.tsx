@@ -14,6 +14,8 @@ interface GithubHeatmapProps {
   onDateSelect: (date: string) => void
   /** Optional: messages to preview in the hover card for a day. Without it the card shows counts only. */
   loadDay?: (date: string) => Promise<ActivityMessage[]>
+  /** Only draw these years (default: every year from 2017 to now). */
+  onlyYears?: number[]
 }
 
 interface Cell {
@@ -104,7 +106,8 @@ export function GithubHeatmap({
   days,
   selectedDate,
   onDateSelect,
-  loadDay
+  loadDay,
+  onlyYears
 }: GithubHeatmapProps) {
   const [hovered, setHovered] = useState<{
     date: string
@@ -125,6 +128,7 @@ export function GithubHeatmap({
   const windowFrom = format(subDays(new Date(), ARCHIVE_WINDOW_DAYS - 1), 'yyyy-MM-dd')
 
   const years = useMemo(() => {
+    if (onlyYears?.length) return [...onlyYears].sort((a, b) => b - a)
     const present = new Set(days.map(d => Number(d.date.slice(0, 4))))
     const current = new Date().getFullYear()
     const minYear = days.length > 0 ? Math.min(...present) : current
@@ -132,7 +136,7 @@ export function GithubHeatmap({
     for (let y = current; y >= Math.min(minYear, 2017); y--) list.push(y)
     if (list.length === 0) list.push(current)
     return list
-  }, [days])
+  }, [days, onlyYears])
 
   useEffect(() => {
     if (!hovered || hovered.count === 0 || !loadDay) {
@@ -258,7 +262,7 @@ export function GithubHeatmap({
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="w-3 h-3 rounded-[2px] bg-emerald-800/80 border border-emerald-700/50 ring-[0.5px] ring-amber-400/40" />
-          älter als 365 Tage
+          älter als 10 Jahre
         </span>
       </div>
 
@@ -278,7 +282,7 @@ export function GithubHeatmap({
             <div className="text-[11px] text-muted-foreground">
               {hovered.count.toLocaleString('de-DE')} {hovered.count === 1 ? 'Nachricht' : 'Nachrichten'}
               {!hovered.cached && ' · noch nicht im Cache'}
-              {hovered.date < windowFrom && hovered.cached && ' · jenseits der 365-Tage-Ansicht'}
+              {hovered.date < windowFrom && hovered.cached && ' · älter als 10 Jahre'}
             </div>
           </div>
           <div className="px-3 py-2 max-h-48 overflow-hidden space-y-1.5">

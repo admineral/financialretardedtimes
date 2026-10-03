@@ -1,66 +1,98 @@
 'use client'
 
 /**
- * PeopleApp.tsx (/newspaper/people)
+ * PeopleApp.tsx (/newspaper/people) — Netzwerk & Export
  *
- * One public TradingView user, three views: activity heatmap, day reader,
- * and a 2D ego network (quotes + mentions, two hops). Data comes from the
- * activity cache (`/api/chat-activity`) and the live-room network route;
- * nothing is preloaded, the visitor picks the person.
+ * One chatter, everything we have stored about them: profile and totals,
+ * the conversation network across all years, the day heatmap, every
+ * message, and an LLM-ready JSON export. TradingView no longer serves the
+ * public chat history, so all data comes from our database:
+ *
+ *  1. profile route → totals, day counts and available years (fast, cached index)
+ *  2. network route → ego network for the chosen period, in parallel
+ *  3. messages route → one year at a time, newest first, so the latest
+ *     conversation shows at once while older years stream in.
+ *
+ * Names are matched case-insensitively and replaced by the stored spelling.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { CalendarDays, MessageSquare, Users } from 'lucide-react'
-import { EgoGraph } from '@/components/chat/EgoGraph'
+import { ArrowRight, ArrowUpRight, CalendarDays, Loader2, MessageSquare, Search, Users } from 'lucide-react'
+import { ContactList } from '@/components/people/ContactList'
+import { CoveragePanel } from '@/components/people/CoveragePanel'
+import { ExportPanel } from '@/components/people/ExportPanel'
+import { NetworkCanvas } from '@/components/people/NetworkCanvas'
+import { PersonPanel } from '@/components/people/PersonPanel'
 import { GithubHeatmap } from '@/components/chat/GithubHeatmap'
-import { LookupForm } from '@/components/chat/LookupForm'
-import { MessageList, downloadJson, downloadText } from '@/components/chat/MessageList'
+import { MessageList } from '@/components/chat/MessageList'
 import { ProfilePic } from '@/components/chat/ProfilePic'
-import { egoGraph, mergeEdges, type RawEdge } from '@/lib/tv-chat/graph'
-import { listedToJson, listedToMarkdown } from '@/lib/tv-chat/messages'
-import { edgesFromMessage } from '@/lib/tv-chat/parse'
-import {
-  PartialActivityError,
-  fetchActivity,
-  fetchAvatar,
-  messagesFromActivities,
-  normalizeUsername,
-  type ActivityDayBucket
-} from '@/lib/tv-chat/client'
-import {
-  DEFAULT_ROOM,
-  ROOM_OPTIONS,
-  type ActivityDay,
-  type ActivityMessage,
-  type GraphEdge,
-  type ListedMessage
-} from '@/lib/tv-chat/types'
+import { normalizeUsername } from '@/lib/tv-chat/client'
+import { enrichMessage } from '@/lib/tv-chat/parse'
+import { DEFAULT_ROOM, ROOM_OPTIONS, type ActivityMessage, type ListedMessage } from '@/lib/tv-chat/types'
+import type { CompactMessage, DirectoryEntry, NetworkResponse, ProfileResponse } from '@/lib/people/types'
 import { ToolHeader } from '../components/ToolHeader'
 
-/** Days filled from TradingView after the cache paints (the rest is "Frisch laden"). */
-const REFRESH_DAYS = 30
-const DEEP_REFRESH_DAYS = 365
+const API = '/newspaper/people/api'
 
-interface NetworkResponse {
-  username: string
-  edges: GraphEdge[]
-  users: string[]
-  notes: string[]
+type Period = 'all' | number
+type Kind = 'all' | 'quote' | 'mention'
+
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(data?.error ?? `Anfrage fehlgeschlagen (${response.status})`)
+  return data as T
 }
 
 function parseRoom(value: string | null): string {
-  return value && ROOM_OPTIONS.some(option => option.id === value) ? value : DEFAULT_ROOM
+  return value && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : DEFAULT_ROOM
 }
 
-function StatChip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function toListed(username: string, messages: CompactMessage[]): ListedMessage[] {
+  return messages
+    .map(m => ({
+      ...enrichMessage({ id: m.id, text: m.text, time: m.ts ?? '', author: username }),
+      username,
+      date: m.date ?? '',
+      source: 'history' as const
+    }))
+    .reverse()
+}
+
+function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/20 bg-card/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
-      <span className="text-primary/70">{icon}</span>
-      {value}
-      <span className="font-body text-[10px] uppercase tracking-wider text-muted-foreground/60">{label}</span>
-    </span>
+    <div className="rounded-sm border border-primary/15 bg-card/50 px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+        <span className="text-primary/70">{icon}</span>
+        {label}
+      </div>
+      <div className="mt-0.5 font-mono text-lg tabular-nums leading-tight">{value}</div>
+    </div>
   )
+}
+
+function Chip({ active, onClick, children, title }: { active: boolean; onClick: () => void; children: React.ReactNode; title?: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      title={title}
+      onClick={onClick}
+      className={`rounded-sm border px-2 py-1 text-[11px] font-mono transition-colors ${
+        active ? 'border-primary/60 bg-primary/15 text-primary' : 'border-border/60 text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function fmtDate(date: string | null) {
+  if (!date) return '—'
+  const [y, m, d] = date.split('-')
+  return `${d}.${m}.${y}`
 }
 
 export function PeopleApp() {
@@ -68,130 +100,151 @@ export function PeopleApp() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  const [username, setUsername] = useState(() => normalizeUsername(searchParams.get('username') ?? ''))
+  const [input, setInput] = useState(() => normalizeUsername(searchParams.get('username') ?? ''))
   const [room, setRoom] = useState(() => parseRoom(searchParams.get('room')))
+  const [directory, setDirectory] = useState<DirectoryEntry[]>([])
 
-  const [activeUser, setActiveUser] = useState('')
-  const [activeRoom, setActiveRoom] = useState(DEFAULT_ROOM)
-  const [avatar, setAvatar] = useState<string | null>(null)
-  const [activities, setActivities] = useState<ActivityDayBucket[]>([])
-  const [messages, setMessages] = useState<ListedMessage[]>([])
-  const [network, setNetwork] = useState<NetworkResponse | null>(null)
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
+  const [profile, setProfile] = useState<ProfileResponse | null>(null)
+  const [loadingProfile, setLoadingProfile] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [byYear, setByYear] = useState<Record<number, CompactMessage[]>>({})
+  const [pendingYears, setPendingYears] = useState<number[]>([])
+
+  const [period, setPeriod] = useState<Period>('all')
+  const [kind, setKind] = useState<Kind>('all')
+  const [limit, setLimit] = useState(40)
+  const [secondRing, setSecondRing] = useState(true)
+  const [network, setNetwork] = useState<NetworkResponse | null>(null)
+  const [networkLoading, setNetworkLoading] = useState(false)
+  const [highlight, setHighlight] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+
+  const [heatYear, setHeatYear] = useState<number | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   const runRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
-  const autoStarted = useRef(false)
 
-  useEffect(() => () => abortRef.current?.abort(), [])
+  // Directory: who is stored at all (also warms the server index).
+  useEffect(() => {
+    const abort = new AbortController()
+    getJson<{ people: DirectoryEntry[] }>(`${API}/directory?room=${encodeURIComponent(room)}`, abort.signal)
+      .then(data => setDirectory(data.people))
+      .catch(() => undefined)
+    return () => abort.abort()
+  }, [room])
 
-  const syncUrl = useCallback((user: string, chatRoom: string) => {
-    const params = new URLSearchParams()
-    if (user) params.set('username', user)
-    if (chatRoom !== DEFAULT_ROOM) params.set('room', chatRoom)
-    const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [pathname, router])
+  const lookup = useCallback(
+    async (raw: string, chatRoom: string) => {
+      const name = normalizeUsername(raw)
+      if (!name) return
+      abortRef.current?.abort()
+      const abort = new AbortController()
+      abortRef.current = abort
+      const run = ++runRef.current
 
-  const applyActivities = useCallback((user: string, buckets: ActivityDayBucket[]) => {
-    setActivities(buckets)
-    setMessages(messagesFromActivities(user, buckets))
+      setLoadingProfile(true)
+      setError(null)
+      setProfile(null)
+      setNetwork(null)
+      setByYear({})
+      setPendingYears([])
+      setSelectedDate(null)
+      setHighlight(null)
+      setSelected(null)
+
+      try {
+        const data = await getJson<ProfileResponse>(
+          `${API}/profile?username=${encodeURIComponent(name)}&room=${encodeURIComponent(chatRoom)}`,
+          abort.signal
+        )
+        if (run !== runRef.current) return
+        setProfile(data)
+        setInput(data.username)
+        setHeatYear(null)
+        const params = new URLSearchParams({ username: data.username })
+        if (chatRoom !== DEFAULT_ROOM) params.set('room', chatRoom)
+        router.replace(`${pathname}?${params}`, { scroll: false })
+        setLoadingProfile(false)
+
+        // Years newest first; each one paints as soon as it arrives.
+        const years = data.years.filter(y => y.messages > 0).map(y => y.year)
+        setPendingYears(years)
+        for (const year of years) {
+          const page = await getJson<{ messages: CompactMessage[] }>(
+            `${API}/messages?username=${encodeURIComponent(data.username)}&room=${encodeURIComponent(chatRoom)}&year=${year}`,
+            abort.signal
+          )
+          if (run !== runRef.current) return
+          setByYear(current => ({ ...current, [year]: page.messages }))
+          setPendingYears(current => current.filter(y => y !== year))
+        }
+      } catch (err) {
+        if ((err as { name?: string }).name === 'AbortError' || run !== runRef.current) return
+        setError(err instanceof Error ? err.message : 'Abruf fehlgeschlagen')
+        setLoadingProfile(false)
+        setPendingYears([])
+      }
+    },
+    [pathname, router]
+  )
+
+  // Open the person from the URL once per mount (strict mode remounts abort the first run).
+  useEffect(() => {
+    const initial = normalizeUsername(searchParams.get('username') ?? '')
+    if (initial) void lookup(initial, parseRoom(searchParams.get('room')))
+    return () => abortRef.current?.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Fill missing days from TradingView while polling the cache so days stream in. */
-  const refresh = useCallback(async (user: string, chatRoom: string, days: number, run: number, signal: AbortSignal) => {
-    setRefreshing(true)
-    let poll: ReturnType<typeof setInterval> | null = null
-    try {
-      poll = setInterval(() => {
-        if (run !== runRef.current) return
-        fetchActivity({ room: chatRoom, username: user, cacheOnly: true, allCached: true, signal })
-          .then(data => {
-            if (run === runRef.current) applyActivities(user, data.activities)
-          })
-          .catch(() => undefined)
-      }, 1500)
-
-      await fetchActivity({ room: chatRoom, username: user, days, forceRefresh: true, signal })
-      if (run !== runRef.current) return
-      const all = await fetchActivity({ room: chatRoom, username: user, cacheOnly: true, allCached: true, signal })
-      if (run !== runRef.current) return
-      applyActivities(user, all.activities)
-    } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError' || run !== runRef.current) return
-      if (err instanceof PartialActivityError) {
-        setError('TradingView hat den Abruf unterbrochen; die geladenen Tage sind gespeichert. „Frisch laden“ füllt die Lücken.')
-      } else {
-        setError(err instanceof Error ? err.message : 'Nachladen fehlgeschlagen')
-      }
-    } finally {
-      if (poll) clearInterval(poll)
-      if (run === runRef.current) setRefreshing(false)
-    }
-  }, [applyActivities])
-
-  const lookup = useCallback(async (userInput: string, chatRoom: string) => {
-    const user = normalizeUsername(userInput)
-    if (!user) return
-
-    abortRef.current?.abort()
-    const abort = new AbortController()
-    abortRef.current = abort
-    const run = ++runRef.current
-
-    setLoading(true)
-    setError(null)
-    setActivities([])
-    setMessages([])
-    setNetwork(null)
-    setSelectedDate(null)
-    setAvatar(null)
-    setActiveUser(user)
-    setActiveRoom(chatRoom)
-    syncUrl(user, chatRoom)
-
-    void fetchAvatar(user, abort.signal).then(url => {
-      if (run === runRef.current) setAvatar(url)
-    })
-
-    void fetch(`/newspaper/people/api/network?username=${encodeURIComponent(user)}&room=${encodeURIComponent(chatRoom)}`, { signal: abort.signal })
-      .then(response => (response.ok ? response.json() : null))
-      .then((data: NetworkResponse | null) => {
-        if (run === runRef.current && data) setNetwork(data)
-      })
-      .catch(() => undefined)
-
-    try {
-      const cached = await fetchActivity({ room: chatRoom, username: user, cacheOnly: true, allCached: true, signal: abort.signal })
-      if (run !== runRef.current) return
-      applyActivities(user, cached.activities)
-      setLoading(false)
-      await refresh(user, chatRoom, REFRESH_DAYS, run, abort.signal)
-    } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError' || run !== runRef.current) return
-      setError(err instanceof Error ? err.message : 'Abruf fehlgeschlagen')
-      setLoading(false)
-    }
-  }, [applyActivities, refresh, syncUrl])
-
+  // Network follows the person and the graph controls.
+  const activeUser = profile?.username ?? null
   useEffect(() => {
-    if (autoStarted.current) return
-    autoStarted.current = true
-    if (username) void lookup(username, room)
-  }, [username, room, lookup])
+    if (!activeUser) return
+    const abort = new AbortController()
+    const params = new URLSearchParams({
+      username: activeUser,
+      room,
+      kind,
+      limit: String(limit),
+      ring2: secondRing ? '20' : '0'
+    })
+    if (period !== 'all') {
+      params.set('from', `${period}-01-01`)
+      params.set('to', `${period}-12-31`)
+    }
+    setNetworkLoading(true)
+    getJson<NetworkResponse>(`${API}/network?${params}`, abort.signal)
+      .then(setNetwork)
+      .catch(err => {
+        if ((err as { name?: string }).name !== 'AbortError') setNetwork(null)
+      })
+      .finally(() => {
+        if (!abort.signal.aborted) setNetworkLoading(false)
+      })
+    return () => abort.abort()
+  }, [activeUser, room, period, kind, limit, secondRing])
 
-  const days = useMemo<ActivityDay[]>(
-    () => activities.map(bucket => ({ date: bucket.date, count: bucket.count || bucket.messages?.length || 0 })),
-    [activities]
+  const messages = useMemo(() => {
+    if (!activeUser) return []
+    return Object.keys(byYear)
+      .map(Number)
+      .sort((a, b) => b - a)
+      .flatMap(year => toListed(activeUser, byYear[year]))
+  }, [byYear, activeUser])
+
+  // Years that actually have messages; empty years are not drawn.
+  const activeYears = useMemo(
+    () => (profile ? profile.years.filter(y => y.messages > 0).map(y => y.year) : undefined),
+    [profile]
   )
-  const activeDays = useMemo(() => days.filter(day => day.count > 0).length, [days])
-  const span = useMemo(() => {
-    const dated = days.map(day => day.date).sort()
-    return dated.length ? { from: dated[0], to: dated[dated.length - 1] } : null
-  }, [days])
+
+  // A year chip narrows the list to that year; "Alle" (default) shows everything stored.
+  const yearMessages = useMemo(
+    () => (heatYear ? messages.filter(m => m.date.startsWith(String(heatYear))) : messages),
+    [messages, heatYear]
+  )
 
   const messagesByDate = useMemo(() => {
     const map = new Map<string, ActivityMessage[]>()
@@ -204,148 +257,389 @@ export function PeopleApp() {
   }, [messages])
   const loadDay = useCallback(async (date: string) => messagesByDate.get(date) ?? [], [messagesByDate])
 
-  const graph = useMemo(() => {
-    if (!activeUser) return null
-    const own: RawEdge[] = []
-    for (const message of messages) {
-      for (const edge of edgesFromMessage(activeUser, message)) own.push({ ...edge, weight: 1 })
-    }
-    const live: RawEdge[] = (network?.edges ?? []).map(edge => ({
-      from: edge.from,
-      to: edge.to,
-      kind: edge.kind === 'both' ? 'quote' : edge.kind,
-      weight: edge.weight
-    }))
-    const merged = mergeEdges([...own, ...live])
-    // Edges the live route saw twice with different kinds are already "both";
-    // re-apply that so mixed relationships keep their colour.
-    for (const edge of network?.edges ?? []) {
-      if (edge.kind !== 'both') continue
-      const target = merged.find(m => m.from.toLowerCase() === edge.from.toLowerCase() && m.to.toLowerCase() === edge.to.toLowerCase())
-      if (target) target.kind = 'both'
-    }
-    const archive = new Set<string>([activeUser.toLowerCase(), ...(network?.users ?? []).map(user => user.toLowerCase())])
-    return egoGraph(network?.username ?? activeUser, merged, archive)
-  }, [activeUser, messages, network])
+  const heatDays = useMemo(
+    () => (profile ? (heatYear ? profile.days.filter(day => day.date.startsWith(String(heatYear))) : profile.days) : []),
+    [profile, heatYear]
+  )
 
-  const started = Boolean(activeUser)
-  const roomLabel = ROOM_OPTIONS.find(option => option.id === activeRoom)?.label ?? activeRoom
+  const selectedNode = network?.nodes.find(n => n.username === selected && n.hop !== 0)
 
-  const selectPerson = (name: string) => {
-    const next = normalizeUsername(name)
-    if (!next || next.toLowerCase() === activeUser.toLowerCase()) return
-    setUsername(next)
-    void lookup(next, activeRoom)
+  const recenter = (name: string) => {
+    setInput(name)
+    void lookup(name, room)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const directoryMatches = useMemo(() => {
+    const query = input.toLowerCase()
+    if (!query || profile) return directory.slice(0, 24)
+    return directory.filter(person => person.username.toLowerCase().includes(query)).slice(0, 24)
+  }, [directory, input, profile])
+
+  // In-page suggestions; a native <datalist> renders as an OS popup outside the window.
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const [activeSuggestion, setActiveSuggestion] = useState(0)
+  const suggestions = useMemo(() => {
+    const query = input.toLowerCase()
+    if (!query) return []
+    return directory
+      .filter(person => person.username.toLowerCase().includes(query) && person.username.toLowerCase() !== query)
+      .sort((a, b) => Number(b.username.toLowerCase().startsWith(query)) - Number(a.username.toLowerCase().startsWith(query)))
+      .slice(0, 8)
+  }, [directory, input])
+  const showSuggestions = suggestOpen && suggestions.length > 0
+  const pickSuggestion = (name: string) => {
+    setSuggestOpen(false)
+    recenter(name)
+  }
+
+  const yearsLoaded = profile ? profile.years.filter(y => y.messages > 0).length - pendingYears.length : 0
+  const yearsTotal = profile ? profile.years.filter(y => y.messages > 0).length : 0
 
   return (
     <main className="min-h-screen bg-background relative">
       <div className="fixed inset-0 bg-gradient-to-br from-background via-background to-primary/5 pointer-events-none z-0" />
-      <ToolHeader section="Netzwerk" subtitle="Wer spricht mit wem: Aktivität, Tage und Beziehungen eines Nutzers" />
+      <ToolHeader section="Netzwerk & Export" subtitle="Wer spricht mit wem: alles Gespeicherte zu einer Person, als Netzwerk und als KI-Export" />
 
-      <div className="relative z-10 mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <LookupForm
-          username={username}
-          room={room}
-          onUsernameChange={value => setUsername(normalizeUsername(value))}
-          onRoomChange={setRoom}
-          onSubmit={() => void lookup(username, room)}
-          loading={loading}
-          submitLabel="Nachschlagen"
-        />
+      <div className="relative z-10 mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={event => {
+            event.preventDefault()
+            void lookup(input, room)
+          }}
+        >
+          <label className="relative flex-1">
+            <span className="sr-only">Benutzername</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={input}
+              onChange={event => {
+                setInput(normalizeUsername(event.target.value))
+                setSuggestOpen(true)
+                setActiveSuggestion(0)
+              }}
+              onFocus={() => setSuggestOpen(true)}
+              onBlur={() => setSuggestOpen(false)}
+              onKeyDown={event => {
+                if (!showSuggestions) return
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  const step = event.key === 'ArrowDown' ? 1 : -1
+                  setActiveSuggestion(i => (i + step + suggestions.length) % suggestions.length)
+                } else if (event.key === 'Enter') {
+                  event.preventDefault()
+                  pickSuggestion(suggestions[activeSuggestion].username)
+                } else if (event.key === 'Escape') {
+                  setSuggestOpen(false)
+                }
+              }}
+              role="combobox"
+              aria-expanded={showSuggestions}
+              aria-controls="people-suggestions"
+              aria-autocomplete="list"
+              aria-activedescendant={showSuggestions ? `people-suggestion-${activeSuggestion}` : undefined}
+              placeholder="TradingView-Name, z. B. BigBangTheory"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-11 w-full rounded-sm border border-primary/25 bg-card/60 pl-9 pr-3 font-mono text-sm outline-none focus:border-primary/60"
+            />
+            {showSuggestions && (
+              <ul
+                id="people-suggestions"
+                role="listbox"
+                className="absolute left-0 right-0 top-full z-30 mt-1 max-h-80 overflow-y-auto rounded-sm border border-primary/25 bg-card shadow-lg"
+              >
+                {suggestions.map((person, index) => (
+                  <li
+                    key={person.username}
+                    id={`people-suggestion-${index}`}
+                    role="option"
+                    aria-selected={index === activeSuggestion}
+                    // mousedown fires before the input's blur closes the list
+                    onMouseDown={event => {
+                      event.preventDefault()
+                      pickSuggestion(person.username)
+                    }}
+                    onMouseEnter={() => setActiveSuggestion(index)}
+                    className={`flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm ${index === activeSuggestion ? 'bg-primary/15' : ''}`}
+                  >
+                    <ProfilePic username={person.username} src={person.avatar} size="sm" />
+                    <span className="min-w-0 flex-1 truncate font-mono">{person.username}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {person.messages.toLocaleString('de-DE')} Nachrichten
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </label>
+          <select
+            value={room}
+            onChange={event => setRoom(event.target.value)}
+            aria-label="Chatraum"
+            className="h-11 rounded-sm border border-primary/25 bg-card/60 px-3 text-sm outline-none focus:border-primary/60"
+          >
+            {[...ROOM_OPTIONS, ...(ROOM_OPTIONS.some(o => o.id === room) ? [] : [{ id: room, label: room }])].map(option => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            disabled={!input || loadingProfile}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-sm bg-primary px-5 text-xs font-headline font-semibold uppercase tracking-wide text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {loadingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            Öffnen
+          </button>
+        </form>
 
-        {!started && (
-          <div className="rounded-sm border border-dashed border-primary/20 bg-card/20 px-6 py-16 text-center space-y-2">
-            <p className="font-headline text-sm uppercase tracking-wider text-foreground/80">Wen möchten Sie kennenlernen?</p>
-            <p className="text-xs text-muted-foreground font-body max-w-md mx-auto">
-              Öffentlicher TradingView-Benutzername genügt. Sie sehen Aktivität nach Tagen, die Nachrichten eines Tages
-              und wen die Person zitiert oder erwähnt und von wem sie zitiert wird.
-            </p>
+        {error && (
+          <div role="alert" className="rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 font-body">
+            {error}
           </div>
         )}
 
-        {started && (
+        {!profile && !loadingProfile && (
+          <section className="space-y-3">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-headline text-sm font-semibold uppercase tracking-wider">
+                {input ? 'Passende Stimmen' : 'Die aktivsten Stimmen im Archiv'}
+              </h2>
+              <span className="text-[11px] text-muted-foreground">
+                {directory.length ? `${directory.length} Personen gespeichert` : 'Archiv wird gelesen…'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+              {directoryMatches.map(person => (
+                <button
+                  key={person.username}
+                  type="button"
+                  onClick={() => recenter(person.username)}
+                  className="flex items-center gap-2.5 rounded-sm border border-primary/15 bg-card/40 p-2.5 text-left transition-colors hover:border-primary/40 hover:bg-card/70"
+                >
+                  <ProfilePic username={person.username} src={person.avatar} size="md" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{person.username}</div>
+                    <div className="text-[10px] font-mono tabular-nums text-muted-foreground">
+                      {person.messages.toLocaleString('de-DE')} · bis {fmtDate(person.lastDate)}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {loadingProfile && (
+          <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Archiv wird gelesen…
+          </div>
+        )}
+
+        {profile && (
           <>
             <section className="glass-card-gold glass-grain rounded-sm border border-primary/20 p-4 sm:p-5">
-              <div className="flex flex-wrap items-center gap-4">
-                <ProfilePic username={activeUser} src={avatar} size="lg" />
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-4">
+                <ProfilePic username={profile.username} src={profile.profile.avatar} size="lg" />
                 <div className="min-w-0 flex-1">
-                  <h2 className="font-masthead text-2xl sm:text-3xl gold-text leading-tight truncate">{activeUser}</h2>
-                  <p className="text-xs text-muted-foreground font-body">{roomLabel}</p>
+                  <h1 className="font-masthead text-3xl gold-text leading-tight truncate">{profile.username}</h1>
+                  <p className="text-xs text-muted-foreground font-body">
+                    {ROOM_OPTIONS.find(o => o.id === profile.room)?.label ?? profile.room}
+                    {profile.profile.joinDate && ` · TradingView seit ${fmtDate(profile.profile.joinDate)}`}
+                    {profile.profile.followers != null && ` · ${profile.profile.followers.toLocaleString('de-DE')} Follower`}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-3 text-[11px]">
+                    <Link
+                      href={`/chat-archive?room=${encodeURIComponent(profile.room)}&username=${encodeURIComponent(profile.username)}`}
+                      className="inline-flex items-center gap-1 text-primary/80 hover:text-primary"
+                    >
+                      Profilseite <ArrowUpRight className="h-3 w-3" />
+                    </Link>
+                    <a
+                      href={`https://www.tradingview.com/u/${encodeURIComponent(profile.username)}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                    >
+                      TradingView <ArrowUpRight className="h-3 w-3" />
+                    </a>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatChip icon={<MessageSquare className="h-3.5 w-3.5" />} label="Msgs" value={messages.length.toLocaleString('de-DE')} />
-                  <StatChip icon={<CalendarDays className="h-3.5 w-3.5" />} label="aktive Tage" value={activeDays.toLocaleString('de-DE')} />
-                  <StatChip icon={<Users className="h-3.5 w-3.5" />} label="Kontakte" value={String(Math.max((graph?.nodes.length ?? 1) - 1, 0))} />
-                  {span && (
-                    <span className="text-[11px] font-mono text-muted-foreground/70">
-                      {span.from} → {span.to}
-                    </span>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4 lg:w-auto">
+                  <Stat icon={<MessageSquare className="h-3 w-3" />} label="Nachrichten" value={profile.profile.messages.toLocaleString('de-DE')} />
+                  <Stat icon={<CalendarDays className="h-3 w-3" />} label="Aktive Tage" value={profile.profile.activeDays.toLocaleString('de-DE')} />
+                  <Stat icon={<Users className="h-3 w-3" />} label="Kontakte" value={network ? network.totalContacts.toLocaleString('de-DE') : '…'} />
+                  <Stat icon={<CalendarDays className="h-3 w-3" />} label="Gespeichert seit" value={profile.profile.firstDate?.slice(0, 4) ?? '—'} />
+                </div>
+              </div>
+              <div className="mt-4 border-t border-primary/10 pt-3">
+                <CoveragePanel username={profile.username} room={profile.room} />
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="font-headline text-sm font-semibold uppercase tracking-wider">Netzwerk</h2>
+                  <p className="text-[11px] text-muted-foreground font-body">
+                    Zitate und @Erwähnungen aus allen gespeicherten Nachrichten des Raums, in beide Richtungen.
+                    {network && network.hiddenContacts > 0 && ` ${network.hiddenContacts} schwächere Kontakte ausgeblendet.`}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Chip active={period === 'all'} onClick={() => setPeriod('all')}>Alle Jahre</Chip>
+                  {profile.years.map(y => (
+                    <Chip key={y.year} active={period === y.year} onClick={() => setPeriod(y.year)}>
+                      {y.year}
+                    </Chip>
+                  ))}
+                  <span className="mx-1 h-4 w-px bg-border" />
+                  <Chip active={kind === 'all'} onClick={() => setKind('all')}>Alles</Chip>
+                  <Chip active={kind === 'quote'} onClick={() => setKind('quote')}>Zitate</Chip>
+                  <Chip active={kind === 'mention'} onClick={() => setKind('mention')}>@</Chip>
+                  <span className="mx-1 h-4 w-px bg-border" />
+                  {[20, 40, 80, 200].map(value => (
+                    <Chip key={value} active={limit === value} onClick={() => setLimit(value)} title="Anzahl direkter Kontakte">
+                      {value === 200 ? 'alle' : value}
+                    </Chip>
+                  ))}
+                  <Chip active={secondRing} onClick={() => setSecondRing(v => !v)} title="Personen, die mit mehreren Kontakten sprechen">
+                    2. Kreis
+                  </Chip>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+                <div className="relative lg:col-span-8">
+                  {network && network.nodes.length > 1 ? (
+                    <NetworkCanvas
+                      center={network.username}
+                      nodes={network.nodes}
+                      links={network.links}
+                      selected={selected}
+                      highlight={highlight}
+                      onSelect={setSelected}
+                      onRecenter={recenter}
+                    />
+                  ) : (
+                    <div className="flex h-[680px] items-center justify-center rounded-sm border border-primary/15 bg-background/60 text-sm text-muted-foreground">
+                      {networkLoading ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Netzwerk wird berechnet…
+                        </span>
+                      ) : (
+                        'Keine Zitate oder Erwähnungen in diesem Zeitraum.'
+                      )}
+                    </div>
+                  )}
+                  {networkLoading && network && (
+                    <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-sm bg-card/90 px-2 py-1 text-[11px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> aktualisiere…
+                    </div>
+                  )}
+                </div>
+                <div className="h-[460px] lg:col-span-4 lg:h-[680px]">
+                  {selectedNode && network ? (
+                    <PersonPanel
+                      person={selectedNode}
+                      center={network.username}
+                      room={network.room}
+                      nodes={network.nodes}
+                      links={network.links}
+                      onClose={() => setSelected(null)}
+                      onSelect={setSelected}
+                      onRecenter={recenter}
+                    />
+                  ) : (
+                    <ContactList
+                      center={profile.username}
+                      nodes={network?.nodes ?? []}
+                      highlight={highlight}
+                      onHighlight={setHighlight}
+                      onSelect={setSelected}
+                    />
                   )}
                 </div>
               </div>
-              {error && (
-                <div className="mt-4 rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 font-body">
-                  {error}
-                </div>
-              )}
+            </section>
+
+            <section className="flex flex-wrap items-center gap-2 rounded-sm border border-primary/20 bg-card/40 px-4 py-3">
+              <h2 className="mr-2 font-headline text-sm font-semibold uppercase tracking-wider">Nachrichten nach Jahr</h2>
+              <button
+                type="button"
+                aria-pressed={heatYear === null}
+                onClick={() => {
+                  setHeatYear(null)
+                  setSelectedDate(null)
+                }}
+                className={`inline-flex items-baseline gap-1.5 rounded-sm border px-2.5 py-1 font-mono text-xs transition-colors ${
+                  heatYear === null
+                    ? 'border-primary/60 bg-primary/15 text-primary'
+                    : 'border-border/60 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span className="font-semibold">Alle</span>
+                <span className="text-[10px] opacity-75">{profile.profile.messages.toLocaleString('de-DE')}</span>
+              </button>
+              {profile.years
+                .filter(y => y.messages > 0)
+                .map(y => (
+                  <button
+                    key={y.year}
+                    type="button"
+                    aria-pressed={heatYear === y.year}
+                    onClick={() => {
+                      // Clicking the active year again goes back to all years.
+                      setHeatYear(current => (current === y.year ? null : y.year))
+                      setSelectedDate(null)
+                    }}
+                    className={`inline-flex items-baseline gap-1.5 rounded-sm border px-2.5 py-1 font-mono text-xs transition-colors ${
+                      heatYear === y.year
+                        ? 'border-primary/60 bg-primary/15 text-primary'
+                        : 'border-border/60 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {pendingYears.includes(y.year) && <Loader2 className="h-3 w-3 animate-spin self-center" />}
+                    <span className="font-semibold">{y.year}</span>
+                    <span className="text-[10px] opacity-75">{y.messages.toLocaleString('de-DE')}</span>
+                  </button>
+                ))}
             </section>
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-              <div className="space-y-6 xl:col-span-7">
-                <section className="glass-card glass-grain rounded-sm border border-primary/15 p-4 sm:p-5">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="font-headline text-sm font-semibold uppercase tracking-wider">Aktivität</h3>
-                    <span className="text-[11px] text-muted-foreground font-body">
-                      {loading ? 'Lade Cache…' : refreshing ? 'Hole frische Tage…' : 'Tag anklicken öffnet die Nachrichten'}
-                    </span>
-                  </div>
-                  {days.length === 0 && !loading ? (
-                    <p className="py-8 text-center text-xs text-muted-foreground font-body">
-                      Noch keine gespeicherten Tage. Die letzten {REFRESH_DAYS} Tage werden gerade geladen.
-                    </p>
-                  ) : (
-                    <GithubHeatmap days={days} selectedDate={selectedDate} onDateSelect={setSelectedDate} loadDay={loadDay} />
-                  )}
-                </section>
+              <div className="space-y-6 xl:col-span-5">
+                <ExportPanel username={profile.username} room={profile.room} years={profile.years} days={profile.days} />
 
-                {graph && (
-                  <EgoGraph
-                    center={network?.username ?? activeUser}
-                    nodes={graph.nodes}
-                    edges={graph.edges}
-                    onSelect={selectPerson}
-                    title="Netzwerk · Zitate und Erwähnungen"
-                    emptyHint={
-                      network
-                        ? 'Keine Zitate oder Erwähnungen gefunden. Im Live-Raum (Bitcoin DE) füllt sich das Netzwerk aus dem Chat-Archiv.'
-                        : 'Netzwerk wird geladen…'
-                    }
+                <section className="glass-card glass-grain rounded-sm border border-primary/15 p-4 sm:p-5">
+                  <div className="mb-3 flex items-baseline justify-between gap-2">
+                    <h3 className="font-headline text-sm font-semibold uppercase tracking-wider">Aktivität {heatYear ?? 'alle Jahre'}</h3>
+                    <span className="text-[11px] text-muted-foreground">Tag anklicken springt zu den Nachrichten</span>
+                  </div>
+                  <GithubHeatmap
+                    days={heatDays}
+                    onlyYears={heatYear ? [heatYear] : activeYears}
+                    selectedDate={selectedDate}
+                    onDateSelect={setSelectedDate}
+                    loadDay={loadDay}
                   />
-                )}
+                </section>
               </div>
 
-              <div className="xl:col-span-5">
+              <div className="xl:col-span-7">
                 <MessageList
-                  username={activeUser}
-                  messages={messages}
-                  loading={loading}
-                  refreshing={refreshing}
+                  username={profile.username}
+                  avatar={profile.profile.avatar}
+                  title={heatYear ? `Nachrichten ${heatYear}` : 'Alle Nachrichten'}
+                  messages={yearMessages}
+                  loading={heatYear !== null ? pendingYears.includes(heatYear) : pendingYears.length > 0 && messages.length === 0}
+                  progress={pendingYears.length ? `lade Jahre ${yearsLoaded}/${yearsTotal}` : null}
                   selectedDate={selectedDate}
-                  onRefresh={() => {
-                    const run = runRef.current
-                    const signal = abortRef.current?.signal ?? new AbortController().signal
-                    void refresh(activeUser, activeRoom, DEEP_REFRESH_DAYS, run, signal)
-                  }}
-                  onExportJson={() =>
-                    downloadJson(`${activeUser.toLowerCase()}-chat.json`, listedToJson({ username: activeUser, room: activeRoom, messages }))
-                  }
-                  onExportMd={() =>
-                    downloadText(`${activeUser.toLowerCase()}-chat.md`, listedToMarkdown(activeUser, messages), 'text/markdown; charset=utf-8')
-                  }
-                  onMention={selectPerson}
-                  emptyHint={`Noch keine Nachrichten gespeichert. „Frisch laden“ holt bis zu ${DEEP_REFRESH_DAYS} Tage aus dem TradingView-Archiv.`}
+                  onMention={recenter}
                 />
               </div>
             </div>

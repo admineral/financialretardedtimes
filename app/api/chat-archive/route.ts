@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as cheerio from 'cheerio'
+import { readArchive } from '@/lib/archive/repository'
 
 interface TradingViewChatMessage {
   id: string
@@ -32,6 +33,8 @@ interface ChatArchiveData {
   totalPages: number
   pagesProcessed: number
   paginationInfo?: PaginationInfo
+  /** Served from our stored archive because TradingView no longer has the day. */
+  fromArchive?: boolean
 }
 
 // Helper function to generate URL for a specific page
@@ -331,6 +334,33 @@ function extractPaginationInfo(html: string, room: string, date: string, usernam
   }
 }
 
+/**
+ * TradingView removed the public chat history (pages answer 404). Serve the
+ * day from what we stored instead: profile day arrays + room archive,
+ * deduplicated by lib/archive.
+ */
+async function storedDay(room: string, date: string, username: string): Promise<ChatArchiveData> {
+  const corpus = await readArchive({ room, username, from: date, to: date })
+  const messages: TradingViewChatMessage[] = corpus.messages.map(message => ({
+    id: message.sourceId ?? message.id,
+    username: message.username,
+    text: message.text,
+    time: message.timestamp ? String(Date.parse(message.timestamp) / 1000) : message.rawTime,
+    avatar: `https://s3.tradingview.com/userpics/${message.username.toLowerCase()}_50.png`,
+    userProfileUrl: `https://www.tradingview.com/u/${encodeURIComponent(message.username)}/`
+  }))
+  return {
+    messages,
+    room,
+    date,
+    username,
+    totalMessages: messages.length,
+    totalPages: 1,
+    pagesProcessed: 1,
+    fromArchive: true
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -371,6 +401,9 @@ export async function POST(request: NextRequest) {
     try {
       const firstPageResponse = await fetch(firstPageUrl, { headers: fetchHeaders })
       
+      if (firstPageResponse.status === 404 || firstPageResponse.status === 410) {
+        return NextResponse.json(await storedDay(room, date, username))
+      }
       if (!firstPageResponse.ok) {
         return NextResponse.json(
           { error: `Failed to fetch TradingView page: ${firstPageResponse.status} ${firstPageResponse.statusText}` },

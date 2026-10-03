@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyUrls, edgesFromMessage, enrichMessage, extractMentions, extractQuotes } from '../parse'
+import { chartImageFor, classifyUrls, edgesFromMessage, enrichMessage, extractMentions, extractQuotes } from '../parse'
 
 describe('extractQuotes', () => {
   it('pulls quoted usernames and bodies', () => {
@@ -56,5 +56,13 @@ describe('edgesFromMessage', () => {
       { from: 'alice', to: 'bob', kind: 'quote' },
       { from: 'alice', to: 'carol_x', kind: 'mention' }
     ])
+  })
+})
+describe('chartImageFor', () => {
+  it('maps snapshot, /x/ and idea links to S3 images', () => {
+    expect(chartImageFor('https://s3.tradingview.com/snapshots/9/9R6C0TzW.png')).toEqual({ image: 'https://s3.tradingview.com/snapshots/9/9R6C0TzW.png', kind: 'snapshot' })
+    expect(chartImageFor('https://www.tradingview.com/x/HngTsgoy/.')).toEqual({ image: 'https://s3.tradingview.com/snapshots/h/HngTsgoy.png', kind: 'snapshot' })
+    expect(chartImageFor('https://de.tradingview.com/chart/BTCUSD/mcRTdazc/')).toEqual({ image: 'https://s3.tradingview.com/m/mcRTdazc_mid.webp', kind: 'idea' })
+    expect(chartImageFor('https://example.com/a.png')).toBeNull()
   })
 })
