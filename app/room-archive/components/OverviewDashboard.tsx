@@ -185,7 +185,7 @@ export function OverviewDashboard({
           <MessageVolumeChart data={chartSeriesFromDates(filteredDates)} heightClass="h-[200px]" />
         </TerminalCard>
 
-        <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {primaryLeader && (
             <TerminalCard title={leaderLabel(primaryLeader)} badge="RANK">
               <TopUsersPanel users={leaders[primaryLeader]} isLoading={leadersLoading} limit={5} compact />

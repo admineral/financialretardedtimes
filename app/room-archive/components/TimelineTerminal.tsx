@@ -26,7 +26,6 @@ interface TimelineTerminalProps {
   dates: DateStats[]
   filteredDates: DateStats[]
   selectedDate: string | null
-  onDateSelect: (date: string) => void
   rangeMessageTotal: number
   rangeLabel: string
   activityBuckets: ActivityBucket[]
@@ -92,14 +91,12 @@ export function TimelineTerminal({
         </TerminalCard>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TerminalCard title={`Top User · ${selectedDate}`}>
-          <TopUsersPanel users={users} isLoading={usersLoading} limit={10} compact />
-        </TerminalCard>
-        <TerminalCard title="Range Distribution">
-          <MessageVolumeChart data={chartSeriesFromDates(filteredDates)} heightClass="h-[200px]" />
-        </TerminalCard>
-      </div>
+      <TerminalCard
+        title="Top User"
+        subtitle={selectedDate ? `Tag · ${selectedDate}` : 'Tag im Timeline auswählen'}
+      >
+        <TopUsersPanel users={users} isLoading={usersLoading} limit={10} />
+      </TerminalCard>
     </div>
   )
 }

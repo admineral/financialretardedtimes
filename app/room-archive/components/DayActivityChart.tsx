@@ -96,7 +96,7 @@ export function DayActivityChart({
                   }}
                 />
                 {isDaily && buckets.length <= 31 && (
-                  <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] text-muted-foreground/50 font-mono rotate-[-45deg] origin-top whitespace-nowrap pointer-events-none">
+                  <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-muted-foreground/60 font-mono rotate-[-45deg] origin-top whitespace-nowrap pointer-events-none">
                     {displayLabel}
                   </span>
                 )}
@@ -110,7 +110,7 @@ export function DayActivityChart({
           })}
         </div>
       </div>
-      <div className="flex justify-between mt-8 text-[9px] text-muted-foreground/60 font-mono gap-2">
+      <div className="flex justify-between mt-8 text-[10px] sm:text-[11px] text-muted-foreground/70 font-mono gap-2">
         <span className="flex-shrink-0">{startLabel}</span>
         <span className="text-center truncate">
           {totalMessages.toLocaleString('de-DE')} msgs · Peak {peakDisplay}

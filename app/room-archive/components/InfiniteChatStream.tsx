@@ -60,7 +60,6 @@ export function InfiniteChatStream({
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const topSentinelRef = useRef<HTMLDivElement>(null)
-  const bottomSentinelRef = useRef<HTMLDivElement>(null)
   const isPrependingRef = useRef(false)
   const prevScrollHeightRef = useRef(0)
   const loadedDatesRef = useRef(new Set<string>())
@@ -112,7 +111,9 @@ export function InfiniteChatStream({
     loadedDatesRef.current.add(date)
   }, [fetchDayMessages])
 
-  // Initial load when selected date changes
+  const [reloadKey, setReloadKey] = useState(0)
+
+  // Initial load when selected date changes (or on manual retry)
   useEffect(() => {
     loadedDatesRef.current.clear()
     setDayBlocks([])
@@ -122,7 +123,7 @@ export function InfiniteChatStream({
     loadDay(selectedDate)
       .catch(err => setError(err instanceof Error ? err.message : 'Error'))
       .finally(() => setIsLoadingInitial(false))
-  }, [selectedDate, loadDay])
+  }, [selectedDate, loadDay, reloadKey])
 
   // Scroll to bottom on initial load
   useEffect(() => {
@@ -287,7 +288,16 @@ export function InfiniteChatStream({
             Lade Chat...
           </div>
         ) : error ? (
-          <div className="text-center py-20 text-red-500 text-sm">{error}</div>
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+            <p className="text-sm text-red-500">{error}</p>
+            <button
+              type="button"
+              onClick={() => setReloadKey(k => k + 1)}
+              className="text-xs font-mono px-3 py-1.5 rounded-md border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+            >
+              Erneut versuchen
+            </button>
+          </div>
         ) : (
           dayBlocks.map(block => (
             <div key={block.date} className="mb-6">
@@ -306,6 +316,12 @@ export function InfiniteChatStream({
                 <div className="h-px flex-1 bg-primary/20" />
               </div>
 
+              {block.messages.length === 0 ? (
+                <div className="flex flex-col items-center py-10 text-muted-foreground">
+                  <MessageSquareIcon className="h-8 w-8 mb-2 opacity-40" />
+                  <p className="text-sm">Keine Nachrichten an diesem Tag</p>
+                </div>
+              ) : (
               <div className="space-y-1">
                 {block.messages.map((msg, idx) => {
                   const prevMsg = block.messages[idx - 1]
@@ -363,19 +379,11 @@ export function InfiniteChatStream({
                   )
                 })}
               </div>
+              )}
             </div>
           ))
         )}
-
-        <div ref={bottomSentinelRef} className="h-1" />
       </div>
-
-      {dayBlocks.length === 0 && !isLoadingInitial && !error && (
-        <div className="flex flex-col items-center py-20 text-muted-foreground">
-          <MessageSquareIcon className="h-10 w-10 mb-3 opacity-40" />
-          <p className="text-sm">Keine Nachrichten für diesen Tag</p>
-        </div>
-      )}
     </div>
   )
 }

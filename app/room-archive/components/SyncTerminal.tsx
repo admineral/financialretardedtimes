@@ -5,13 +5,14 @@ import { formatDistanceToNow } from 'date-fns'
 import { de } from 'date-fns/locale'
 import {
   CheckCircleIcon,
+  Loader2Icon,
   RefreshCwIcon,
   XCircleIcon,
+  XIcon,
   ZapIcon
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { TerminalCard, MetricTile } from './TerminalCard'
 import { SyncHistoryList } from './SyncHistoryList'
 import { cn } from '@/lib/utils'
@@ -37,18 +38,34 @@ export function SyncTerminal({
   onRefreshStats
 }: SyncTerminalProps) {
   const [isSyncing, setIsSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<{ success: boolean; synced: number } | null>(null)
+  const [syncResult, setSyncResult] = useState<{ success: boolean; synced: number; message?: string } | null>(null)
 
   const triggerSync = async () => {
     setIsSyncing(true)
     setSyncResult(null)
     try {
       const res = await fetch('/api/cron/sync-chat?trigger=manual', { method: 'POST' })
-      const data = await res.json()
-      setSyncResult({ success: data.success, synced: data.totalSynced || 0 })
+      if (!res.ok) {
+        setSyncResult({
+          success: false,
+          synced: 0,
+          message: `Sync fehlgeschlagen (HTTP ${res.status})`
+        })
+        return
+      }
+      const data = await res.json().catch(() => null)
+      if (!data || data.success === false) {
+        setSyncResult({
+          success: false,
+          synced: 0,
+          message: data?.error || 'Sync fehlgeschlagen'
+        })
+        return
+      }
+      setSyncResult({ success: true, synced: data.totalSynced || 0 })
       onRefreshStats()
     } catch {
-      setSyncResult({ success: false, synced: 0 })
+      setSyncResult({ success: false, synced: 0, message: 'Netzwerkfehler beim Sync' })
     } finally {
       setIsSyncing(false)
     }
@@ -65,10 +82,24 @@ export function SyncTerminal({
               : 'border-red-500/30 bg-red-500/10 text-red-400'
           )}
         >
-          {syncResult.success ? <CheckCircleIcon className="h-4 w-4" /> : <XCircleIcon className="h-4 w-4" />}
-          {syncResult.success
-            ? `Sync OK · +${syncResult.synced} neue Nachrichten`
-            : 'Sync fehlgeschlagen'}
+          {syncResult.success ? (
+            <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
+          ) : (
+            <XCircleIcon className="h-4 w-4 flex-shrink-0" />
+          )}
+          <span className="flex-1 min-w-0">
+            {syncResult.success
+              ? `Sync OK · +${syncResult.synced} neue Nachrichten`
+              : syncResult.message || 'Sync fehlgeschlagen'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSyncResult(null)}
+            className="flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+            aria-label="Meldung schließen"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -110,16 +141,21 @@ export function SyncTerminal({
               <code className="text-primary">tv_chat_messages</code>. Timeline-Counts kommen aus{' '}
               <code className="text-primary">date_stats_cache</code>.
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={triggerSync} disabled={isSyncing}>
                 <ZapIcon className={cn('h-4 w-4 mr-1', isSyncing && 'animate-pulse')} />
                 {isSyncing ? 'Syncing…' : 'Manual Sync'}
               </Button>
-              <Button size="sm" variant="outline" onClick={onRefreshStats}>
+              <Button size="sm" variant="outline" onClick={onRefreshStats} disabled={isSyncing}>
                 <RefreshCwIcon className="h-4 w-4 mr-1" /> Refresh Stats
               </Button>
             </div>
-            {isSyncing && <Progress value={66} className="h-1 animate-pulse" />}
+            {isSyncing && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+                <Loader2Icon className="h-3.5 w-3.5 animate-spin text-primary" />
+                Sync läuft — neue Nachrichten werden geholt…
+              </div>
+            )}
           </div>
         </TerminalCard>
 
